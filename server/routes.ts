@@ -74,12 +74,26 @@ export async function registerRoutes(
   app.patch("/api/user/profile", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const updated = await storage.updateUser(userId, req.body);
+      
+      // Convert agentCommission from string to number (or null if empty)
+      const profileData = { ...req.body };
+      if (profileData.agentCommission !== undefined) {
+        const commission = profileData.agentCommission;
+        if (commission === "" || commission === null) {
+          profileData.agentCommission = null;
+        } else {
+          const numericValue = parseFloat(commission);
+          profileData.agentCommission = isNaN(numericValue) ? null : numericValue.toString();
+        }
+      }
+      
+      const updated = await storage.updateUser(userId, profileData);
       if (!updated) {
         return res.status(404).json({ error: "User not found" });
       }
       res.json(updated);
     } catch (error) {
+      console.error("Profile update error:", error);
       res.status(500).json({ error: "Failed to update profile" });
     }
   });
