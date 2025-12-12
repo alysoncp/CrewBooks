@@ -125,12 +125,15 @@ function LockedContent() {
 export default function OptimizationPage() {
   const [selectedSalaryPercent, setSelectedSalaryPercent] = useState<number>(50);
 
-  const { data, isLoading } = useQuery<OptimizationData>({
+  const { data, isLoading, isError } = useQuery<OptimizationData>({
     queryKey: ["/api/optimization", selectedSalaryPercent],
+    retry: false,
   });
 
   const user = data?.user;
   const isIncorporated = user?.taxFilingStatus === TAX_FILING_STATUS.PERSONAL_AND_CORPORATE;
+  const isCorporateTier = user?.subscriptionTier === "corporate";
+  const hasAccess = isIncorporated && isCorporateTier;
 
   if (isLoading) {
     return (
@@ -148,7 +151,8 @@ export default function OptimizationPage() {
     );
   }
 
-  if (!isIncorporated) {
+  // Show locked content if API returns 403 or user lacks access
+  if (isError || !hasAccess) {
     return (
       <div className="space-y-6">
         <div>

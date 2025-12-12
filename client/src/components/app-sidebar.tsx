@@ -34,12 +34,6 @@ const mainMenuItems = [
   { title: "Receipts", url: "/receipts", icon: FileImage },
 ];
 
-const taxMenuItems = [
-  { title: "Tax Calculator", url: "/tax-calculator", icon: Calculator },
-  { title: "Optimization", url: "/optimization", icon: TrendingUp },
-  { title: "GST/HST", url: "/gst-hst", icon: Percent },
-];
-
 const settingsMenuItems = [
   { title: "Profile", url: "/profile", icon: User },
 ];
@@ -55,6 +49,20 @@ export function AppSidebar() {
   const initials = user?.firstName && user?.lastName
     ? `${user.firstName[0]}${user.lastName[0]}`
     : user?.email?.[0]?.toUpperCase() || "U";
+
+  // Feature gating based on subscription tier
+  const isBasicTier = user?.subscriptionTier === "basic";
+  const isCorporateTier = user?.subscriptionTier === "corporate";
+  const hasGstNumber = user?.hasGstNumber || false;
+  const hasTaxTools = !isBasicTier; // Personal and Corporate have tax tools
+  const hasOptimization = isCorporateTier; // Only Corporate has optimization
+
+  // Build tax menu items dynamically based on access
+  const taxMenuItems = [
+    ...(hasTaxTools ? [{ title: "Tax Calculator", url: "/tax-calculator", icon: Calculator }] : []),
+    ...(hasOptimization ? [{ title: "Optimization", url: "/optimization", icon: TrendingUp }] : []),
+    ...(hasGstNumber ? [{ title: "GST/HST", url: "/gst-hst", icon: Percent }] : []),
+  ];
 
   return (
     <Sidebar>
@@ -92,27 +100,29 @@ export function AppSidebar() {
           </SidebarGroupContent>
         </SidebarGroup>
 
-        <SidebarGroup>
-          <SidebarGroupLabel>Tax Tools</SidebarGroupLabel>
-          <SidebarGroupContent>
-            <SidebarMenu>
-              {taxMenuItems.map((item) => (
-                <SidebarMenuItem key={item.title}>
-                  <SidebarMenuButton
-                    asChild
-                    isActive={location === item.url}
-                    data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
-                  >
-                    <Link href={item.url}>
-                      <item.icon className="h-4 w-4" />
-                      <span>{item.title}</span>
-                    </Link>
-                  </SidebarMenuButton>
-                </SidebarMenuItem>
-              ))}
-            </SidebarMenu>
-          </SidebarGroupContent>
-        </SidebarGroup>
+        {taxMenuItems.length > 0 && (
+          <SidebarGroup>
+            <SidebarGroupLabel>Tax Tools</SidebarGroupLabel>
+            <SidebarGroupContent>
+              <SidebarMenu>
+                {taxMenuItems.map((item) => (
+                  <SidebarMenuItem key={item.title}>
+                    <SidebarMenuButton
+                      asChild
+                      isActive={location === item.url}
+                      data-testid={`nav-${item.title.toLowerCase().replace(/\s+/g, '-')}`}
+                    >
+                      <Link href={item.url}>
+                        <item.icon className="h-4 w-4" />
+                        <span>{item.title}</span>
+                      </Link>
+                    </SidebarMenuButton>
+                  </SidebarMenuItem>
+                ))}
+              </SidebarMenu>
+            </SidebarGroupContent>
+          </SidebarGroup>
+        )}
 
         <SidebarGroup>
           <SidebarGroupLabel>Settings</SidebarGroupLabel>

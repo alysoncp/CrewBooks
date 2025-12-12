@@ -4,8 +4,10 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Separator } from "@/components/ui/separator";
 import { Progress } from "@/components/ui/progress";
-import { Calculator, DollarSign, Percent, TrendingDown, Building } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Calculator, DollarSign, Percent, TrendingDown, Building, Lock, Sparkles } from "lucide-react";
 import { formatCurrency, formatPercent } from "@/lib/format";
+import { Link } from "wouter";
 import type { TaxCalculation, User } from "@shared/schema";
 
 interface TaxData {
@@ -41,16 +43,54 @@ function TaxBracketRow({
   );
 }
 
+function LockedContent() {
+  return (
+    <div className="flex min-h-[60vh] flex-col items-center justify-center text-center">
+      <div className="mb-6 flex h-20 w-20 items-center justify-center rounded-full bg-muted">
+        <Lock className="h-10 w-10 text-muted-foreground" />
+      </div>
+      <h2 className="text-2xl font-semibold">Tax Calculator</h2>
+      <p className="mt-2 max-w-md text-muted-foreground">
+        Upgrade to a paid plan to access tax calculations, projections, and detailed bracket breakdowns.
+      </p>
+      <Link href="/profile">
+        <Button className="mt-6" data-testid="button-upgrade-tax">
+          <Sparkles className="mr-2 h-4 w-4" />
+          View Pricing Plans
+        </Button>
+      </Link>
+    </div>
+  );
+}
+
 export default function TaxCalculatorPage() {
-  const { data, isLoading } = useQuery<TaxData>({
+  const { data, isLoading, isError } = useQuery<TaxData>({
     queryKey: ["/api/tax-calculation"],
+    retry: false,
   });
 
   const calculation = data?.calculation;
   const user = data?.user;
+  const isBasicTier = user?.subscriptionTier === "basic";
+  const hasTaxTools = !isBasicTier;
 
   const effectiveRate = calculation?.effectiveTaxRate ?? 0;
   const progressValue = Math.min(effectiveRate, 50);
+
+  // Show locked content if API returns 403 or user lacks access
+  if (!isLoading && (isError || !hasTaxTools)) {
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold" data-testid="text-tax-title">Tax Calculator</h1>
+          <p className="text-muted-foreground">
+            Projected tax obligations based on your income and expenses
+          </p>
+        </div>
+        <LockedContent />
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">

@@ -249,6 +249,16 @@ export async function registerRoutes(
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
+      
+      // Tax calculator requires Personal or Corporate tier
+      const isBasicTier = user?.subscriptionTier === "basic";
+      if (isBasicTier) {
+        return res.status(403).json({ 
+          error: "Tax calculator requires a paid subscription. Upgrade to Personal or Corporate tier to access this feature.",
+          locked: true
+        });
+      }
+      
       const calculation = await storage.calculateTax(userId);
 
       const breakdown = {
@@ -274,6 +284,24 @@ export async function registerRoutes(
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
+      
+      // Optimization requires Corporate tier AND corporate tax filing status
+      const isCorporateTier = user?.subscriptionTier === "corporate";
+      const isIncorporated = user?.taxFilingStatus === "personal_and_corporate";
+      
+      if (!isCorporateTier) {
+        return res.status(403).json({ 
+          error: "Dividend vs salary optimization requires a Corporate subscription. Upgrade to Corporate tier to access this feature.",
+          locked: true
+        });
+      }
+      
+      if (!isIncorporated) {
+        return res.status(403).json({ 
+          error: "Dividend vs salary optimization requires corporate tax filing status. Update your profile to access this feature.",
+          locked: true
+        });
+      }
       
       const incomeRecords = await storage.getIncome(userId);
       const corporateIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
