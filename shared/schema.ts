@@ -99,6 +99,9 @@ export const users = pgTable("users", {
   businessNumber: text("business_number"),
   hasGstNumber: boolean("has_gst_number").default(false),
   gstNumber: text("gst_number"),
+  // Additional profile questions
+  usesPersonalVehicle: boolean("uses_personal_vehicle").default(false),
+  hasRegularEmployment: boolean("has_regular_employment").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -123,6 +126,8 @@ export const insertUserSchema = createInsertSchema(users).pick({
   businessNumber: true,
   hasGstNumber: true,
   gstNumber: true,
+  usesPersonalVehicle: true,
+  hasRegularEmployment: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -268,3 +273,71 @@ export const PRICING_TIERS = {
     ],
   },
 } as const;
+
+// Tax Questionnaire Types
+export const QUESTIONNAIRE_TYPES = {
+  T1: "t1",
+  T2: "t2",
+} as const;
+
+export type QuestionnaireType = typeof QUESTIONNAIRE_TYPES[keyof typeof QUESTIONNAIRE_TYPES];
+
+export const QUESTIONNAIRE_STATUS = {
+  DRAFT: "draft",
+  IN_PROGRESS: "in_progress",
+  COMPLETED: "completed",
+  SUBMITTED: "submitted",
+} as const;
+
+export type QuestionnaireStatus = typeof QUESTIONNAIRE_STATUS[keyof typeof QUESTIONNAIRE_STATUS];
+
+// Tax Questionnaires Table
+export const taxQuestionnaires = pgTable("tax_questionnaires", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  questionnaireType: text("questionnaire_type").notNull(), // t1 or t2
+  taxYear: text("tax_year").notNull(),
+  status: text("status").default("draft"),
+  currentStep: text("current_step").default("personal_info"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertQuestionnaireSchema = createInsertSchema(taxQuestionnaires).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertQuestionnaire = z.infer<typeof insertQuestionnaireSchema>;
+export type TaxQuestionnaire = typeof taxQuestionnaires.$inferSelect;
+
+// Tax Questionnaire Responses Table
+export const questionnaireResponses = pgTable("questionnaire_responses", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  questionnaireId: varchar("questionnaire_id").notNull(),
+  sectionId: text("section_id").notNull(),
+  questionId: text("question_id").notNull(),
+  value: jsonb("value"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertResponseSchema = createInsertSchema(questionnaireResponses).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertQuestionnaireResponse = z.infer<typeof insertResponseSchema>;
+export type QuestionnaireResponse = typeof questionnaireResponses.$inferSelect;
+
+// T1 Personal Tax Return Sections
+export const T1_SECTIONS = [
+  { id: "personal_info", name: "Personal Information", description: "Your basic information and filing status" },
+  { id: "income_sources", name: "Income Sources", description: "Employment, self-employment, and other income" },
+  { id: "deductions", name: "Deductions & Credits", description: "RRSP, vehicle expenses, union dues, and more" },
+  { id: "expenses", name: "Self-Employment Expenses", description: "Business expenses for your self-employment income" },
+  { id: "summary", name: "Summary & Declaration", description: "Review and submit your return" },
+] as const;
+
+// T2 Corporate Tax Return Sections
+export const T2_SECTIONS = [
+  { id: "company_profile", name: "Company Profile", description: "Corporation details and fiscal year" },
+  { id: "shareholders", name: "Shareholders & Officers", description: "Information about shareholders and directors" },
+  { id: "income_streams", name: "Corporate Income", description: "Business revenue and income sources" },
+  { id: "deductions_reserves", name: "Deductions & Reserves", description: "Corporate expenses and reserves" },
+  { id: "schedule_adjustments", name: "Schedule 1 Adjustments", description: "Accounting to tax income adjustments" },
+  { id: "gst_payroll", name: "GST/HST & Payroll", description: "Sales tax and employee payroll information" },
+  { id: "summary", name: "Filing Summary", description: "Review and submit your corporate return" },
+] as const;
