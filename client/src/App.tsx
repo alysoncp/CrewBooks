@@ -19,6 +19,9 @@ import OptimizationPage from "@/pages/optimization";
 import ProfilePage from "@/pages/profile";
 import Landing from "@/pages/landing";
 import GstHstPage from "@/pages/gst-hst";
+import PricingPage from "@/pages/pricing";
+import TaxFilingT1Page from "@/pages/tax-filing-t1";
+import TaxFilingT2Page from "@/pages/tax-filing-t2";
 
 function AuthenticatedRouter() {
   return (
@@ -30,7 +33,10 @@ function AuthenticatedRouter() {
       <Route path="/tax-calculator" component={TaxCalculatorPage} />
       <Route path="/optimization" component={OptimizationPage} />
       <Route path="/gst-hst" component={GstHstPage} />
+      <Route path="/tax-filing-t1" component={TaxFilingT1Page} />
+      <Route path="/tax-filing-t2" component={TaxFilingT2Page} />
       <Route path="/profile" component={ProfilePage} />
+      <Route path="/pricing" component={PricingPage} />
       <Route component={NotFound} />
     </Switch>
   );

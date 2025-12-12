@@ -2,12 +2,11 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Card, CardContent, CardHeader, CardTitle, CardDescription, CardFooter } from "@/components/ui/card";
+import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
-import { Separator } from "@/components/ui/separator";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
 import {
@@ -29,7 +28,8 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { User, Check, Building2, Crown, Sparkles, Briefcase, Camera, Users } from "lucide-react";
+import { User, Building2, Crown, Sparkles, Briefcase, Camera, Users, Car, ArrowUpRight } from "lucide-react";
+import { Link } from "wouter";
 import { 
   CANADIAN_PROVINCES, 
   PRICING_TIERS, 
@@ -60,81 +60,11 @@ const profileFormSchema = z.object({
   businessNumber: z.string().optional().or(z.literal("")),
   hasGstNumber: z.boolean(),
   gstNumber: z.string().optional().or(z.literal("")),
+  usesPersonalVehicle: z.boolean(),
+  hasRegularEmployment: z.boolean(),
 });
 
 type ProfileFormData = z.infer<typeof profileFormSchema>;
-
-function PricingCard({
-  tier,
-  isCurrentPlan,
-  onSelect,
-  isLoading,
-}: {
-  tier: typeof PRICING_TIERS.basic | typeof PRICING_TIERS.personal | typeof PRICING_TIERS.corporate;
-  isCurrentPlan: boolean;
-  onSelect: () => void;
-  isLoading: boolean;
-}) {
-  const isCorporate = tier.id === "corporate";
-  const isBasic = tier.id === "basic";
-
-  return (
-    <Card className={`relative ${isCurrentPlan ? "border-primary ring-2 ring-primary/20" : ""}`}>
-      {isCorporate && (
-        <div className="absolute -top-3 left-1/2 -translate-x-1/2">
-          <Badge className="bg-primary">
-            <Crown className="mr-1 h-3 w-3" />
-            Most Features
-          </Badge>
-        </div>
-      )}
-      <CardHeader className="text-center">
-        <div className="mx-auto mb-2 flex h-12 w-12 items-center justify-center rounded-full bg-muted">
-          {isCorporate ? (
-            <Building2 className="h-6 w-6" />
-          ) : isBasic ? (
-            <Sparkles className="h-6 w-6" />
-          ) : (
-            <User className="h-6 w-6" />
-          )}
-        </div>
-        <CardTitle>{tier.name}</CardTitle>
-        <CardDescription>{tier.description}</CardDescription>
-        <div className="mt-4">
-          {tier.price === 0 ? (
-            <span className="font-mono text-4xl font-bold">Free</span>
-          ) : (
-            <>
-              <span className="font-mono text-4xl font-bold">${tier.price}</span>
-              <span className="text-muted-foreground">/month</span>
-            </>
-          )}
-        </div>
-      </CardHeader>
-      <CardContent>
-        <ul className="space-y-3">
-          {tier.features.map((feature, index) => (
-            <li key={index} className="flex items-start gap-2 text-sm">
-              <Check className="mt-0.5 h-4 w-4 shrink-0 text-green-600" />
-              <span>{feature}</span>
-            </li>
-          ))}
-        </ul>
-      </CardContent>
-      <CardFooter>
-        <Button
-          className="w-full"
-          variant={isCurrentPlan ? "outline" : "default"}
-          disabled={isCurrentPlan || isLoading}
-          onClick={onSelect}
-          data-testid={`button-select-${tier.id}`}
-        >
-          {isCurrentPlan ? "Current Plan" : "Select Plan"}
-        </Button>
-      </CardFooter>
-    </Card>
-  );
-}
 
 export default function ProfilePage() {
   const { toast } = useToast();
@@ -160,6 +90,8 @@ export default function ProfilePage() {
       businessNumber: "",
       hasGstNumber: false,
       gstNumber: "",
+      usesPersonalVehicle: false,
+      hasRegularEmployment: false,
     },
     values: user
       ? {
@@ -177,6 +109,8 @@ export default function ProfilePage() {
           businessNumber: user.businessNumber || "",
           hasGstNumber: user.hasGstNumber || false,
           gstNumber: user.gstNumber || "",
+          usesPersonalVehicle: user.usesPersonalVehicle || false,
+          hasRegularEmployment: user.hasRegularEmployment || false,
         }
       : undefined,
   });
@@ -210,27 +144,6 @@ export default function ProfilePage() {
       toast({
         title: "Error",
         description: "Failed to update profile. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const selectPlanMutation = useMutation({
-    mutationFn: async (tier: string) => {
-      return apiRequest("PATCH", "/api/user/subscription", { tier });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
-      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      toast({
-        title: "Plan updated",
-        description: "Your subscription has been updated.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update subscription. Please try again.",
         variant: "destructive",
       });
     },
@@ -274,12 +187,55 @@ export default function ProfilePage() {
     );
   }
 
+  const currentTier = user?.subscriptionTier || "basic";
+  const tierInfo = PRICING_TIERS[currentTier as keyof typeof PRICING_TIERS];
+  const isBasicTier = currentTier === "basic";
+  const isPersonalTier = currentTier === "personal";
+  const isCorporateTier = currentTier === "corporate";
+  const hasPersonalFeatures = isPersonalTier || isCorporateTier;
+
   return (
     <div className="space-y-6">
       <div>
         <h1 className="text-2xl font-semibold" data-testid="text-profile-title">Profile</h1>
         <p className="text-muted-foreground">Manage your account and industry settings</p>
       </div>
+
+      <Card className="border-primary/20 bg-gradient-to-r from-primary/5 to-transparent">
+        <CardContent className="flex flex-row flex-wrap items-center justify-between gap-4 py-4">
+          <div className="flex items-center gap-3">
+            <div className="flex h-10 w-10 items-center justify-center rounded-full bg-primary/10">
+              {isCorporateTier ? (
+                <Building2 className="h-5 w-5 text-primary" />
+              ) : isPersonalTier ? (
+                <User className="h-5 w-5 text-primary" />
+              ) : (
+                <Sparkles className="h-5 w-5 text-primary" />
+              )}
+            </div>
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="font-medium" data-testid="text-current-tier">{tierInfo.name} Plan</span>
+                {isCorporateTier && (
+                  <Badge size="sm" variant="secondary">
+                    <Crown className="mr-1 h-3 w-3" />
+                    Premium
+                  </Badge>
+                )}
+              </div>
+              <p className="text-sm text-muted-foreground">
+                {tierInfo.price === 0 ? "Free forever" : `$${tierInfo.price}/month`}
+              </p>
+            </div>
+          </div>
+          <Link href="/pricing">
+            <Button variant="outline" data-testid="button-manage-subscription">
+              Manage Subscription
+              <ArrowUpRight className="ml-1 h-4 w-4" />
+            </Button>
+          </Link>
+        </CardContent>
+      </Card>
 
       <Form {...form}>
         <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-6">
@@ -795,41 +751,81 @@ export default function ProfilePage() {
             </CardContent>
           </Card>
 
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Car className="h-5 w-5" />
+                Additional Tax Information
+              </CardTitle>
+              <CardDescription>Help us calculate your deductions accurately</CardDescription>
+            </CardHeader>
+            <CardContent className="space-y-6">
+              <FormField
+                control={form.control}
+                name="usesPersonalVehicle"
+                render={({ field }) => (
+                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                    <div className="space-y-0.5">
+                      <FormLabel className="text-base">Personal Vehicle for Work</FormLabel>
+                      <FormDescription>
+                        Do you use your personal vehicle for work-related travel?
+                      </FormDescription>
+                    </div>
+                    <FormControl>
+                      <Switch
+                        checked={field.value}
+                        onCheckedChange={field.onChange}
+                        data-testid="switch-uses-vehicle"
+                      />
+                    </FormControl>
+                  </FormItem>
+                )}
+              />
+
+              {hasPersonalFeatures && (
+                <FormField
+                  control={form.control}
+                  name="hasRegularEmployment"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Regular Employment Income</FormLabel>
+                        <FormDescription>
+                          Do you also have regular T4 employment income in addition to your self-employment?
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="switch-has-employment"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+              )}
+
+              {!hasPersonalFeatures && (
+                <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground">
+                  <p className="text-sm">
+                    Upgrade to Personal or Corporate plan to track regular employment income and get advanced tax features.
+                  </p>
+                  <Link href="/pricing">
+                    <Button variant="link" size="sm" className="mt-2">
+                      View Plans
+                    </Button>
+                  </Link>
+                </div>
+              )}
+            </CardContent>
+          </Card>
+
           <Button type="submit" disabled={updateMutation.isPending} data-testid="button-save-profile">
             {updateMutation.isPending ? "Saving..." : "Save Changes"}
           </Button>
         </form>
       </Form>
-
-      <Separator />
-
-      <div>
-        <h2 className="mb-4 text-lg font-semibold">Subscription Plans</h2>
-        <div className="grid gap-6 md:grid-cols-3">
-          <PricingCard
-            tier={PRICING_TIERS.basic}
-            isCurrentPlan={user?.subscriptionTier === "basic" || !user?.subscriptionTier}
-            onSelect={() => selectPlanMutation.mutate("basic")}
-            isLoading={selectPlanMutation.isPending}
-          />
-          <PricingCard
-            tier={PRICING_TIERS.personal}
-            isCurrentPlan={user?.subscriptionTier === "personal"}
-            onSelect={() => selectPlanMutation.mutate("personal")}
-            isLoading={selectPlanMutation.isPending}
-          />
-          <PricingCard
-            tier={PRICING_TIERS.corporate}
-            isCurrentPlan={user?.subscriptionTier === "corporate"}
-            onSelect={() => selectPlanMutation.mutate("corporate")}
-            isLoading={selectPlanMutation.isPending}
-          />
-        </div>
-        <p className="mt-4 text-center text-sm text-muted-foreground">
-          <Sparkles className="mr-1 inline-block h-4 w-4" />
-          Paid plans include a 14-day free trial. Cancel anytime.
-        </p>
-      </div>
     </div>
   );
 }

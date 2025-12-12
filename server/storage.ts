@@ -10,13 +10,19 @@ import {
   type TaxCalculation,
   type DividendSalaryScenario,
   type GstHstSummary,
+  type TaxQuestionnaire,
+  type InsertQuestionnaire,
+  type QuestionnaireResponse,
+  type InsertQuestionnaireResponse,
   users,
   income,
   expenses,
   receipts,
+  taxQuestionnaires,
+  questionnaireResponses,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc } from "drizzle-orm";
+import { eq, desc, and } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -44,6 +50,15 @@ export interface IStorage {
     optimalScenario: DividendSalaryScenario;
   }>;
   calculateGstHst(userId: string): Promise<GstHstSummary>;
+
+  getQuestionnaires(userId: string): Promise<TaxQuestionnaire[]>;
+  getQuestionnaireById(id: string): Promise<TaxQuestionnaire | undefined>;
+  createQuestionnaire(data: InsertQuestionnaire): Promise<TaxQuestionnaire>;
+  updateQuestionnaire(id: string, data: Partial<TaxQuestionnaire>): Promise<TaxQuestionnaire | undefined>;
+  deleteQuestionnaire(id: string): Promise<boolean>;
+
+  getQuestionnaireResponses(questionnaireId: string): Promise<QuestionnaireResponse[]>;
+  upsertQuestionnaireResponse(data: InsertQuestionnaireResponse): Promise<QuestionnaireResponse>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -353,6 +368,80 @@ export class DatabaseStorage implements IStorage {
       netGstHstOwing: gstHstCollected - inputTaxCredits,
       transactionsWithGstHst,
     };
+  }
+
+  async getQuestionnaires(userId: string): Promise<TaxQuestionnaire[]> {
+    return await db
+      .select()
+      .from(taxQuestionnaires)
+      .where(eq(taxQuestionnaires.userId, userId))
+      .orderBy(desc(taxQuestionnaires.createdAt));
+  }
+
+  async getQuestionnaireById(id: string): Promise<TaxQuestionnaire | undefined> {
+    const [questionnaire] = await db
+      .select()
+      .from(taxQuestionnaires)
+      .where(eq(taxQuestionnaires.id, id));
+    return questionnaire || undefined;
+  }
+
+  async createQuestionnaire(data: InsertQuestionnaire): Promise<TaxQuestionnaire> {
+    const [questionnaire] = await db
+      .insert(taxQuestionnaires)
+      .values(data)
+      .returning();
+    return questionnaire;
+  }
+
+  async updateQuestionnaire(id: string, data: Partial<TaxQuestionnaire>): Promise<TaxQuestionnaire | undefined> {
+    const [questionnaire] = await db
+      .update(taxQuestionnaires)
+      .set({ ...data, updatedAt: new Date() })
+      .where(eq(taxQuestionnaires.id, id))
+      .returning();
+    return questionnaire || undefined;
+  }
+
+  async deleteQuestionnaire(id: string): Promise<boolean> {
+    await db.delete(questionnaireResponses).where(eq(questionnaireResponses.questionnaireId, id));
+    const result = await db.delete(taxQuestionnaires).where(eq(taxQuestionnaires.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getQuestionnaireResponses(questionnaireId: string): Promise<QuestionnaireResponse[]> {
+    return await db
+      .select()
+      .from(questionnaireResponses)
+      .where(eq(questionnaireResponses.questionnaireId, questionnaireId));
+  }
+
+  async upsertQuestionnaireResponse(data: InsertQuestionnaireResponse): Promise<QuestionnaireResponse> {
+    const existing = await db
+      .select()
+      .from(questionnaireResponses)
+      .where(
+        and(
+          eq(questionnaireResponses.questionnaireId, data.questionnaireId),
+          eq(questionnaireResponses.sectionId, data.sectionId),
+          eq(questionnaireResponses.questionId, data.questionId)
+        )
+      );
+
+    if (existing.length > 0) {
+      const [updated] = await db
+        .update(questionnaireResponses)
+        .set({ value: data.value, updatedAt: new Date() })
+        .where(eq(questionnaireResponses.id, existing[0].id))
+        .returning();
+      return updated;
+    }
+
+    const [created] = await db
+      .insert(questionnaireResponses)
+      .values(data)
+      .returning();
+    return created;
   }
 }
 

@@ -10,6 +10,9 @@ import {
   Film,
   LogOut,
   Percent,
+  CreditCard,
+  FileText,
+  Building2,
 } from "lucide-react";
 import {
   Sidebar,
@@ -36,6 +39,7 @@ const mainMenuItems = [
 
 const settingsMenuItems = [
   { title: "Profile", url: "/profile", icon: User },
+  { title: "Subscription", url: "/pricing", icon: CreditCard },
 ];
 
 export function AppSidebar() {
@@ -60,6 +64,8 @@ export function AppSidebar() {
   // Build tax menu items dynamically based on access
   const taxMenuItems = [
     ...(hasTaxTools ? [{ title: "Tax Calculator", url: "/tax-calculator", icon: Calculator }] : []),
+    ...(hasTaxTools ? [{ title: "T1 Filing", url: "/tax-filing-t1", icon: FileText }] : []),
+    ...(isCorporateTier ? [{ title: "T2 Filing", url: "/tax-filing-t2", icon: Building2 }] : []),
     ...(hasOptimization ? [{ title: "Optimization", url: "/optimization", icon: TrendingUp }] : []),
     ...(hasGstNumber ? [{ title: "GST/HST", url: "/gst-hst", icon: Percent }] : []),
   ];

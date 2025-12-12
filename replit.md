@@ -11,6 +11,9 @@ Key features include:
 - Canadian tax calculations with federal and provincial bracket breakdowns
 - Dividend vs salary optimization for corporate income splitting
 - User profile management with pricing tier support
+- T1 Personal Tax Filing wizard (5-step questionnaire for personal tax returns)
+- T2 Corporate Tax Filing wizard (7-step questionnaire for corporate tax returns)
+- Multi-step questionnaire system with save/resume functionality
 
 ## User Preferences
 
@@ -43,7 +46,13 @@ The server uses a simple route registration pattern in `server/routes.ts` with a
 - **Validation**: Zod schemas generated from Drizzle schemas using drizzle-zod
 - **Current Storage**: In-memory storage implementation (MemStorage class) with interface for future database migration
 
-The schema defines tables for users, income records, expenses, and receipts with Canadian-specific tax filing statuses and industry-specific categorization.
+The schema defines tables for users, income records, expenses, receipts, tax_questionnaires, and tax_questionnaire_responses with Canadian-specific tax filing statuses and industry-specific categorization.
+
+### Tax Questionnaire System
+- **tax_questionnaires**: Stores questionnaire metadata (type: t1/t2, status, current step, tax year)
+- **tax_questionnaire_responses**: Stores individual question responses (sectionId, questionId, JSON value)
+- Multi-step wizard pattern with progress tracking and resume capability
+- Feature gating: T1 available to Personal/Corporate tiers, T2 available to Corporate tier only
 
 ### Build System
 - **Development**: Vite dev server with HMR

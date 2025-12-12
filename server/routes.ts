@@ -355,6 +355,143 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/questionnaires", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const questionnaires = await storage.getQuestionnaires(userId);
+      res.json(questionnaires);
+    } catch (error) {
+      console.error("Error fetching questionnaires:", error);
+      res.status(500).json({ error: "Failed to fetch questionnaires" });
+    }
+  });
+
+  app.get("/api/questionnaires/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const questionnaire = await storage.getQuestionnaireById(req.params.id);
+      
+      if (!questionnaire) {
+        return res.status(404).json({ error: "Questionnaire not found" });
+      }
+      
+      if (questionnaire.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const responses = await storage.getQuestionnaireResponses(questionnaire.id);
+      res.json({ questionnaire, responses });
+    } catch (error) {
+      console.error("Error fetching questionnaire:", error);
+      res.status(500).json({ error: "Failed to fetch questionnaire" });
+    }
+  });
+
+  app.post("/api/questionnaires", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+
+      const { questionnaireType, taxYear } = req.body;
+      
+      if (questionnaireType === "t1" && user.subscriptionTier === "basic") {
+        return res.status(403).json({ error: "T1 filing requires Personal or Corporate subscription" });
+      }
+      
+      if (questionnaireType === "t2" && user.subscriptionTier !== "corporate") {
+        return res.status(403).json({ error: "T2 filing requires Corporate subscription" });
+      }
+      
+      const questionnaire = await storage.createQuestionnaire({
+        userId,
+        questionnaireType,
+        taxYear: taxYear || new Date().getFullYear().toString(),
+        status: "draft",
+        currentStep: "personal_info",
+      });
+      
+      res.status(201).json(questionnaire);
+    } catch (error) {
+      console.error("Error creating questionnaire:", error);
+      res.status(500).json({ error: "Failed to create questionnaire" });
+    }
+  });
+
+  app.patch("/api/questionnaires/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const questionnaire = await storage.getQuestionnaireById(req.params.id);
+      
+      if (!questionnaire) {
+        return res.status(404).json({ error: "Questionnaire not found" });
+      }
+      
+      if (questionnaire.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const updated = await storage.updateQuestionnaire(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating questionnaire:", error);
+      res.status(500).json({ error: "Failed to update questionnaire" });
+    }
+  });
+
+  app.delete("/api/questionnaires/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const questionnaire = await storage.getQuestionnaireById(req.params.id);
+      
+      if (!questionnaire) {
+        return res.status(404).json({ error: "Questionnaire not found" });
+      }
+      
+      if (questionnaire.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      await storage.deleteQuestionnaire(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting questionnaire:", error);
+      res.status(500).json({ error: "Failed to delete questionnaire" });
+    }
+  });
+
+  app.post("/api/questionnaires/:id/responses", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const questionnaire = await storage.getQuestionnaireById(req.params.id);
+      
+      if (!questionnaire) {
+        return res.status(404).json({ error: "Questionnaire not found" });
+      }
+      
+      if (questionnaire.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const { sectionId, questionId, value } = req.body;
+      
+      const response = await storage.upsertQuestionnaireResponse({
+        questionnaireId: req.params.id,
+        sectionId,
+        questionId,
+        value,
+      });
+      
+      res.json(response);
+    } catch (error) {
+      console.error("Error saving response:", error);
+      res.status(500).json({ error: "Failed to save response" });
+    }
+  });
+
   return httpServer;
 }
 
