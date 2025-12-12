@@ -11,6 +11,29 @@ export const TAX_FILING_STATUS = {
 
 export type TaxFilingStatus = typeof TAX_FILING_STATUS[keyof typeof TAX_FILING_STATUS];
 
+// User Type (Performer, Crew, or Both)
+export const USER_TYPES = {
+  PERFORMER: "performer",
+  CREW: "crew",
+  BOTH: "both",
+} as const;
+
+export type UserType = typeof USER_TYPES[keyof typeof USER_TYPES];
+
+// Union Affiliations
+export const UNIONS = {
+  ACTRA: { id: "actra", name: "ACTRA", levels: ["apprentice", "full", "background"] },
+  UBCP: { id: "ubcp", name: "UBCP", levels: ["apprentice", "full", "background"] },
+  IATSE: { id: "iatse", name: "IATSE", levels: ["permittee", "full"] },
+} as const;
+
+export interface UnionAffiliation {
+  unionId: string;
+  level: string;
+}
+
+export type UnionId = keyof typeof UNIONS;
+
 // Expense Categories for Film/TV Industry
 export const EXPENSE_CATEGORIES = [
   "equipment",
@@ -65,7 +88,17 @@ export const users = pgTable("users", {
   profileImageUrl: varchar("profile_image_url"),
   taxFilingStatus: text("tax_filing_status").default("personal_only"),
   province: text("province").default("ON"),
-  subscriptionTier: text("subscription_tier").default("personal"),
+  subscriptionTier: text("subscription_tier").default("basic"),
+  // New profile fields
+  userType: text("user_type"), // performer, crew, or both
+  unionAffiliations: jsonb("union_affiliations").$type<UnionAffiliation[]>(),
+  hasAgent: boolean("has_agent").default(false),
+  agentName: text("agent_name"),
+  agentCommission: numeric("agent_commission", { precision: 5, scale: 2 }),
+  hasBusinessNumber: boolean("has_business_number").default(false),
+  businessNumber: text("business_number"),
+  hasGstNumber: boolean("has_gst_number").default(false),
+  gstNumber: text("gst_number"),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -81,6 +114,15 @@ export const insertUserSchema = createInsertSchema(users).pick({
   taxFilingStatus: true,
   province: true,
   subscriptionTier: true,
+  userType: true,
+  unionAffiliations: true,
+  hasAgent: true,
+  agentName: true,
+  agentCommission: true,
+  hasBusinessNumber: true,
+  businessNumber: true,
+  hasGstNumber: true,
+  gstNumber: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
@@ -186,31 +228,43 @@ export const CANADIAN_PROVINCES = [
 
 // Pricing Tiers
 export const PRICING_TIERS = {
+  basic: {
+    id: "basic",
+    name: "Basic",
+    price: 0,
+    description: "Free for unincorporated individuals",
+    features: [
+      "Unlimited income & expense tracking",
+      "Receipt photo uploads",
+      "GST/HST tracking (with GST number)",
+      "Basic reports",
+    ],
+  },
   personal: {
     id: "personal",
     name: "Personal",
     price: 9.99,
-    description: "For individuals filing personal taxes only",
+    description: "Full tax tools for individuals",
     features: [
-      "Unlimited income & expense tracking",
-      "Receipt photo uploads",
-      "Personal tax calculations",
+      "Everything in Basic",
+      "Personal tax calculator",
       "CPP contribution tracking",
-      "Monthly & yearly reports",
+      "Quarterly tax estimates",
+      "Tax filing reports",
+      "Monthly & yearly summaries",
     ],
   },
   corporate: {
     id: "corporate",
-    name: "Personal + Corporate",
+    name: "Corporate",
     price: 24.99,
     description: "For incorporated individuals",
     features: [
       "Everything in Personal",
       "Corporate tax calculations",
       "Dividend vs. Salary optimizer",
-      "GST/HST tracking",
       "Advanced tax planning tools",
-      "Quarterly estimates",
+      "Corporate year-end reports",
     ],
   },
 } as const;
