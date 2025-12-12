@@ -126,7 +126,7 @@ export default function OptimizationPage() {
   const [selectedSalaryPercent, setSelectedSalaryPercent] = useState<number>(50);
 
   const { data, isLoading, isError } = useQuery<OptimizationData>({
-    queryKey: ["/api/optimization", selectedSalaryPercent],
+    queryKey: ["/api/optimization"],
     retry: false,
   });
 
