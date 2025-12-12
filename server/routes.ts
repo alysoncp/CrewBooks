@@ -1,12 +1,12 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertIncomeSchema, insertExpenseSchema, insertReceiptSchema } from "@shared/schema";
+import { insertIncomeSchema, insertExpenseSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { seedDatabase } from "./seed";
+import { setupAuth, isAuthenticated } from "./replitAuth";
 
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) {
@@ -32,81 +32,85 @@ const upload = multer({
   },
 });
 
-let demoUserId: string = "";
-
-async function getDemoUserId(): Promise<string> {
-  if (!demoUserId) {
-    const demoUser = await seedDatabase();
-    demoUserId = demoUser.id;
-  }
-  return demoUserId;
+function getUserId(req: any): string {
+  return req.user?.claims?.sub;
 }
 
 export async function registerRoutes(
   httpServer: Server,
   app: Express
 ): Promise<Server> {
+  await setupAuth(app);
+
   app.use("/uploads", (req, res, next) => {
     res.setHeader("Cache-Control", "public, max-age=31536000");
     next();
   });
 
-  app.get("/api/user/profile", async (req, res) => {
+  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
+      const user = await storage.getUser(userId);
+      res.json(user);
+    } catch (error) {
+      console.error("Error fetching user:", error);
+      res.status(500).json({ message: "Failed to fetch user" });
+    }
+  });
+
+  app.get("/api/user/profile", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
-      const { password, ...safeUser } = user;
-      res.json(safeUser);
+      res.json(user);
     } catch (error) {
       res.status(500).json({ error: "Failed to get user profile" });
     }
   });
 
-  app.patch("/api/user/profile", async (req, res) => {
+  app.patch("/api/user/profile", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
       const updated = await storage.updateUser(userId, req.body);
       if (!updated) {
         return res.status(404).json({ error: "User not found" });
       }
-      const { password, ...safeUser } = updated;
-      res.json(safeUser);
+      res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update profile" });
     }
   });
 
-  app.patch("/api/user/subscription", async (req, res) => {
+  app.patch("/api/user/subscription", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
       const { tier } = req.body;
       const updated = await storage.updateUser(userId, { subscriptionTier: tier });
       if (!updated) {
         return res.status(404).json({ error: "User not found" });
       }
-      const { password, ...safeUser } = updated;
-      res.json(safeUser);
+      res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update subscription" });
     }
   });
 
-  app.get("/api/dashboard", async (req, res) => {
+  app.get("/api/dashboard", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
-      const income = await storage.getIncome(userId);
-      const expenses = await storage.getExpenses(userId);
+      const userId = getUserId(req);
+      const incomeRecords = await storage.getIncome(userId);
+      const expenseRecords = await storage.getExpenses(userId);
       const taxCalculation = await storage.calculateTax(userId);
 
-      const monthlyData = calculateMonthlyData(income, expenses);
-      const expensesByCategory = calculateExpensesByCategory(expenses);
+      const monthlyData = calculateMonthlyData(incomeRecords, expenseRecords);
+      const expensesByCategory = calculateExpensesByCategory(expenseRecords);
 
       res.json({
-        income,
-        expenses,
+        income: incomeRecords,
+        expenses: expenseRecords,
         taxCalculation,
         monthlyData,
         expensesByCategory,
@@ -117,22 +121,22 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/income", async (req, res) => {
+  app.get("/api/income", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
-      const income = await storage.getIncome(userId);
-      res.json(income);
+      const userId = getUserId(req);
+      const incomeRecords = await storage.getIncome(userId);
+      res.json(incomeRecords);
     } catch (error) {
       res.status(500).json({ error: "Failed to get income" });
     }
   });
 
-  app.post("/api/income", async (req, res) => {
+  app.post("/api/income", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
       const data = insertIncomeSchema.parse({ ...req.body, userId });
-      const income = await storage.createIncome(data);
-      res.status(201).json(income);
+      const incomeRecord = await storage.createIncome(data);
+      res.status(201).json(incomeRecord);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
@@ -141,7 +145,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/income/:id", async (req, res) => {
+  app.delete("/api/income/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteIncome(req.params.id);
       if (!deleted) {
@@ -153,19 +157,19 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/expenses", async (req, res) => {
+  app.get("/api/expenses", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
-      const expenses = await storage.getExpenses(userId);
-      res.json(expenses);
+      const userId = getUserId(req);
+      const expenseRecords = await storage.getExpenses(userId);
+      res.json(expenseRecords);
     } catch (error) {
       res.status(500).json({ error: "Failed to get expenses" });
     }
   });
 
-  app.post("/api/expenses", async (req, res) => {
+  app.post("/api/expenses", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
       const data = insertExpenseSchema.parse({ ...req.body, userId });
       const expense = await storage.createExpense(data);
       res.status(201).json(expense);
@@ -177,7 +181,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/expenses/:id", async (req, res) => {
+  app.delete("/api/expenses/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteExpense(req.params.id);
       if (!deleted) {
@@ -189,23 +193,23 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/receipts", async (req, res) => {
+  app.get("/api/receipts", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
-      const receipts = await storage.getReceipts(userId);
-      res.json(receipts);
+      const userId = getUserId(req);
+      const receiptRecords = await storage.getReceipts(userId);
+      res.json(receiptRecords);
     } catch (error) {
       res.status(500).json({ error: "Failed to get receipts" });
     }
   });
 
-  app.post("/api/receipts/upload", upload.array("files", 10), async (req, res) => {
+  app.post("/api/receipts/upload", isAuthenticated, upload.array("files", 10), async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
       const files = req.files as Express.Multer.File[];
       const notes = req.body.notes || "";
 
-      const receipts = await Promise.all(
+      const receiptRecords = await Promise.all(
         files.map((file) =>
           storage.createReceipt({
             userId,
@@ -215,13 +219,13 @@ export async function registerRoutes(
         )
       );
 
-      res.status(201).json(receipts);
+      res.status(201).json(receiptRecords);
     } catch (error) {
       res.status(500).json({ error: "Failed to upload receipts" });
     }
   });
 
-  app.delete("/api/receipts/:id", async (req, res) => {
+  app.delete("/api/receipts/:id", isAuthenticated, async (req, res) => {
     try {
       const receipt = await storage.getReceiptById(req.params.id);
       if (receipt?.imageUrl) {
@@ -241,9 +245,9 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/tax-calculation", async (req, res) => {
+  app.get("/api/tax-calculation", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
       const user = await storage.getUser(userId);
       const calculation = await storage.calculateTax(userId);
 
@@ -266,13 +270,13 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/optimization", async (req, res) => {
+  app.get("/api/optimization", isAuthenticated, async (req: any, res) => {
     try {
-      const userId = await getDemoUserId();
+      const userId = getUserId(req);
       const user = await storage.getUser(userId);
       
-      const income = await storage.getIncome(userId);
-      const corporateIncome = income.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+      const incomeRecords = await storage.getIncome(userId);
+      const corporateIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
 
       const { scenarios, optimalScenario } = await storage.calculateOptimization(
         userId,
@@ -302,7 +306,7 @@ function calculateMonthlyData(
     "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"
   ];
 
-  const data = months.map((month, index) => ({
+  const data = months.map((month) => ({
     month,
     income: 0,
     expenses: 0,

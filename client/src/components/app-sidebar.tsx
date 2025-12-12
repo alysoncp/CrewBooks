@@ -8,6 +8,7 @@ import {
   TrendingUp,
   User,
   Film,
+  LogOut,
 } from "lucide-react";
 import {
   Sidebar,
@@ -21,6 +22,9 @@ import {
   SidebarHeader,
   SidebarFooter,
 } from "@/components/ui/sidebar";
+import { Button } from "@/components/ui/button";
+import { useAuth } from "@/hooks/useAuth";
+import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const mainMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -40,6 +44,15 @@ const settingsMenuItems = [
 
 export function AppSidebar() {
   const [location] = useLocation();
+  const { user } = useAuth();
+
+  const displayName = user?.firstName && user?.lastName 
+    ? `${user.firstName} ${user.lastName}`
+    : user?.email || "User";
+
+  const initials = user?.firstName && user?.lastName
+    ? `${user.firstName[0]}${user.lastName[0]}`
+    : user?.email?.[0]?.toUpperCase() || "U";
 
   return (
     <Sidebar>
@@ -122,9 +135,22 @@ export function AppSidebar() {
         </SidebarGroup>
       </SidebarContent>
       <SidebarFooter className="p-4">
-        <div className="text-xs text-muted-foreground">
-          Tax Year 2024
+        <div className="flex items-center gap-3 mb-3">
+          <Avatar className="h-8 w-8">
+            <AvatarImage src={user?.profileImageUrl || undefined} alt={displayName} />
+            <AvatarFallback>{initials}</AvatarFallback>
+          </Avatar>
+          <div className="flex-1 min-w-0">
+            <p className="text-sm font-medium truncate" data-testid="text-user-name">{displayName}</p>
+            <p className="text-xs text-muted-foreground">Tax Year 2024</p>
+          </div>
         </div>
+        <a href="/api/logout">
+          <Button variant="outline" size="sm" className="w-full" data-testid="button-logout">
+            <LogOut className="h-4 w-4 mr-2" />
+            Sign Out
+          </Button>
+        </a>
       </SidebarFooter>
     </Sidebar>
   );

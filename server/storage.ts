@@ -1,6 +1,6 @@
 import {
   type User,
-  type InsertUser,
+  type UpsertUser,
   type Income,
   type InsertIncome,
   type Expense,
@@ -19,8 +19,7 @@ import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
-  getUserByUsername(username: string): Promise<User | undefined>;
-  createUser(user: InsertUser): Promise<User>;
+  upsertUser(user: UpsertUser): Promise<User>;
   updateUser(id: string, data: Partial<User>): Promise<User | undefined>;
 
   getIncome(userId: string): Promise<Income[]>;
@@ -51,15 +50,20 @@ export class DatabaseStorage implements IStorage {
     return user || undefined;
   }
 
-  async getUserByUsername(username: string): Promise<User | undefined> {
-    const [user] = await db.select().from(users).where(eq(users.username, username));
-    return user || undefined;
-  }
-
-  async createUser(insertUser: InsertUser): Promise<User> {
+  async upsertUser(userData: UpsertUser): Promise<User> {
     const [user] = await db
       .insert(users)
-      .values(insertUser)
+      .values(userData)
+      .onConflictDoUpdate({
+        target: users.id,
+        set: {
+          email: userData.email,
+          firstName: userData.firstName,
+          lastName: userData.lastName,
+          profileImageUrl: userData.profileImageUrl,
+          updatedAt: new Date(),
+        },
+      })
       .returning();
     return user;
   }
@@ -67,7 +71,7 @@ export class DatabaseStorage implements IStorage {
   async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
     const [user] = await db
       .update(users)
-      .set(data)
+      .set({ ...data, updatedAt: new Date() })
       .where(eq(users.id, id))
       .returning();
     return user || undefined;
@@ -321,21 +325,6 @@ export class DatabaseStorage implements IStorage {
     const credit = grossedUpDividend * dividendTaxCredit;
 
     return Math.max(0, taxOnGrossedUp - credit);
-  }
-
-  async seedDemoUser(): Promise<User> {
-    const existing = await this.getUserByUsername("demo");
-    if (existing) return existing;
-
-    return await this.createUser({
-      username: "demo",
-      password: "demo",
-      displayName: "Alex Morgan",
-      email: "alex@example.com",
-      taxFilingStatus: "personal_only",
-      province: "ON",
-      subscriptionTier: "personal",
-    });
   }
 }
 

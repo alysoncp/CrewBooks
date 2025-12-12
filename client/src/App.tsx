@@ -7,6 +7,8 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { useAuth } from "@/hooks/useAuth";
+import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import IncomePage from "@/pages/income";
@@ -15,8 +17,9 @@ import ReceiptsPage from "@/pages/receipts";
 import TaxCalculatorPage from "@/pages/tax-calculator";
 import OptimizationPage from "@/pages/optimization";
 import ProfilePage from "@/pages/profile";
+import Landing from "@/pages/landing";
 
-function Router() {
+function AuthenticatedRouter() {
   return (
     <Switch>
       <Route path="/" component={Dashboard} />
@@ -31,32 +34,74 @@ function Router() {
   );
 }
 
-function App() {
+function AuthenticatedLayout() {
   const style = {
     "--sidebar-width": "16rem",
     "--sidebar-width-icon": "3rem",
   };
 
   return (
+    <SidebarProvider style={style as React.CSSProperties}>
+      <div className="flex min-h-screen w-full">
+        <AppSidebar />
+        <div className="flex flex-1 flex-col">
+          <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+            <SidebarTrigger data-testid="button-sidebar-toggle" />
+            <ThemeToggle />
+          </header>
+          <main className="flex-1 overflow-auto p-4 md:p-6">
+            <div className="mx-auto max-w-7xl">
+              <AuthenticatedRouter />
+            </div>
+          </main>
+        </div>
+      </div>
+    </SidebarProvider>
+  );
+}
+
+function UnauthenticatedLayout() {
+  return (
+    <div className="min-h-screen">
+      <header className="sticky top-0 z-50 flex h-14 items-center justify-end gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
+        <ThemeToggle />
+      </header>
+      <Landing />
+    </div>
+  );
+}
+
+function LoadingScreen() {
+  return (
+    <div className="flex min-h-screen items-center justify-center">
+      <div className="flex flex-col items-center gap-4">
+        <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        <p className="text-muted-foreground">Loading...</p>
+      </div>
+    </div>
+  );
+}
+
+function AppContent() {
+  const { isAuthenticated, isLoading } = useAuth();
+
+  if (isLoading) {
+    return <LoadingScreen />;
+  }
+
+  if (!isAuthenticated) {
+    return <UnauthenticatedLayout />;
+  }
+
+  return <AuthenticatedLayout />;
+}
+
+function App() {
+  return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="crewbooks-theme">
         <TooltipProvider>
-          <SidebarProvider style={style as React.CSSProperties}>
-            <div className="flex min-h-screen w-full">
-              <AppSidebar />
-              <div className="flex flex-1 flex-col">
-                <header className="sticky top-0 z-50 flex h-14 items-center justify-between gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
-                  <SidebarTrigger data-testid="button-sidebar-toggle" />
-                  <ThemeToggle />
-                </header>
-                <main className="flex-1 overflow-auto p-4 md:p-6">
-                  <div className="mx-auto max-w-7xl">
-                    <Router />
-                  </div>
-                </main>
-              </div>
-            </div>
-          </SidebarProvider>
+          <AppContent />
           <Toaster />
         </TooltipProvider>
       </ThemeProvider>
