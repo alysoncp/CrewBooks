@@ -299,9 +299,10 @@ export async function registerRoutes(
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
       
-      if (user?.taxFilingStatus !== "personal_and_corporate") {
+      // GST/HST tracking is available to anyone with a GST number
+      if (!user?.hasGstNumber) {
         return res.status(403).json({ 
-          error: "GST/HST tracking is only available for incorporated users" 
+          error: "GST/HST tracking requires a GST number. Add your GST number in your profile to access this feature." 
         });
       }
 
