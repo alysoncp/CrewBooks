@@ -12,11 +12,11 @@ import type { GstHstSummary } from "@shared/schema";
 
 export default function GstHstPage() {
   const { user, isLoading: authLoading } = useAuth();
-  const isIncorporated = user?.taxFilingStatus === "personal_and_corporate";
+  const hasGstNumber = user?.hasGstNumber === true;
 
   const { data: gstHstData, isLoading, error } = useQuery<GstHstSummary>({
     queryKey: ["/api/gst-hst"],
-    enabled: isIncorporated,
+    enabled: hasGstNumber,
   });
 
   if (authLoading) {
@@ -32,7 +32,7 @@ export default function GstHstPage() {
     );
   }
 
-  if (!isIncorporated) {
+  if (!hasGstNumber) {
     return (
       <div className="space-y-6">
         <div>
@@ -45,14 +45,13 @@ export default function GstHstPage() {
             <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
               <Lock className="h-8 w-8 text-muted-foreground" />
             </div>
-            <h3 className="text-lg font-medium">Corporate Feature</h3>
+            <h3 className="text-lg font-medium">GST/HST Registration Required</h3>
             <p className="mt-2 max-w-sm text-muted-foreground">
-              GST/HST tracking is available for incorporated users on the Personal + Corporate plan.
-              Upgrade your plan to access this feature.
+              To access GST/HST tracking, add your GST/HST registration number in your profile settings.
             </p>
             <Link href="/profile">
-              <Button className="mt-6" data-testid="button-upgrade-plan">
-                Upgrade Plan
+              <Button className="mt-6" data-testid="button-add-gst-number">
+                Add GST Number
               </Button>
             </Link>
           </CardContent>

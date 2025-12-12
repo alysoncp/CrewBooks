@@ -77,7 +77,7 @@ export default function ExpensesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
-  const isIncorporated = user?.taxFilingStatus === "personal_and_corporate";
+  const hasGstNumber = user?.hasGstNumber === true;
 
   const { data: expenseList, isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
@@ -298,7 +298,7 @@ export default function ExpensesPage() {
                     </FormItem>
                   )}
                 />
-                {isIncorporated && (
+                {hasGstNumber && (
                   <FormField
                     control={form.control}
                     name="gstHstPaid"

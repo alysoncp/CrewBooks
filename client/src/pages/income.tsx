@@ -74,7 +74,7 @@ export default function IncomePage() {
   const [searchQuery, setSearchQuery] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
-  const isIncorporated = user?.taxFilingStatus === "personal_and_corporate";
+  const hasGstNumber = user?.hasGstNumber === true;
 
   const { data: incomeList, isLoading } = useQuery<Income[]>({
     queryKey: ["/api/income"],
@@ -270,7 +270,7 @@ export default function IncomePage() {
                     </FormItem>
                   )}
                 />
-                {isIncorporated && (
+                {hasGstNumber && (
                   <FormField
                     control={form.control}
                     name="gstHstCollected"
