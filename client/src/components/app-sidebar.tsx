@@ -9,6 +9,7 @@ import {
   User,
   Film,
   LogOut,
+  Percent,
 } from "lucide-react";
 import {
   Sidebar,
@@ -36,6 +37,7 @@ const mainMenuItems = [
 const taxMenuItems = [
   { title: "Tax Calculator", url: "/tax-calculator", icon: Calculator },
   { title: "Optimization", url: "/optimization", icon: TrendingUp },
+  { title: "GST/HST", url: "/gst-hst", icon: Percent },
 ];
 
 const settingsMenuItems = [

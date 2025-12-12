@@ -58,6 +58,7 @@ import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getCategoryLabel } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Expense } from "@shared/schema";
+import { useAuth } from "@/hooks/useAuth";
 
 const expenseFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
@@ -66,6 +67,7 @@ const expenseFormSchema = z.object({
   vendor: z.string().optional(),
   description: z.string().optional(),
   isTaxDeductible: z.boolean().default(true),
+  gstHstPaid: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
 });
 
 type ExpenseFormData = z.input<typeof expenseFormSchema>;
@@ -74,6 +76,8 @@ export default function ExpensesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isIncorporated = user?.taxFilingStatus === "personal_and_corporate";
 
   const { data: expenseList, isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
@@ -88,6 +92,7 @@ export default function ExpensesPage() {
       vendor: "",
       description: "",
       isTaxDeductible: true,
+      gstHstPaid: "",
     },
   });
 
@@ -96,7 +101,7 @@ export default function ExpensesPage() {
       return apiRequest("POST", "/api/expenses", {
         ...data,
         amount: data.amount.toString(),
-        userId: "demo-user",
+        gstHstPaid: data.gstHstPaid?.toString() || null,
       });
     },
     onSuccess: () => {
@@ -293,6 +298,33 @@ export default function ExpensesPage() {
                     </FormItem>
                   )}
                 />
+                {isIncorporated && (
+                  <FormField
+                    control={form.control}
+                    name="gstHstPaid"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>GST/HST Paid (ITC)</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-expense-gst-hst"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormDescription>Input Tax Credit for GST/HST on this expense</FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <DialogFooter>
                   <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-expense">
                     {createMutation.isPending ? "Saving..." : "Save Expense"}

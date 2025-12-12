@@ -95,6 +95,7 @@ export const income = pgTable("income", {
   productionName: text("production_name"),
   description: text("description"),
   paystubImageUrl: text("paystub_image_url"),
+  gstHstCollected: numeric("gst_hst_collected", { precision: 12, scale: 2 }),
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true });
@@ -112,6 +113,7 @@ export const expenses = pgTable("expenses", {
   vendor: text("vendor"),
   receiptImageUrl: text("receipt_image_url"),
   isTaxDeductible: boolean("is_tax_deductible").default(true),
+  gstHstPaid: numeric("gst_hst_paid", { precision: 12, scale: 2 }),
 });
 
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true });
@@ -144,6 +146,14 @@ export interface TaxCalculation {
   cppContribution: number;
   totalOwed: number;
   effectiveTaxRate: number;
+}
+
+// GST/HST Summary for incorporated users
+export interface GstHstSummary {
+  gstHstCollected: number;
+  inputTaxCredits: number;
+  netGstHstOwing: number;
+  transactionsWithGstHst: number;
 }
 
 export interface DividendSalaryScenario {

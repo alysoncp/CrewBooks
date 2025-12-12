@@ -55,7 +55,8 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getIncomeTypeLabel } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { INCOME_TYPES, type Income } from "@shared/schema";
+import { INCOME_TYPES, type Income, type User } from "@shared/schema";
+import { useAuth } from "@/hooks/useAuth";
 
 const incomeFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
@@ -63,6 +64,7 @@ const incomeFormSchema = z.object({
   incomeType: z.string().min(1, "Income type is required"),
   productionName: z.string().optional(),
   description: z.string().optional(),
+  gstHstCollected: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
 });
 
 type IncomeFormData = z.input<typeof incomeFormSchema>;
@@ -71,6 +73,8 @@ export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const { toast } = useToast();
+  const { user } = useAuth();
+  const isIncorporated = user?.taxFilingStatus === "personal_and_corporate";
 
   const { data: incomeList, isLoading } = useQuery<Income[]>({
     queryKey: ["/api/income"],
@@ -84,6 +88,7 @@ export default function IncomePage() {
       incomeType: "",
       productionName: "",
       description: "",
+      gstHstCollected: "",
     },
   });
 
@@ -92,7 +97,7 @@ export default function IncomePage() {
       return apiRequest("POST", "/api/income", {
         ...data,
         amount: data.amount.toString(),
-        userId: "demo-user",
+        gstHstCollected: data.gstHstCollected?.toString() || null,
       });
     },
     onSuccess: () => {
@@ -265,6 +270,32 @@ export default function IncomePage() {
                     </FormItem>
                   )}
                 />
+                {isIncorporated && (
+                  <FormField
+                    control={form.control}
+                    name="gstHstCollected"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>GST/HST Collected</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-gst-hst"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                )}
                 <DialogFooter>
                   <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-income">
                     {createMutation.isPending ? "Saving..." : "Save Income"}

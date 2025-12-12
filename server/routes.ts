@@ -294,6 +294,24 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/gst-hst", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (user?.taxFilingStatus !== "personal_and_corporate") {
+        return res.status(403).json({ 
+          error: "GST/HST tracking is only available for incorporated users" 
+        });
+      }
+
+      const summary = await storage.calculateGstHst(userId);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to calculate GST/HST" });
+    }
+  });
+
   return httpServer;
 }
 

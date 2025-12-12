@@ -18,6 +18,7 @@ import TaxCalculatorPage from "@/pages/tax-calculator";
 import OptimizationPage from "@/pages/optimization";
 import ProfilePage from "@/pages/profile";
 import Landing from "@/pages/landing";
+import GstHstPage from "@/pages/gst-hst";
 
 function AuthenticatedRouter() {
   return (
@@ -28,6 +29,7 @@ function AuthenticatedRouter() {
       <Route path="/receipts" component={ReceiptsPage} />
       <Route path="/tax-calculator" component={TaxCalculatorPage} />
       <Route path="/optimization" component={OptimizationPage} />
+      <Route path="/gst-hst" component={GstHstPage} />
       <Route path="/profile" component={ProfilePage} />
       <Route component={NotFound} />
     </Switch>

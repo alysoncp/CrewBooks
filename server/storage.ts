@@ -9,6 +9,7 @@ import {
   type InsertReceipt,
   type TaxCalculation,
   type DividendSalaryScenario,
+  type GstHstSummary,
   users,
   income,
   expenses,
@@ -42,6 +43,7 @@ export interface IStorage {
     scenarios: DividendSalaryScenario[];
     optimalScenario: DividendSalaryScenario;
   }>;
+  calculateGstHst(userId: string): Promise<GstHstSummary>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -325,6 +327,32 @@ export class DatabaseStorage implements IStorage {
     const credit = grossedUpDividend * dividendTaxCredit;
 
     return Math.max(0, taxOnGrossedUp - credit);
+  }
+
+  async calculateGstHst(userId: string): Promise<GstHstSummary> {
+    const incomeRecords = await this.getIncome(userId);
+    const expenseRecords = await this.getExpenses(userId);
+
+    const gstHstCollected = incomeRecords.reduce(
+      (sum, i) => sum + (i.gstHstCollected ? parseFloat(i.gstHstCollected) : 0),
+      0
+    );
+
+    const inputTaxCredits = expenseRecords.reduce(
+      (sum, e) => sum + (e.gstHstPaid ? parseFloat(e.gstHstPaid) : 0),
+      0
+    );
+
+    const transactionsWithGstHst = 
+      incomeRecords.filter((i) => i.gstHstCollected && parseFloat(i.gstHstCollected) > 0).length +
+      expenseRecords.filter((e) => e.gstHstPaid && parseFloat(e.gstHstPaid) > 0).length;
+
+    return {
+      gstHstCollected,
+      inputTaxCredits,
+      netGstHstOwing: gstHstCollected - inputTaxCredits,
+      transactionsWithGstHst,
+    };
   }
 }
 
