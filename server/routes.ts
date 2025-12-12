@@ -1,11 +1,12 @@
 import type { Express } from "express";
-import { createServer, type Server } from "http";
+import { type Server } from "http";
 import { storage } from "./storage";
 import { insertIncomeSchema, insertExpenseSchema, insertReceiptSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
+import { seedDatabase } from "./seed";
 
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) {
@@ -31,6 +32,16 @@ const upload = multer({
   },
 });
 
+let demoUserId: string = "";
+
+async function getDemoUserId(): Promise<string> {
+  if (!demoUserId) {
+    const demoUser = await seedDatabase();
+    demoUserId = demoUser.id;
+  }
+  return demoUserId;
+}
+
 export async function registerRoutes(
   httpServer: Server,
   app: Express
@@ -42,7 +53,8 @@ export async function registerRoutes(
 
   app.get("/api/user/profile", async (req, res) => {
     try {
-      const user = await storage.getUser("demo-user");
+      const userId = await getDemoUserId();
+      const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -55,7 +67,8 @@ export async function registerRoutes(
 
   app.patch("/api/user/profile", async (req, res) => {
     try {
-      const updated = await storage.updateUser("demo-user", req.body);
+      const userId = await getDemoUserId();
+      const updated = await storage.updateUser(userId, req.body);
       if (!updated) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -68,8 +81,9 @@ export async function registerRoutes(
 
   app.patch("/api/user/subscription", async (req, res) => {
     try {
+      const userId = await getDemoUserId();
       const { tier } = req.body;
-      const updated = await storage.updateUser("demo-user", { subscriptionTier: tier });
+      const updated = await storage.updateUser(userId, { subscriptionTier: tier });
       if (!updated) {
         return res.status(404).json({ error: "User not found" });
       }
@@ -82,7 +96,7 @@ export async function registerRoutes(
 
   app.get("/api/dashboard", async (req, res) => {
     try {
-      const userId = "demo-user";
+      const userId = await getDemoUserId();
       const income = await storage.getIncome(userId);
       const expenses = await storage.getExpenses(userId);
       const taxCalculation = await storage.calculateTax(userId);
@@ -98,13 +112,15 @@ export async function registerRoutes(
         expensesByCategory,
       });
     } catch (error) {
+      console.error("Dashboard error:", error);
       res.status(500).json({ error: "Failed to load dashboard data" });
     }
   });
 
   app.get("/api/income", async (req, res) => {
     try {
-      const income = await storage.getIncome("demo-user");
+      const userId = await getDemoUserId();
+      const income = await storage.getIncome(userId);
       res.json(income);
     } catch (error) {
       res.status(500).json({ error: "Failed to get income" });
@@ -113,7 +129,8 @@ export async function registerRoutes(
 
   app.post("/api/income", async (req, res) => {
     try {
-      const data = insertIncomeSchema.parse(req.body);
+      const userId = await getDemoUserId();
+      const data = insertIncomeSchema.parse({ ...req.body, userId });
       const income = await storage.createIncome(data);
       res.status(201).json(income);
     } catch (error) {
@@ -138,7 +155,8 @@ export async function registerRoutes(
 
   app.get("/api/expenses", async (req, res) => {
     try {
-      const expenses = await storage.getExpenses("demo-user");
+      const userId = await getDemoUserId();
+      const expenses = await storage.getExpenses(userId);
       res.json(expenses);
     } catch (error) {
       res.status(500).json({ error: "Failed to get expenses" });
@@ -147,7 +165,8 @@ export async function registerRoutes(
 
   app.post("/api/expenses", async (req, res) => {
     try {
-      const data = insertExpenseSchema.parse(req.body);
+      const userId = await getDemoUserId();
+      const data = insertExpenseSchema.parse({ ...req.body, userId });
       const expense = await storage.createExpense(data);
       res.status(201).json(expense);
     } catch (error) {
@@ -172,7 +191,8 @@ export async function registerRoutes(
 
   app.get("/api/receipts", async (req, res) => {
     try {
-      const receipts = await storage.getReceipts("demo-user");
+      const userId = await getDemoUserId();
+      const receipts = await storage.getReceipts(userId);
       res.json(receipts);
     } catch (error) {
       res.status(500).json({ error: "Failed to get receipts" });
@@ -181,9 +201,9 @@ export async function registerRoutes(
 
   app.post("/api/receipts/upload", upload.array("files", 10), async (req, res) => {
     try {
+      const userId = await getDemoUserId();
       const files = req.files as Express.Multer.File[];
       const notes = req.body.notes || "";
-      const userId = req.body.userId || "demo-user";
 
       const receipts = await Promise.all(
         files.map((file) =>
@@ -223,7 +243,7 @@ export async function registerRoutes(
 
   app.get("/api/tax-calculation", async (req, res) => {
     try {
-      const userId = "demo-user";
+      const userId = await getDemoUserId();
       const user = await storage.getUser(userId);
       const calculation = await storage.calculateTax(userId);
 
@@ -248,7 +268,7 @@ export async function registerRoutes(
 
   app.get("/api/optimization", async (req, res) => {
     try {
-      const userId = "demo-user";
+      const userId = await getDemoUserId();
       const user = await storage.getUser(userId);
       
       const income = await storage.getIncome(userId);

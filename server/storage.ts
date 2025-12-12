@@ -9,8 +9,13 @@ import {
   type InsertReceipt,
   type TaxCalculation,
   type DividendSalaryScenario,
+  users,
+  income,
+  expenses,
+  receipts,
 } from "@shared/schema";
-import { randomUUID } from "crypto";
+import { db } from "./db";
+import { eq, desc } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -40,174 +45,119 @@ export interface IStorage {
   }>;
 }
 
-export class MemStorage implements IStorage {
-  private users: Map<string, User>;
-  private incomeRecords: Map<string, Income>;
-  private expenses: Map<string, Expense>;
-  private receipts: Map<string, Receipt>;
-
-  constructor() {
-    this.users = new Map();
-    this.incomeRecords = new Map();
-    this.expenses = new Map();
-    this.receipts = new Map();
-
-    this.initDemoData();
-  }
-
-  private initDemoData() {
-    const demoUser: User = {
-      id: "demo-user",
-      username: "demo",
-      password: "demo",
-      displayName: "Alex Morgan",
-      email: "alex@example.com",
-      taxFilingStatus: "personal_only",
-      province: "ON",
-      subscriptionTier: "personal",
-    };
-    this.users.set(demoUser.id, demoUser);
-
-    const incomeData: InsertIncome[] = [
-      { userId: "demo-user", amount: "15000", date: "2024-01-15", incomeType: "wages", productionName: "The Crown Season 7", description: "Lead grip work" },
-      { userId: "demo-user", amount: "8500", date: "2024-02-20", incomeType: "wages", productionName: "Suits Reboot", description: "Key grip" },
-      { userId: "demo-user", amount: "2500", date: "2024-03-10", incomeType: "per_diem", productionName: "The Crown Season 7", description: "Travel days" },
-      { userId: "demo-user", amount: "12000", date: "2024-04-05", incomeType: "wages", productionName: "Stranger Things Season 6", description: "Best boy grip" },
-      { userId: "demo-user", amount: "1800", date: "2024-05-15", incomeType: "residuals", productionName: "Previous productions", description: "Q1 residuals" },
-      { userId: "demo-user", amount: "9500", date: "2024-06-01", incomeType: "wages", productionName: "Wednesday Season 2", description: "Grip crew" },
-      { userId: "demo-user", amount: "3200", date: "2024-07-20", incomeType: "per_diem", productionName: "Stranger Things Season 6", description: "Location shoot" },
-      { userId: "demo-user", amount: "11000", date: "2024-08-10", incomeType: "wages", productionName: "Bridgerton Season 4", description: "Rigging grip" },
-      { userId: "demo-user", amount: "7500", date: "2024-09-05", incomeType: "wages", productionName: "House of the Dragon", description: "Day call" },
-      { userId: "demo-user", amount: "14000", date: "2024-10-15", incomeType: "wages", productionName: "The Witcher Season 4", description: "Lead grip" },
-      { userId: "demo-user", amount: "2200", date: "2024-11-01", incomeType: "residuals", productionName: "Various", description: "Q3 residuals" },
-      { userId: "demo-user", amount: "6000", date: "2024-12-01", incomeType: "wages", productionName: "Holiday Special", description: "Short film work" },
-    ];
-
-    incomeData.forEach((income) => {
-      const id = randomUUID();
-      this.incomeRecords.set(id, { ...income, id });
-    });
-
-    const expenseData: InsertExpense[] = [
-      { userId: "demo-user", amount: "1200", date: "2024-01-10", category: "equipment", vendor: "Film Gear Rental", description: "Personal grip kit maintenance", isTaxDeductible: true },
-      { userId: "demo-user", amount: "450", date: "2024-02-15", category: "union_dues", vendor: "IATSE Local 873", description: "Quarterly dues", isTaxDeductible: true },
-      { userId: "demo-user", amount: "320", date: "2024-03-05", category: "travel", vendor: "Air Canada", description: "Flight to set location", isTaxDeductible: true },
-      { userId: "demo-user", amount: "180", date: "2024-04-20", category: "meals", vendor: "Various", description: "On-set meals during hiatus", isTaxDeductible: true },
-      { userId: "demo-user", amount: "800", date: "2024-05-10", category: "training", vendor: "Film Skills Academy", description: "Safety certification renewal", isTaxDeductible: true },
-      { userId: "demo-user", amount: "450", date: "2024-06-15", category: "union_dues", vendor: "IATSE Local 873", description: "Quarterly dues", isTaxDeductible: true },
-      { userId: "demo-user", amount: "2500", date: "2024-07-01", category: "equipment", vendor: "B&H Photo", description: "New rigging equipment", isTaxDeductible: true },
-      { userId: "demo-user", amount: "150", date: "2024-08-20", category: "phone_internet", vendor: "Rogers", description: "Mobile plan - business portion", isTaxDeductible: true },
-      { userId: "demo-user", amount: "600", date: "2024-09-10", category: "agent_fees", vendor: "Talent Agency", description: "Commission on recent jobs", isTaxDeductible: true },
-      { userId: "demo-user", amount: "450", date: "2024-10-15", category: "union_dues", vendor: "IATSE Local 873", description: "Quarterly dues", isTaxDeductible: true },
-      { userId: "demo-user", amount: "280", date: "2024-11-05", category: "wardrobe", vendor: "Work Wear Store", description: "Steel-toe boots replacement", isTaxDeductible: true },
-      { userId: "demo-user", amount: "350", date: "2024-12-01", category: "professional_services", vendor: "Tax Prep Inc", description: "Accountant retainer", isTaxDeductible: true },
-    ];
-
-    expenseData.forEach((expense) => {
-      const id = randomUUID();
-      this.expenses.set(id, { ...expense, id });
-    });
-  }
-
+export class DatabaseStorage implements IStorage {
   async getUser(id: string): Promise<User | undefined> {
-    return this.users.get(id);
+    const [user] = await db.select().from(users).where(eq(users.id, id));
+    return user || undefined;
   }
 
   async getUserByUsername(username: string): Promise<User | undefined> {
-    return Array.from(this.users.values()).find(
-      (user) => user.username === username
-    );
+    const [user] = await db.select().from(users).where(eq(users.username, username));
+    return user || undefined;
   }
 
   async createUser(insertUser: InsertUser): Promise<User> {
-    const id = randomUUID();
-    const user: User = { ...insertUser, id };
-    this.users.set(id, user);
+    const [user] = await db
+      .insert(users)
+      .values(insertUser)
+      .returning();
     return user;
   }
 
   async updateUser(id: string, data: Partial<User>): Promise<User | undefined> {
-    const user = this.users.get(id);
-    if (!user) return undefined;
-    const updated = { ...user, ...data };
-    this.users.set(id, updated);
-    return updated;
+    const [user] = await db
+      .update(users)
+      .set(data)
+      .where(eq(users.id, id))
+      .returning();
+    return user || undefined;
   }
 
   async getIncome(userId: string): Promise<Income[]> {
-    return Array.from(this.incomeRecords.values())
-      .filter((income) => income.userId === userId)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return await db
+      .select()
+      .from(income)
+      .where(eq(income.userId, userId))
+      .orderBy(desc(income.date));
   }
 
   async getIncomeById(id: string): Promise<Income | undefined> {
-    return this.incomeRecords.get(id);
+    const [record] = await db.select().from(income).where(eq(income.id, id));
+    return record || undefined;
   }
 
-  async createIncome(income: InsertIncome): Promise<Income> {
-    const id = randomUUID();
-    const record: Income = { ...income, id };
-    this.incomeRecords.set(id, record);
+  async createIncome(incomeData: InsertIncome): Promise<Income> {
+    const [record] = await db
+      .insert(income)
+      .values(incomeData)
+      .returning();
     return record;
   }
 
   async deleteIncome(id: string): Promise<boolean> {
-    return this.incomeRecords.delete(id);
+    const result = await db.delete(income).where(eq(income.id, id)).returning();
+    return result.length > 0;
   }
 
   async getExpenses(userId: string): Promise<Expense[]> {
-    return Array.from(this.expenses.values())
-      .filter((expense) => expense.userId === userId)
-      .sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
+    return await db
+      .select()
+      .from(expenses)
+      .where(eq(expenses.userId, userId))
+      .orderBy(desc(expenses.date));
   }
 
   async getExpenseById(id: string): Promise<Expense | undefined> {
-    return this.expenses.get(id);
+    const [record] = await db.select().from(expenses).where(eq(expenses.id, id));
+    return record || undefined;
   }
 
-  async createExpense(expense: InsertExpense): Promise<Expense> {
-    const id = randomUUID();
-    const record: Expense = { ...expense, id };
-    this.expenses.set(id, record);
+  async createExpense(expenseData: InsertExpense): Promise<Expense> {
+    const [record] = await db
+      .insert(expenses)
+      .values(expenseData)
+      .returning();
     return record;
   }
 
   async deleteExpense(id: string): Promise<boolean> {
-    return this.expenses.delete(id);
+    const result = await db.delete(expenses).where(eq(expenses.id, id)).returning();
+    return result.length > 0;
   }
 
   async getReceipts(userId: string): Promise<Receipt[]> {
-    return Array.from(this.receipts.values())
-      .filter((receipt) => receipt.userId === userId)
-      .sort((a, b) => {
-        const dateA = a.uploadedAt ? new Date(a.uploadedAt).getTime() : 0;
-        const dateB = b.uploadedAt ? new Date(b.uploadedAt).getTime() : 0;
-        return dateB - dateA;
-      });
+    return await db
+      .select()
+      .from(receipts)
+      .where(eq(receipts.userId, userId))
+      .orderBy(desc(receipts.uploadedAt));
   }
 
   async getReceiptById(id: string): Promise<Receipt | undefined> {
-    return this.receipts.get(id);
+    const [record] = await db.select().from(receipts).where(eq(receipts.id, id));
+    return record || undefined;
   }
 
-  async createReceipt(receipt: InsertReceipt): Promise<Receipt> {
-    const id = randomUUID();
-    const record: Receipt = { ...receipt, id, uploadedAt: new Date() };
-    this.receipts.set(id, record);
+  async createReceipt(receiptData: InsertReceipt): Promise<Receipt> {
+    const [record] = await db
+      .insert(receipts)
+      .values(receiptData)
+      .returning();
     return record;
   }
 
   async deleteReceipt(id: string): Promise<boolean> {
-    return this.receipts.delete(id);
+    const result = await db.delete(receipts).where(eq(receipts.id, id)).returning();
+    return result.length > 0;
   }
 
   async calculateTax(userId: string): Promise<TaxCalculation> {
-    const income = await this.getIncome(userId);
-    const expenses = await this.getExpenses(userId);
+    const incomeRecords = await this.getIncome(userId);
+    const expenseRecords = await this.getExpenses(userId);
     const user = await this.getUser(userId);
 
-    const grossIncome = income.reduce((sum, i) => sum + parseFloat(i.amount), 0);
-    const totalExpenses = expenses
+    const grossIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+    const totalExpenses = expenseRecords
       .filter((e) => e.isTaxDeductible)
       .reduce((sum, e) => sum + parseFloat(e.amount), 0);
     const netIncome = Math.max(0, grossIncome - totalExpenses);
@@ -372,6 +322,21 @@ export class MemStorage implements IStorage {
 
     return Math.max(0, taxOnGrossedUp - credit);
   }
+
+  async seedDemoUser(): Promise<User> {
+    const existing = await this.getUserByUsername("demo");
+    if (existing) return existing;
+
+    return await this.createUser({
+      username: "demo",
+      password: "demo",
+      displayName: "Alex Morgan",
+      email: "alex@example.com",
+      taxFilingStatus: "personal_only",
+      province: "ON",
+      subscriptionTier: "personal",
+    });
+  }
 }
 
-export const storage = new MemStorage();
+export const storage = new DatabaseStorage();
