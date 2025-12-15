@@ -69,9 +69,29 @@ type ProfileFormData = z.infer<typeof profileFormSchema>;
 export default function ProfilePage() {
   const { toast } = useToast();
 
-  const { data: user, isLoading } = useQuery<UserType>({
+  const { data: user, isLoading, error } = useQuery<UserType>({
     queryKey: ["/api/user/profile"],
   });
+
+  // Error handling
+  if (error) {
+    console.error("Profile fetch error:", error);
+    return (
+      <div className="space-y-6">
+        <div>
+          <h1 className="text-2xl font-semibold">Profile</h1>
+          <p className="text-muted-foreground">Manage your account settings</p>
+        </div>
+        <Card>
+          <CardContent className="pt-6">
+            <p className="text-destructive">
+              Error loading profile: {error instanceof Error ? error.message : "Unknown error"}
+            </p>
+          </CardContent>
+        </Card>
+      </div>
+    );
+  }
 
   const form = useForm<ProfileFormData>({
     resolver: zodResolver(profileFormSchema),
