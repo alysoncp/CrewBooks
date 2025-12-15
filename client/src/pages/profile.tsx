@@ -9,6 +9,7 @@ import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
 import { Checkbox } from "@/components/ui/checkbox";
 import { Switch } from "@/components/ui/switch";
+import { Separator } from "@/components/ui/separator";
 import {
   Form,
   FormControl,
@@ -832,7 +833,7 @@ export default function ProfilePage() {
                     Upgrade to Personal or Corporate plan to track regular employment income and get advanced tax features.
                   </p>
                   <Link href="/pricing">
-                    <Button variant="link" size="sm" className="mt-2">
+                  <Button variant="ghost" size="sm" className="mt-2">
                       View Plans
                     </Button>
                   </Link>
