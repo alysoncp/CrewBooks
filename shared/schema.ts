@@ -101,6 +101,7 @@ export const users = pgTable("users", {
   gstNumber: text("gst_number"),
   // Additional profile questions
   usesPersonalVehicle: boolean("uses_personal_vehicle").default(false),
+  usesCorporateVehicle: boolean("uses_corporate_vehicle").default(false),
   hasRegularEmployment: boolean("has_regular_employment").default(false),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),

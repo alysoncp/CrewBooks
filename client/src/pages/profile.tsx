@@ -57,11 +57,10 @@ const profileFormSchema = z.object({
   hasAgent: z.boolean(),
   agentName: z.string().optional().or(z.literal("")),
   agentCommission: z.string().optional().or(z.literal("")),
-  hasBusinessNumber: z.boolean(),
-  businessNumber: z.string().optional().or(z.literal("")),
   hasGstNumber: z.boolean(),
   gstNumber: z.string().optional().or(z.literal("")),
   usesPersonalVehicle: z.boolean(),
+  usesCorporateVehicle: z.boolean(),
   hasRegularEmployment: z.boolean(),
 });
 
@@ -107,11 +106,10 @@ export default function ProfilePage() {
       hasAgent: false,
       agentName: "",
       agentCommission: "",
-      hasBusinessNumber: false,
-      businessNumber: "",
       hasGstNumber: false,
       gstNumber: "",
       usesPersonalVehicle: false,
+      usesCorporateVehicle: false,
       hasRegularEmployment: false,
     },
     values: user
@@ -126,11 +124,10 @@ export default function ProfilePage() {
           hasAgent: user.hasAgent || false,
           agentName: user.agentName || "",
           agentCommission: user.agentCommission || "",
-          hasBusinessNumber: user.hasBusinessNumber || false,
-          businessNumber: user.businessNumber || "",
           hasGstNumber: user.hasGstNumber || false,
           gstNumber: user.gstNumber || "",
           usesPersonalVehicle: user.usesPersonalVehicle || false,
+          usesCorporateVehicle: user.usesCorporateVehicle || false,
           hasRegularEmployment: user.hasRegularEmployment || false,
         }
       : undefined,
@@ -138,9 +135,12 @@ export default function ProfilePage() {
 
   const watchedUserType = useWatch({ control: form.control, name: "userType" });
   const watchedHasAgent = useWatch({ control: form.control, name: "hasAgent" });
-  const watchedHasBusinessNumber = useWatch({ control: form.control, name: "hasBusinessNumber" });
   const watchedHasGstNumber = useWatch({ control: form.control, name: "hasGstNumber" });
+  const watchedUsesPersonalVehicle = useWatch({ control: form.control, name: "usesPersonalVehicle" });
+  const watchedUsesCorporateVehicle = useWatch({ control: form.control, name: "usesCorporateVehicle" });
   const watchedUnionAffiliations = useWatch({ control: form.control, name: "unionAffiliations" }) || [];
+  
+  const usesVehicleForWork = watchedUsesPersonalVehicle || watchedUsesCorporateVehicle;
 
   const isPerformer = watchedUserType === USER_TYPES.PERFORMER || watchedUserType === USER_TYPES.BOTH;
   const isCrew = watchedUserType === USER_TYPES.CREW || watchedUserType === USER_TYPES.BOTH;
@@ -682,51 +682,6 @@ export default function ProfilePage() {
                 )}
               />
 
-              <Separator />
-
-              <FormField
-                control={form.control}
-                name="hasBusinessNumber"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Business Number (BN)</FormLabel>
-                      <FormDescription>
-                        Do you have a CRA Business Number?
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="switch-has-business-number"
-                      />
-                    </FormControl>
-                  </FormItem>
-                )}
-              />
-
-              {watchedHasBusinessNumber && (
-                <FormField
-                  control={form.control}
-                  name="businessNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Business Number</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="123456789RC0001"
-                          data-testid="input-business-number"
-                        />
-                      </FormControl>
-                      <FormDescription>Your 15-character CRA Business Number</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
-
               <FormField
                 control={form.control}
                 name="hasGstNumber"
@@ -735,7 +690,7 @@ export default function ProfilePage() {
                     <div className="space-y-0.5">
                       <FormLabel className="text-base">GST/HST Registration</FormLabel>
                       <FormDescription>
-                        Are you registered for GST/HST?
+                        Are you registered to collect GST?
                       </FormDescription>
                     </div>
                     <FormControl>
@@ -776,32 +731,96 @@ export default function ProfilePage() {
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
                 <Car className="h-5 w-5" />
-                Additional Tax Information
+                Expense Settings
               </CardTitle>
               <CardDescription>Help us calculate your deductions accurately</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <FormField
-                control={form.control}
-                name="usesPersonalVehicle"
-                render={({ field }) => (
-                  <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                    <div className="space-y-0.5">
-                      <FormLabel className="text-base">Personal Vehicle for Work</FormLabel>
-                      <FormDescription>
-                        Do you use your personal vehicle for work-related travel?
-                      </FormDescription>
-                    </div>
-                    <FormControl>
-                      <Switch
-                        checked={field.value}
-                        onCheckedChange={field.onChange}
-                        data-testid="switch-uses-vehicle"
+              <div className="space-y-4">
+                <FormLabel className="text-base">Vehicle Usage</FormLabel>
+                
+                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                  <div className="space-y-0.5">
+                    <FormLabel className="text-base">I use a vehicle for work</FormLabel>
+                  </div>
+                  <FormControl>
+                    <Switch
+                      checked={usesVehicleForWork}
+                      onCheckedChange={(checked) => {
+                        if (!checked) {
+                          form.setValue("usesPersonalVehicle", false);
+                          form.setValue("usesCorporateVehicle", false);
+                        }
+                      }}
+                      data-testid="switch-uses-vehicle-for-work"
+                    />
+                  </FormControl>
+                </FormItem>
+
+                {usesVehicleForWork && (
+                  <div className="space-y-4 pl-4 border-l-2">
+                    {isCorporateTier ? (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name="usesPersonalVehicle"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                              <div className="space-y-0.5">
+                                <FormLabel className="text-base">I use a personal vehicle for work</FormLabel>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-uses-personal-vehicle"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="usesCorporateVehicle"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                              <div className="space-y-0.5">
+                                <FormLabel className="text-base">I use a corporation vehicle for work</FormLabel>
+                              </div>
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-uses-corporate-vehicle"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    ) : (
+                      <FormField
+                        control={form.control}
+                        name="usesPersonalVehicle"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">I use a personal vehicle for work</FormLabel>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                                data-testid="switch-uses-personal-vehicle"
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
                       />
-                    </FormControl>
-                  </FormItem>
+                    )}
+                  </div>
                 )}
-              />
+              </div>
 
               {hasPersonalFeatures && (
                 <FormField
