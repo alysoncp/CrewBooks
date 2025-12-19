@@ -59,8 +59,6 @@ const profileFormSchema = z.object({
   agentCommission: z.string().optional().or(z.literal("")),
   hasGstNumber: z.boolean(),
   gstNumber: z.string().optional().or(z.literal("")),
-  usesPersonalVehicle: z.boolean(),
-  usesCorporateVehicle: z.boolean(),
   hasRegularEmployment: z.boolean(),
 });
 
@@ -108,8 +106,6 @@ export default function ProfilePage() {
       agentCommission: "",
       hasGstNumber: false,
       gstNumber: "",
-      usesPersonalVehicle: false,
-      usesCorporateVehicle: false,
       hasRegularEmployment: false,
     },
     values: user
@@ -126,8 +122,6 @@ export default function ProfilePage() {
           agentCommission: user.agentCommission || "",
           hasGstNumber: user.hasGstNumber || false,
           gstNumber: user.gstNumber || "",
-          usesPersonalVehicle: user.usesPersonalVehicle || false,
-          usesCorporateVehicle: user.usesCorporateVehicle || false,
           hasRegularEmployment: user.hasRegularEmployment || false,
         }
       : undefined,
@@ -136,12 +130,8 @@ export default function ProfilePage() {
   const watchedUserType = useWatch({ control: form.control, name: "userType" });
   const watchedHasAgent = useWatch({ control: form.control, name: "hasAgent" });
   const watchedHasGstNumber = useWatch({ control: form.control, name: "hasGstNumber" });
-  const watchedUsesPersonalVehicle = useWatch({ control: form.control, name: "usesPersonalVehicle" });
-  const watchedUsesCorporateVehicle = useWatch({ control: form.control, name: "usesCorporateVehicle" });
   const watchedUnionAffiliations = useWatch({ control: form.control, name: "unionAffiliations" }) || [];
   
-  const usesVehicleForWork = watchedUsesPersonalVehicle || watchedUsesCorporateVehicle;
-
   const isPerformer = watchedUserType === USER_TYPES.PERFORMER || watchedUserType === USER_TYPES.BOTH;
   const isCrew = watchedUserType === USER_TYPES.CREW || watchedUserType === USER_TYPES.BOTH;
 
@@ -736,110 +726,6 @@ export default function ProfilePage() {
               <CardDescription>Help us calculate your deductions accurately</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <div className="space-y-4">
-                <FormLabel className="text-base">Vehicle Usage</FormLabel>
-                
-                <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                  <div className="space-y-0.5">
-                    <FormLabel className="text-base">I use a vehicle for work</FormLabel>
-                  </div>
-                  <FormControl>
-                    <Switch
-                      checked={usesVehicleForWork}
-                      onCheckedChange={(checked) => {
-                        // #region agent log
-                        fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'profile.tsx:749',message:'Main toggle clicked',data:{checked,currentUsesVehicleForWork:usesVehicleForWork,watchedUsesPersonalVehicle,watchedUsesCorporateVehicle},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B'})}).catch(()=>{});
-                        // #endregion
-                        if (!checked) {
-                          // #region agent log
-                          fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'profile.tsx:752',message:'Turning OFF - setting both to false',data:{},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
-                          // #endregion
-                          form.setValue("usesPersonalVehicle", false);
-                          form.setValue("usesCorporateVehicle", false);
-                        } else {
-                          // #region agent log
-                          fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'profile.tsx:757',message:'Turning ON - should enable personal vehicle',data:{isCorporateTier},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,C'})}).catch(()=>{});
-                          // #endregion
-                          // When turning ON, enable personal vehicle by default
-                          form.setValue("usesPersonalVehicle", true);
-                        }
-                        // #region agent log
-                        fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'profile.tsx:762',message:'After toggle change',data:{checked},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A,B,C'})}).catch(()=>{});
-                        // #endregion
-                      }}
-                      data-testid="switch-uses-vehicle-for-work"
-                    />
-                  </FormControl>
-                </FormItem>
-
-                {usesVehicleForWork && (
-                  <div className="space-y-4 pl-4 border-l-2">
-                    {/* #region agent log */}
-                    {(() => { fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'profile.tsx:760',message:'Sub-toggles visible',data:{usesVehicleForWork,isCorporateTier},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{}); return null; })()}
-                    {/* #endregion */}
-                    {isCorporateTier ? (
-                      <>
-                        <FormField
-                          control={form.control}
-                          name="usesPersonalVehicle"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                              <div className="space-y-0.5">
-                                <FormLabel className="text-base">I use a personal vehicle for work</FormLabel>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-uses-personal-vehicle"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="usesCorporateVehicle"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                              <div className="space-y-0.5">
-                                <FormLabel className="text-base">I use a corporation vehicle for work</FormLabel>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-uses-corporate-vehicle"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-                      </>
-                    ) : (
-                      <FormField
-                        control={form.control}
-                        name="usesPersonalVehicle"
-                        render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                            <div className="space-y-0.5">
-                              <FormLabel className="text-base">I use a personal vehicle for work</FormLabel>
-                            </div>
-                            <FormControl>
-                              <Switch
-                                checked={field.value}
-                                onCheckedChange={field.onChange}
-                                data-testid="switch-uses-personal-vehicle"
-                              />
-                            </FormControl>
-                          </FormItem>
-                        )}
-                      />
-                    )}
-                  </div>
-                )}
-              </div>
-
               {hasPersonalFeatures && (
                 <FormField
                   control={form.control}
@@ -870,7 +756,7 @@ export default function ProfilePage() {
                     Upgrade to Personal or Corporate plan to track regular employment income and get advanced tax features.
                   </p>
                   <Link href="/pricing">
-                  <Button variant="ghost" size="sm" className="mt-2">
+                    <Button variant="ghost" size="sm" className="mt-2">
                       View Plans
                     </Button>
                   </Link>

@@ -508,14 +508,62 @@ export async function registerRoutes(
   app.post("/api/vehicles", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const data = insertVehicleSchema.parse({ ...req.body, userId });
+      console.log("Received request body:", JSON.stringify(req.body, null, 2));
+      
+      // Clean up empty strings - be more explicit
+      const cleanedData: any = {
+        name: req.body.name?.trim() || "",
+        userId,
+        isPrimary: req.body.isPrimary === true || req.body.isPrimary === "true",
+      };
+      
+      // Handle optional fields - convert empty strings to null
+      cleanedData.make = (req.body.make && req.body.make.trim()) ? req.body.make.trim() : null;
+      cleanedData.model = (req.body.model && req.body.model.trim()) ? req.body.model.trim() : null;
+      cleanedData.licensePlate = (req.body.licensePlate && req.body.licensePlate.trim()) ? req.body.licensePlate.trim() : null;
+      
+      // Handle year - convert to number or null
+      if (req.body.year && req.body.year.toString().trim()) {
+        const yearStr = req.body.year.toString().trim();
+        const yearNum = parseInt(yearStr, 10);
+        cleanedData.year = (!isNaN(yearNum) && yearNum > 1900 && yearNum < 2100) ? yearNum : null;
+      } else {
+        cleanedData.year = null;
+      }
+      
+      console.log("Creating vehicle with cleaned data:", JSON.stringify(cleanedData, null, 2));
+      
+      // Validate with schema
+      const data = insertVehicleSchema.parse(cleanedData);
+      console.log("Schema validation passed, parsed data:", JSON.stringify(data, null, 2));
+      
+      // Try to create
+      console.log("Attempting to insert into database...");
       const vehicle = await storage.createVehicle(data);
+      console.log("Vehicle created successfully:", vehicle.id);
+      
       res.status(201).json(vehicle);
-    } catch (error) {
+    } catch (error: any) {
+      console.error("=== ERROR START ===");
+      console.error("Error type:", error?.constructor?.name);
+      console.error("Error message:", error?.message);
+      console.error("Error code:", error?.code);
+      console.error("Full error object:", error);
+      if (error?.stack) {
+        console.error("Stack trace:", error.stack);
+      }
+      console.error("=== ERROR END ===");
+      
       if (error instanceof z.ZodError) {
+        console.error("Validation errors:", JSON.stringify(error.errors, null, 2));
         return res.status(400).json({ error: error.errors });
       }
-      res.status(500).json({ error: "Failed to create vehicle" });
+      const errorMessage = error?.message || String(error);
+      res.status(500).json({ 
+        error: "Failed to create vehicle",
+        details: errorMessage,
+        code: error?.code
+      });
     }
   });
 
@@ -530,7 +578,16 @@ export async function registerRoutes(
       if (vehicle.userId !== userId) {
         return res.status(403).json({ error: "Access denied" });
       }
-      const updated = await storage.updateVehicle(req.params.id, req.body);
+      // Clean up empty strings and convert year to number if provided
+      const cleanedData: any = {};
+      if (req.body.make !== undefined) cleanedData.make = req.body.make || null;
+      if (req.body.model !== undefined) cleanedData.model = req.body.model || null;
+      if (req.body.year !== undefined) cleanedData.year = req.body.year ? parseFloat(req.body.year) : null;
+      if (req.body.licensePlate !== undefined) cleanedData.licensePlate = req.body.licensePlate || null;
+      if (req.body.name !== undefined) cleanedData.name = req.body.name;
+      if (req.body.isPrimary !== undefined) cleanedData.isPrimary = req.body.isPrimary;
+      
+      const updated = await storage.updateVehicle(req.params.id, cleanedData);
       res.json(updated);
     } catch (error) {
       console.error("Error updating vehicle:", error);

@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Trash2, Receipt, Search, CheckCircle } from "lucide-react";
+import { Car, Edit, Trash2, Plus, Search, Receipt, CheckCircle } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -71,7 +71,7 @@ const VEHICLE_SUBCATEGORIES = [
   { id: 'other_vehicle', label: 'Other' },
 ] as const;
 
-// Define Vehicle type based on what the API returns
+// Add Vehicle type (you already have this, but ensure it matches schema)
 type Vehicle = {
   id: string;
   userId: string;
@@ -81,11 +81,25 @@ type Vehicle = {
   year?: string | null;
   licensePlate?: string | null;
   isPrimary?: boolean | null;
+  claimsCca?: boolean | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 };
 
 type ExpenseCategoryTuple = typeof EXPENSE_CATEGORIES;
+
+// Add vehicle form schema
+const vehicleFormSchema = z.object({
+  name: z.string().min(1, "Vehicle name is required"),
+  make: z.string().transform((val) => val.trim() || undefined).optional(),
+  model: z.string().transform((val) => val.trim() || undefined).optional(),
+  year: z.string().transform((val) => val.trim() || undefined).optional(),
+  licensePlate: z.string().transform((val) => val.trim() || undefined).optional(),
+  isPrimary: z.boolean().default(false),
+  claimsCca: z.boolean().default(false),
+});
+
+type VehicleFormData = z.infer<typeof vehicleFormSchema>;
 
 const expenseFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
@@ -112,12 +126,87 @@ type ExpenseFormData = z.input<typeof expenseFormSchema>;
 export default function ExpensesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
+  const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [vehicleSearchQuery, setVehicleSearchQuery] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
 
   const { data: expenseList, isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
+  });
+
+  // Add vehicle mutations
+  const createVehicleMutation = useMutation({
+    mutationFn: async (data: VehicleFormData) => {
+      const response = await apiRequest("POST", "/api/vehicles", data);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || "Failed to create vehicle");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      setIsVehicleDialogOpen(false);
+      vehicleForm.reset();
+      setEditingVehicle(null);
+      toast({
+        title: "Vehicle added",
+        description: "Your vehicle has been saved successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add vehicle. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateVehicleMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<VehicleFormData> }) => {
+      return apiRequest("PATCH", `/api/vehicles/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      setIsVehicleDialogOpen(false);
+      vehicleForm.reset();
+      setEditingVehicle(null);
+      toast({
+        title: "Vehicle updated",
+        description: "Your vehicle has been updated successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update vehicle. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteVehicleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/vehicles/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      toast({
+        title: "Vehicle deleted",
+        description: "The vehicle has been removed.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete vehicle. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   // Move form definition BEFORE the vehicles query
@@ -137,10 +226,23 @@ export default function ExpensesPage() {
   // Watch category separately to make it reactive
   const selectedCategory = form.watch("category");
 
-  // Fetch vehicles from API - now properly reactive to category changes
+  // Add vehicle form
+  const vehicleForm = useForm<VehicleFormData>({
+    resolver: zodResolver(vehicleFormSchema),
+    defaultValues: {
+      name: "",
+      make: "",
+      model: "",
+      year: "",
+      licensePlate: "",
+      isPrimary: false,
+      claimsCca: false,
+    },
+  });
+
+  // Watch vehicles - remove the conditional enabled, fetch all vehicles
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
-    enabled: selectedCategory === "vehicle", // This will re-run when category changes
   });
 
   const createMutation = useMutation({
@@ -208,6 +310,38 @@ export default function ExpensesPage() {
   const deductibleExpenses = filteredExpenses
     .filter((item) => item.isTaxDeductible)
     .reduce((sum, item) => sum + parseFloat(item.amount), 0);
+
+  const filteredVehicles = vehicles.filter((vehicle) => {
+    const searchLower = vehicleSearchQuery.toLowerCase();
+    return (
+      vehicle.name.toLowerCase().includes(searchLower) ||
+      vehicle.make?.toLowerCase().includes(searchLower) ||
+      vehicle.model?.toLowerCase().includes(searchLower) ||
+      vehicle.licensePlate?.toLowerCase().includes(searchLower)
+    );
+  });
+
+  const handleEditVehicle = (vehicle: Vehicle) => {
+    setEditingVehicle(vehicle);
+    vehicleForm.reset({
+      name: vehicle.name,
+      make: vehicle.make || "",
+      model: vehicle.model || "",
+      year: vehicle.year || "",
+      licensePlate: vehicle.licensePlate || "",
+      isPrimary: vehicle.isPrimary || false,
+      claimsCca: vehicle.claimsCca || false,
+    });
+    setIsVehicleDialogOpen(true);
+  };
+
+  const handleVehicleSubmit = (data: VehicleFormData) => {
+    if (editingVehicle) {
+      updateVehicleMutation.mutate({ id: editingVehicle.id, data });
+    } else {
+      createVehicleMutation.mutate(data);
+    }
+  };
 
   return (
     <div className="space-y-6">
@@ -463,6 +597,279 @@ export default function ExpensesPage() {
           </CardContent>
         </Card>
       </div>
+
+      {/* Add Vehicle Management Card - place it right after the stats cards, before Expense History */}
+      <Card>
+        <CardHeader>
+          <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
+            <div>
+              <CardTitle className="flex items-center gap-2">
+                <Car className="h-5 w-5" />
+                My Vehicles
+              </CardTitle>
+              <CardDescription>Manage your vehicles for expense tracking</CardDescription>
+            </div>
+            <Dialog open={isVehicleDialogOpen} onOpenChange={(open) => {
+              setIsVehicleDialogOpen(open);
+              if (!open) {
+                setEditingVehicle(null);
+                vehicleForm.reset();
+              }
+            }}>
+              <DialogTrigger asChild>
+                <Button variant="outline" size="sm">
+                  <Plus className="mr-2 h-4 w-4" />
+                  Add Vehicle
+                </Button>
+              </DialogTrigger>
+              <DialogContent className="sm:max-w-md">
+                <DialogHeader>
+                  <DialogTitle>{editingVehicle ? "Edit Vehicle" : "Add Vehicle"}</DialogTitle>
+                </DialogHeader>
+                <Form {...vehicleForm}>
+                  <form onSubmit={vehicleForm.handleSubmit(handleVehicleSubmit)} className="space-y-4">
+                    <FormField
+                      control={vehicleForm.control}
+                      name="name"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vehicle Name *</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="e.g., 2019 Honda Civic, Work Truck"
+                              data-testid="input-vehicle-name"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FormField
+                        control={vehicleForm.control}
+                        name="make"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Make</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="Honda" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={vehicleForm.control}
+                        name="model"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Model</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="Civic" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <div className="grid gap-4 sm:grid-cols-2">
+                      <FormField
+                        control={vehicleForm.control}
+                        name="year"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Year</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="2019" type="number" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={vehicleForm.control}
+                        name="licensePlate"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>License Plate</FormLabel>
+                            <FormControl>
+                              <Input {...field} placeholder="ABC 123" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
+                    <FormField
+                      control={vehicleForm.control}
+                      name="isPrimary"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Set as Primary Vehicle</FormLabel>
+                            <FormDescription>
+                              This vehicle will be selected by default when adding vehicle expenses
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={vehicleForm.control}
+                      name="claimsCca"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Claim CCA (Capital Cost Allowance)</FormLabel>
+                            <FormDescription>
+                              I intend to claim Capital Cost Allowance for this vehicle
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    <DialogFooter>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        onClick={() => {
+                          setIsVehicleDialogOpen(false);
+                          setEditingVehicle(null);
+                          vehicleForm.reset();
+                        }}
+                      >
+                        Cancel
+                      </Button>
+                      <Button
+                        type="submit"
+                        disabled={createVehicleMutation.isPending || updateVehicleMutation.isPending}
+                      >
+                        {createVehicleMutation.isPending || updateVehicleMutation.isPending
+                          ? "Saving..."
+                          : editingVehicle
+                          ? "Update Vehicle"
+                          : "Add Vehicle"}
+                      </Button>
+                    </DialogFooter>
+                  </form>
+                </Form>
+              </DialogContent>
+            </Dialog>
+          </div>
+          {vehicles.length > 0 && (
+            <div className="relative mt-4">
+              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+              <Input
+                placeholder="Search vehicles..."
+                value={vehicleSearchQuery}
+                onChange={(e) => setVehicleSearchQuery(e.target.value)}
+                className="pl-9"
+              />
+            </div>
+          )}
+        </CardHeader>
+        <CardContent>
+          {filteredVehicles.length === 0 ? (
+            <div className="flex flex-col items-center justify-center py-12 text-center">
+              <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
+                <Car className="h-8 w-8 text-muted-foreground" />
+              </div>
+              <h3 className="text-lg font-medium">No vehicles added</h3>
+              <p className="mt-1 text-sm text-muted-foreground">
+                {vehicleSearchQuery
+                  ? "No vehicles match your search"
+                  : "Add a vehicle to track vehicle-related expenses"}
+              </p>
+            </div>
+          ) : (
+            <div className="space-y-2">
+              {filteredVehicles.map((vehicle) => (
+                <div
+                  key={vehicle.id}
+                  className="flex items-center justify-between rounded-lg border p-4 hover:bg-accent/50 transition-colors"
+                >
+                  <div className="flex-1">
+                    <div className="flex items-center gap-2">
+                      <p className="font-medium">{vehicle.name}</p>
+                      {vehicle.isPrimary && (
+                        <Badge variant="secondary" className="text-xs">
+                          Primary
+                        </Badge>
+                      )}
+                      {vehicle.claimsCca && (
+                        <Badge variant="outline" className="text-xs">
+                          CCA
+                        </Badge>
+                      )}
+                    </div>
+                    {(vehicle.make || vehicle.model || vehicle.year) && (
+                      <p className="text-sm text-muted-foreground mt-1">
+                        {[vehicle.year, vehicle.make, vehicle.model].filter(Boolean).join(" ")}
+                      </p>
+                    )}
+                    {vehicle.licensePlate && (
+                      <p className="text-xs text-muted-foreground mt-1">
+                        Plate: {vehicle.licensePlate}
+                      </p>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEditVehicle(vehicle)}
+                      data-testid={`button-edit-vehicle-${vehicle.id}`}
+                    >
+                      <Edit className="h-4 w-4" />
+                    </Button>
+                    <AlertDialog>
+                      <AlertDialogTrigger asChild>
+                        <Button
+                          variant="ghost"
+                          size="icon"
+                          data-testid={`button-delete-vehicle-${vehicle.id}`}
+                        >
+                          <Trash2 className="h-4 w-4 text-muted-foreground" />
+                        </Button>
+                      </AlertDialogTrigger>
+                      <AlertDialogContent>
+                        <AlertDialogHeader>
+                          <AlertDialogTitle>Delete vehicle?</AlertDialogTitle>
+                          <AlertDialogDescription>
+                            This will permanently remove this vehicle. This action cannot be undone.
+                          </AlertDialogDescription>
+                        </AlertDialogHeader>
+                        <AlertDialogFooter>
+                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogAction
+                            onClick={() => deleteVehicleMutation.mutate(vehicle.id)}
+                            className="bg-destructive text-destructive-foreground"
+                          >
+                            Delete
+                          </AlertDialogAction>
+                        </AlertDialogFooter>
+                      </AlertDialogContent>
+                    </AlertDialog>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>
