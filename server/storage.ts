@@ -20,9 +20,10 @@ import {
   receipts,
   taxQuestionnaires,
   questionnaireResponses,
+  vehicles,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and } from "drizzle-orm";
+import { eq, desc, and, asc } from "drizzle-orm";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -60,6 +61,11 @@ export interface IStorage {
 
   getQuestionnaireResponses(questionnaireId: string): Promise<QuestionnaireResponse[]>;
   upsertQuestionnaireResponse(data: InsertQuestionnaireResponse): Promise<QuestionnaireResponse>;
+
+  getVehicles(userId: string): Promise<Vehicle[]>;
+  createVehicle(vehicleData: InsertVehicle): Promise<Vehicle>;
+  updateVehicle(id: string, vehicleData: Partial<InsertVehicle>): Promise<Vehicle>;
+  deleteVehicle(id: string): Promise<boolean>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -448,6 +454,41 @@ export class DatabaseStorage implements IStorage {
       .values(data)
       .returning();
     return created;
+  }
+
+  async getVehicles(userId: string): Promise<Vehicle[]> {
+    return await db
+      .select()
+      .from(vehicles)
+      .where(eq(vehicles.userId, userId))
+      .orderBy(desc(vehicles.isPrimary), asc(vehicles.name));
+  }
+
+  async createVehicle(vehicleData: InsertVehicle): Promise<Vehicle> {
+    const [record] = await db
+      .insert(vehicles)
+      .values(vehicleData)
+      .returning();
+    return record;
+  }
+
+  async updateVehicle(id: string, vehicleData: Partial<InsertVehicle>): Promise<Vehicle> {
+    const [record] = await db
+      .update(vehicles)
+      .set({ ...vehicleData, updatedAt: new Date() })
+      .where(eq(vehicles.id, id))
+      .returning();
+    return record;
+  }
+
+  async deleteVehicle(id: string): Promise<boolean> {
+    const result = await db.delete(vehicles).where(eq(vehicles.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getVehicleById(id: string): Promise<Vehicle | undefined> {
+    const [record] = await db.select().from(vehicles).where(eq(vehicles.id, id));
+    return record || undefined;
   }
 }
 

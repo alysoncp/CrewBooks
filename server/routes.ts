@@ -1,12 +1,13 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertIncomeSchema, insertExpenseSchema } from "@shared/schema";
+import { insertIncomeSchema, insertExpenseSchema, insertVehicleSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
 import { setupAuth, isAuthenticated } from "./auth";
+import { eq, desc, asc } from "drizzle-orm";
 
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) {
@@ -489,6 +490,70 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error saving response:", error);
       res.status(500).json({ error: "Failed to save response" });
+    }
+  });
+
+  // GET /api/vehicles - get user's vehicles
+  app.get("/api/vehicles", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicleRecords = await storage.getVehicles(userId);
+      res.json(vehicleRecords);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get vehicles" });
+    }
+  });
+
+  // POST /api/vehicles - create vehicle
+  app.post("/api/vehicles", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertVehicleSchema.parse({ ...req.body, userId });
+      const vehicle = await storage.createVehicle(data);
+      res.status(201).json(vehicle);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create vehicle" });
+    }
+  });
+
+  // PATCH /api/vehicles/:id - update vehicle
+  app.patch("/api/vehicles/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.id);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updateVehicle(req.params.id, req.body);
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating vehicle:", error);
+      res.status(500).json({ error: "Failed to update vehicle" });
+    }
+  });
+
+  // DELETE /api/vehicles/:id - delete vehicle
+  app.delete("/api/vehicles/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.id);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      await storage.deleteVehicle(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting vehicle:", error);
+      res.status(500).json({ error: "Failed to delete vehicle" });
     }
   });
 
