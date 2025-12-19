@@ -128,6 +128,7 @@ export const insertUserSchema = createInsertSchema(users).pick({
   hasGstNumber: true,
   gstNumber: true,
   usesPersonalVehicle: true,
+  usesCorporateVehicle: true,
   hasRegularEmployment: true,
 });
 

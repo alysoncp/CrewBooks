@@ -60,14 +60,49 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Expense } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 
+// Define vehicle subcategories (since schema config was rejected, define inline)
+const VEHICLE_SUBCATEGORIES = [
+  { id: 'fuel', label: 'Fuel' },
+  { id: 'maintenance', label: 'Maintenance & Repairs' },
+  { id: 'insurance', label: 'Insurance' },
+  { id: 'registration', label: 'Registration & Licensing' },
+  { id: 'parking', label: 'Parking & Tolls' },
+  { id: 'lease_payment', label: 'Lease or Loan Payment' },
+  { id: 'other_vehicle', label: 'Other' },
+] as const;
+
+// Define Vehicle type based on what the API returns
+type Vehicle = {
+  id: string;
+  userId: string;
+  name: string;
+  make?: string | null;
+  model?: string | null;
+  year?: string | null;
+  licensePlate?: string | null;
+  isPrimary?: boolean | null;
+  createdAt?: string | null;
+  updatedAt?: string | null;
+};
+
 const expenseFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
   date: z.string().min(1, "Date is required"),
-  category: z.string().min(1, "Category is required"),
+  category: z.enum(EXPENSE_CATEGORIES as [string, ...string[]]),
+  subcategory: z.string().optional(),
+  vehicleId: z.string().optional(),
   vendor: z.string().optional(),
   description: z.string().optional(),
   isTaxDeductible: z.boolean().default(true),
   gstHstPaid: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+}).refine((data) => {
+  if (data.category === 'vehicle' && !data.vehicleId) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Please select a vehicle",
+  path: ["vehicleId"],
 });
 
 type ExpenseFormData = z.input<typeof expenseFormSchema>;
@@ -81,6 +116,12 @@ export default function ExpensesPage() {
 
   const { data: expenseList, isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
+  });
+
+  // ADD THIS: Fetch vehicles from API
+  const { data: vehicles = [] } = useQuery<Vehicle[]>({
+    queryKey: ["/api/vehicles"],
+    enabled: form.watch("category") === "vehicle", // Only fetch when vehicle category is selected
   });
 
   const form = useForm<ExpenseFormData>({
@@ -243,6 +284,64 @@ export default function ExpensesPage() {
                     </FormItem>
                   )}
                 />
+                {form.watch("category") === "vehicle" && (
+                  <>
+                    <FormField
+                      control={form.control}
+                      name="vehicleId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vehicle</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select vehicle" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {vehicles.length === 0 ? (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  No vehicles found. Add a vehicle in your profile settings.
+                                </div>
+                              ) : (
+                                vehicles.map((vehicle) => (
+                                  <SelectItem key={vehicle.id} value={vehicle.id}>
+                                    {vehicle.name}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="subcategory"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Expense Type</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select expense type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {VEHICLE_SUBCATEGORIES.map((subcat) => (
+                                <SelectItem key={subcat.id} value={subcat.id}>
+                                  {subcat.label}
+                                </SelectItem>
+                              ))}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </>
+                )}
                 <FormField
                   control={form.control}
                   name="vendor"
