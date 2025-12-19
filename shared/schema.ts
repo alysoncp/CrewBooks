@@ -158,6 +158,8 @@ export const expenses = pgTable("expenses", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   date: date("date").notNull(),
   category: text("category").notNull(),
+  subcategory: text("subcategory"), // Add this if missing
+  vehicleId: varchar("vehicle_id"), // Add this if missing
   description: text("description"),
   vendor: text("vendor"),
   receiptImageUrl: text("receipt_image_url"),
@@ -183,6 +185,24 @@ export const receipts = pgTable("receipts", {
 export const insertReceiptSchema = createInsertSchema(receipts).omit({ id: true, uploadedAt: true });
 export type InsertReceipt = z.infer<typeof insertReceiptSchema>;
 export type Receipt = typeof receipts.$inferSelect;
+
+// Vehicles Table - User-defined vehicles
+export const vehicles = pgTable("vehicles", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  name: text("name").notNull(),
+  make: text("make"),
+  model: text("model"),
+  year: numeric("year", { precision: 4, scale: 0 }),
+  licensePlate: text("license_plate"),
+  isPrimary: boolean("is_primary").default(false),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertVehicle = z.infer<typeof insertVehicleSchema>;
+export type Vehicle = typeof vehicles.$inferSelect;
 
 // Tax Calculation Types (not stored, computed)
 export interface TaxCalculation {

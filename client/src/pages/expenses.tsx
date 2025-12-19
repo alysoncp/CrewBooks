@@ -85,10 +85,12 @@ type Vehicle = {
   updatedAt?: string | null;
 };
 
+type ExpenseCategoryTuple = typeof EXPENSE_CATEGORIES;
+
 const expenseFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
   date: z.string().min(1, "Date is required"),
-  category: z.enum(EXPENSE_CATEGORIES as [string, ...string[]]),
+  category: z.enum([...EXPENSE_CATEGORIES] as [string, ...string[]]), // Spread to create new array
   subcategory: z.string().optional(),
   vehicleId: z.string().optional(),
   vendor: z.string().optional(),
@@ -118,12 +120,7 @@ export default function ExpensesPage() {
     queryKey: ["/api/expenses"],
   });
 
-  // ADD THIS: Fetch vehicles from API
-  const { data: vehicles = [] } = useQuery<Vehicle[]>({
-    queryKey: ["/api/vehicles"],
-    enabled: form.watch("category") === "vehicle", // Only fetch when vehicle category is selected
-  });
-
+  // Move form definition BEFORE the vehicles query
   const form = useForm<ExpenseFormData>({
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
@@ -135,6 +132,15 @@ export default function ExpensesPage() {
       isTaxDeductible: true,
       gstHstPaid: "",
     },
+  });
+
+  // Watch category separately to make it reactive
+  const selectedCategory = form.watch("category");
+
+  // Fetch vehicles from API - now properly reactive to category changes
+  const { data: vehicles = [] } = useQuery<Vehicle[]>({
+    queryKey: ["/api/vehicles"],
+    enabled: selectedCategory === "vehicle", // This will re-run when category changes
   });
 
   const createMutation = useMutation({

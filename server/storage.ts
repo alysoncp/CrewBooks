@@ -14,6 +14,8 @@ import {
   type InsertQuestionnaire,
   type QuestionnaireResponse,
   type InsertQuestionnaireResponse,
+  type Vehicle,
+  type InsertVehicle,
   users,
   income,
   expenses,
