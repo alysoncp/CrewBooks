@@ -614,6 +614,64 @@ export async function registerRoutes(
     }
   });
 
+  // Rename expense category
+  app.patch("/api/expenses/categories/rename", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { oldCategory, newCategory } = req.body;
+
+      if (!oldCategory || !newCategory) {
+        return res.status(400).json({ error: "oldCategory and newCategory are required" });
+      }
+
+      if (oldCategory === newCategory) {
+        return res.status(400).json({ error: "New category name must be different" });
+      }
+
+      // Check if new category already exists
+      const existingExpenses = await storage.getExpenses(userId);
+      const hasNewCategory = existingExpenses.some((e) => e.category === newCategory);
+      if (hasNewCategory) {
+        return res.status(400).json({ error: "Category name already exists" });
+      }
+
+      // Update all expenses with the old category
+      const updated = await storage.updateExpenseCategory(userId, oldCategory, newCategory);
+      
+      res.json({ 
+        success: true, 
+        updatedCount: updated 
+      });
+    } catch (error) {
+      console.error("Error renaming category:", error);
+      res.status(500).json({ error: "Failed to rename category" });
+    }
+  });
+
+  // Delete expense category (only if not in use)
+  app.delete("/api/expenses/categories/:category", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const category = decodeURIComponent(req.params.category);
+
+      // Check if category is in use
+      const expenses = await storage.getExpenses(userId);
+      const categoryExpenses = expenses.filter((e) => e.category === category);
+      
+      if (categoryExpenses.length > 0) {
+        return res.status(400).json({ 
+          error: `Cannot delete category. It is used by ${categoryExpenses.length} expense(s).` 
+        });
+      }
+
+      // Category is not in use, so deletion is just a no-op (category will disappear when not used)
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting category:", error);
+      res.status(500).json({ error: "Failed to delete category" });
+    }
+  });
+
   return httpServer;
 }
 

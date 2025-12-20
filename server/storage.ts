@@ -65,9 +65,12 @@ export interface IStorage {
   upsertQuestionnaireResponse(data: InsertQuestionnaireResponse): Promise<QuestionnaireResponse>;
 
   getVehicles(userId: string): Promise<Vehicle[]>;
+  getVehicleById(id: string): Promise<Vehicle | undefined>;
   createVehicle(vehicleData: InsertVehicle): Promise<Vehicle>;
   updateVehicle(id: string, vehicleData: Partial<InsertVehicle>): Promise<Vehicle>;
   deleteVehicle(id: string): Promise<boolean>;
+
+  updateExpenseCategory(userId: string, oldCategory: string, newCategory: string): Promise<number>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -466,6 +469,11 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(vehicles.isPrimary), asc(vehicles.name));
   }
 
+  async getVehicleById(id: string): Promise<Vehicle | undefined> {
+    const [record] = await db.select().from(vehicles).where(eq(vehicles.id, id));
+    return record || undefined;
+  }
+
   async createVehicle(vehicleData: InsertVehicle): Promise<Vehicle> {
     const [record] = await db
       .insert(vehicles)
@@ -488,9 +496,14 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
-  async getVehicleById(id: string): Promise<Vehicle | undefined> {
-    const [record] = await db.select().from(vehicles).where(eq(vehicles.id, id));
-    return record || undefined;
+  async updateExpenseCategory(userId: string, oldCategory: string, newCategory: string): Promise<number> {
+    const result = await db
+      .update(expenses)
+      .set({ category: newCategory })
+      .where(and(eq(expenses.userId, userId), eq(expenses.category, oldCategory)))
+      .returning({ id: expenses.id });
+    
+    return result.length;
   }
 }
 
