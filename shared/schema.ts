@@ -57,13 +57,10 @@ export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
 
 // Income Types for Film/TV Industry
 export const INCOME_TYPES = [
-  "wages",
-  "residuals",
-  "per_diem",
-  "buyout",
-  "royalties",
-  "consultation",
-  "other",
+  "union_production",
+  "non_union_production",
+  "royalty_residual",
+  "cash",
 ] as const;
 
 export type IncomeType = typeof INCOME_TYPES[number];
@@ -142,6 +139,7 @@ export const income = pgTable("income", {
   date: date("date").notNull(),
   incomeType: text("income_type").notNull(),
   productionName: text("production_name"),
+  accountingOffice: text("accounting_office"),
   description: text("description"),
   paystubImageUrl: text("paystub_image_url"),
   gstHstCollected: numeric("gst_hst_collected", { precision: 12, scale: 2 }),

@@ -63,15 +63,23 @@ const incomeFormSchema = z.object({
   date: z.string().min(1, "Date is required"),
   incomeType: z.string().min(1, "Income type is required"),
   productionName: z.string().optional(),
+  accountingOffice: z.string().optional(),
   description: z.string().optional(),
   gstHstCollected: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
 });
 
 type IncomeFormData = z.input<typeof incomeFormSchema>;
 
+const ACCOUNTING_OFFICES = [
+  { value: "entertainment_partners_canada", label: "Entertainment Partners Canada" },
+  { value: "cast_and_crew_services", label: "Cast and Crew Services" },
+  { value: "other", label: "Other" },
+] as const;
+
 export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [customAccountingOffice, setCustomAccountingOffice] = useState("");
   const { toast } = useToast();
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
@@ -87,6 +95,7 @@ export default function IncomePage() {
       date: new Date().toISOString().split("T")[0],
       incomeType: "",
       productionName: "",
+      accountingOffice: "",
       description: "",
       gstHstCollected: "",
     },
@@ -94,9 +103,15 @@ export default function IncomePage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: IncomeFormData) => {
+      // If "other" is selected and there's a custom value, use the custom value
+      const accountingOfficeValue = data.accountingOffice === "other" && customAccountingOffice.trim()
+        ? customAccountingOffice.trim()
+        : data.accountingOffice;
+      
       return apiRequest("POST", "/api/income", {
         ...data,
         amount: data.amount.toString(),
+        accountingOffice: accountingOfficeValue || null,
         gstHstCollected: data.gstHstCollected?.toString() || null,
       });
     },
@@ -105,6 +120,7 @@ export default function IncomePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
       form.reset();
+      setCustomAccountingOffice(""); // Reset custom value
       toast({
         title: "Income added",
         description: "Your income has been recorded successfully.",
@@ -148,6 +164,7 @@ export default function IncomePage() {
     const searchLower = searchQuery.toLowerCase();
     return (
       item.productionName?.toLowerCase().includes(searchLower) ||
+      item.accountingOffice?.toLowerCase().includes(searchLower) ||
       item.description?.toLowerCase().includes(searchLower) ||
       getIncomeTypeLabel(item.incomeType).toLowerCase().includes(searchLower)
     );
@@ -169,114 +186,19 @@ export default function IncomePage() {
               Add Income
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md">
+          <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
             <DialogHeader>
               <DialogTitle>Add Income</DialogTitle>
             </DialogHeader>
-            <Form {...form}>
-              <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                <FormField
-                  control={form.control}
-                  name="amount"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Amount</FormLabel>
-                      <FormControl>
-                        <div className="relative">
-                          <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                          <Input
-                            {...field}
-                            type="number"
-                            step="0.01"
-                            min="0"
-                            placeholder="0.00"
-                            className="pl-7 font-mono"
-                            data-testid="input-income-amount"
-                          />
-                        </div>
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="date"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Date</FormLabel>
-                      <FormControl>
-                        <Input {...field} type="date" data-testid="input-income-date" />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="incomeType"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Income Type</FormLabel>
-                      <Select onValueChange={field.onChange} defaultValue={field.value}>
-                        <FormControl>
-                          <SelectTrigger data-testid="select-income-type">
-                            <SelectValue placeholder="Select type" />
-                          </SelectTrigger>
-                        </FormControl>
-                        <SelectContent>
-                          {INCOME_TYPES.map((type) => (
-                            <SelectItem key={type} value={type}>
-                              {getIncomeTypeLabel(type)}
-                            </SelectItem>
-                          ))}
-                        </SelectContent>
-                      </Select>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="productionName"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Production Name</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="e.g., The Crown Season 6"
-                          data-testid="input-income-production"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                <FormField
-                  control={form.control}
-                  name="description"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>Notes</FormLabel>
-                      <FormControl>
-                        <Textarea
-                          {...field}
-                          placeholder="Additional details..."
-                          data-testid="input-income-description"
-                        />
-                      </FormControl>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-                {hasGstNumber && (
+            <div className="overflow-y-auto flex-1 pr-2">
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                   <FormField
                     control={form.control}
-                    name="gstHstCollected"
+                    name="amount"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>GST/HST Collected</FormLabel>
+                        <FormLabel>Amount</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
@@ -287,7 +209,7 @@ export default function IncomePage() {
                               min="0"
                               placeholder="0.00"
                               className="pl-7 font-mono"
-                              data-testid="input-income-gst-hst"
+                              data-testid="input-income-amount"
                             />
                           </div>
                         </FormControl>
@@ -295,14 +217,156 @@ export default function IncomePage() {
                       </FormItem>
                     )}
                   />
-                )}
-                <DialogFooter>
-                  <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-income">
-                    {createMutation.isPending ? "Saving..." : "Save Income"}
-                  </Button>
-                </DialogFooter>
-              </form>
-            </Form>
+                  <FormField
+                    control={form.control}
+                    name="date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="date" data-testid="input-income-date" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="incomeType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Income Type</FormLabel>
+                        <Select onValueChange={field.onChange} defaultValue={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-income-type">
+                              <SelectValue placeholder="Select type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {INCOME_TYPES.map((type) => (
+                              <SelectItem key={type} value={type}>
+                                {getIncomeTypeLabel(type)}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="productionName"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Production Name</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="e.g., The Crown Season 6"
+                            data-testid="input-income-production"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="accountingOffice"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Accounting Office</FormLabel>
+                        <Select 
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            if (value !== "other") {
+                              setCustomAccountingOffice("");
+                            }
+                          }} 
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-accounting-office">
+                              <SelectValue placeholder="Select accounting office" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {ACCOUNTING_OFFICES.map((office) => (
+                              <SelectItem key={office.value} value={office.value}>
+                                {office.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {form.watch("accountingOffice") === "other" && (
+                    <FormItem>
+                      <FormLabel>Custom Accounting Office</FormLabel>
+                      <FormControl>
+                        <Input
+                          value={customAccountingOffice}
+                          onChange={(e) => setCustomAccountingOffice(e.target.value)}
+                          placeholder="Enter accounting office name"
+                          data-testid="input-custom-accounting-office"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Notes</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="Additional details..."
+                            data-testid="input-income-description"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {hasGstNumber && (
+                    <FormField
+                      control={form.control}
+                      name="gstHstCollected"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>GST/HST Collected</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                className="pl-7 font-mono"
+                                data-testid="input-income-gst-hst"
+                              />
+                            </div>
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+                </form>
+              </Form>
+            </div>
+            <DialogFooter className="mt-4">
+              <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-income" onClick={form.handleSubmit(onSubmit)}>
+                {createMutation.isPending ? "Saving..." : "Save Income"}
+              </Button>
+            </DialogFooter>
           </DialogContent>
         </Dialog>
       </div>

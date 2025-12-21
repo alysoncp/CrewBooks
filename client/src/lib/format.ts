@@ -56,13 +56,10 @@ export function getCategoryLabel(category: string): string {
 
 export function getIncomeTypeLabel(type: string): string {
   const labels: Record<string, string> = {
-    wages: 'Wages',
-    residuals: 'Residuals',
-    per_diem: 'Per Diem',
-    buyout: 'Buyout',
-    royalties: 'Royalties',
-    consultation: 'Consultation',
-    other: 'Other',
+    union_production: 'Union Production',
+    non_union_production: 'Non-union Production',
+    royalty_residual: 'Royalty/Residual',
+    cash: 'Cash',
   };
   return labels[type] || type;
 }

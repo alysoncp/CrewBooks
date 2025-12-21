@@ -423,266 +423,19 @@ export default function ExpensesPage() {
                 Add Expense
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md">
+            <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>Add Expense</DialogTitle>
               </DialogHeader>
-              <Form {...form}>
-                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  <FormField
-                    control={form.control}
-                    name="amount"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Amount</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-expense-amount"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Date</FormLabel>
-                        <FormControl>
-                          <Input {...field} type="date" data-testid="input-expense-date" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="category"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Category</FormLabel>
-                        <Select 
-                          onValueChange={(value) => {
-                            if (value === "__add_new__") {
-                              setIsAddCategoryOpen(true);
-                            } else {
-                              field.onChange(value);
-                            }
-                          }} 
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-expense-category">
-                              <SelectValue placeholder="Select category" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {allCategories.predefined.map((category) => (
-                              <SelectItem key={category} value={category}>
-                                {getCategoryLabel(category)}
-                              </SelectItem>
-                            ))}
-                            {allCategories.custom.length > 0 && (
-                              <>
-                                <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                                  Custom Categories
-                                </div>
-                                {allCategories.custom.map((category) => (
-                                  <SelectItem key={category} value={category}>
-                                    {getCategoryLabel(category)}
-                                  </SelectItem>
-                                ))}
-                              </>
-                            )}
-                            <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                              Actions
-                            </div>
-                            <SelectItem value="__add_new__" className="text-primary font-medium">
-                              <Plus className="mr-2 h-4 w-4 inline" />
-                              Add New Category
-                            </SelectItem>
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  
-                  {/* Add Category Dialog */}
-                  <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
-                    <DialogContent className="sm:max-w-md">
-                      <DialogHeader>
-                        <DialogTitle>Add New Category</DialogTitle>
-                      </DialogHeader>
-                      <div className="space-y-4">
-                        <div>
-                          <label className="text-sm font-medium">Category Name</label>
-                          <Input
-                            value={newCategoryName}
-                            onChange={(e) => setNewCategoryName(e.target.value)}
-                            placeholder="e.g., Software Subscriptions"
-                            onKeyDown={(e) => {
-                              if (e.key === "Enter") {
-                                e.preventDefault();
-                                handleAddCategory();
-                              }
-                            }}
-                            autoFocus
-                          />
-                        </div>
-                        <DialogFooter>
-                          <Button
-                            type="button"
-                            variant="outline"
-                            onClick={() => {
-                              setIsAddCategoryOpen(false);
-                              setNewCategoryName("");
-                            }}
-                          >
-                            Cancel
-                          </Button>
-                          <Button
-                            type="button"
-                            onClick={handleAddCategory}
-                          >
-                            Add Category
-                          </Button>
-                        </DialogFooter>
-                      </div>
-                    </DialogContent>
-                  </Dialog>
-
-                  {form.watch("category") === "vehicle" && (
-                    <>
-                      <FormField
-                        control={form.control}
-                        name="vehicleId"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Vehicle</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select vehicle" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {vehicles.length === 0 ? (
-                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                    No vehicles found. Add a vehicle in your profile settings.
-                                  </div>
-                                ) : (
-                                  vehicles.map((vehicle) => (
-                                    <SelectItem key={vehicle.id} value={vehicle.id}>
-                                      {vehicle.name}
-                                    </SelectItem>
-                                  ))
-                                )}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="subcategory"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Expense Type</FormLabel>
-                            <Select onValueChange={field.onChange} defaultValue={field.value}>
-                              <FormControl>
-                                <SelectTrigger>
-                                  <SelectValue placeholder="Select expense type" />
-                                </SelectTrigger>
-                              </FormControl>
-                              <SelectContent>
-                                {VEHICLE_SUBCATEGORIES.map((subcat) => (
-                                  <SelectItem key={subcat.id} value={subcat.id}>
-                                    {subcat.label}
-                                  </SelectItem>
-                                ))}
-                              </SelectContent>
-                            </Select>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </>
-                  )}
-                  <FormField
-                    control={form.control}
-                    name="vendor"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Vendor</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="e.g., Best Buy, Air Canada"
-                            data-testid="input-expense-vendor"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            {...field}
-                            placeholder="Additional details..."
-                            data-testid="input-expense-description"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="isTaxDeductible"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5">
-                          <FormLabel className="text-base">Tax Deductible</FormLabel>
-                          <FormDescription>
-                            Mark this expense as a business deduction
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="switch-tax-deductible"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-                  {hasGstNumber && (
+              <div className="overflow-y-auto flex-1 pr-2">
+                <Form {...form}>
+                  <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                     <FormField
                       control={form.control}
-                      name="gstHstPaid"
+                      name="amount"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>GST/HST Paid (ITC)</FormLabel>
+                          <FormLabel>Amount</FormLabel>
                           <FormControl>
                             <div className="relative">
                               <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
@@ -693,23 +446,272 @@ export default function ExpensesPage() {
                                 min="0"
                                 placeholder="0.00"
                                 className="pl-7 font-mono"
-                                data-testid="input-expense-gst-hst"
+                                data-testid="input-expense-amount"
                               />
                             </div>
                           </FormControl>
-                          <FormDescription>Input Tax Credit for GST/HST on this expense</FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                  )}
-                  <DialogFooter>
-                    <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-expense">
-                      {createMutation.isPending ? "Saving..." : "Save Expense"}
-                    </Button>
-                  </DialogFooter>
-                </form>
-              </Form>
+                    <FormField
+                      control={form.control}
+                      name="date"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Date</FormLabel>
+                          <FormControl>
+                            <Input {...field} type="date" data-testid="input-expense-date" />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="category"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Category</FormLabel>
+                          <Select 
+                            onValueChange={(value) => {
+                              if (value === "__add_new__") {
+                                setIsAddCategoryOpen(true);
+                              } else {
+                                field.onChange(value);
+                              }
+                            }} 
+                            value={field.value}
+                          >
+                            <FormControl>
+                              <SelectTrigger data-testid="select-expense-category">
+                                <SelectValue placeholder="Select category" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {allCategories.predefined.map((category) => (
+                                <SelectItem key={category} value={category}>
+                                  {getCategoryLabel(category)}
+                                </SelectItem>
+                              ))}
+                              {allCategories.custom.length > 0 && (
+                                <>
+                                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                    Custom Categories
+                                  </div>
+                                  {allCategories.custom.map((category) => (
+                                    <SelectItem key={category} value={category}>
+                                      {getCategoryLabel(category)}
+                                    </SelectItem>
+                                  ))}
+                                </>
+                              )}
+                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
+                                Actions
+                              </div>
+                              <SelectItem value="__add_new__" className="text-primary font-medium">
+                                <Plus className="mr-2 h-4 w-4 inline" />
+                                Add New Category
+                              </SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    
+                    {/* Add Category Dialog */}
+                    <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
+                      <DialogContent className="sm:max-w-md">
+                        <DialogHeader>
+                          <DialogTitle>Add New Category</DialogTitle>
+                        </DialogHeader>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="text-sm font-medium">Category Name</label>
+                            <Input
+                              value={newCategoryName}
+                              onChange={(e) => setNewCategoryName(e.target.value)}
+                              placeholder="e.g., Software Subscriptions"
+                              onKeyDown={(e) => {
+                                if (e.key === "Enter") {
+                                  e.preventDefault();
+                                  handleAddCategory();
+                                }
+                              }}
+                              autoFocus
+                            />
+                          </div>
+                          <DialogFooter>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              onClick={() => {
+                                setIsAddCategoryOpen(false);
+                                setNewCategoryName("");
+                              }}
+                            >
+                              Cancel
+                            </Button>
+                            <Button
+                              type="button"
+                              onClick={handleAddCategory}
+                            >
+                              Add Category
+                            </Button>
+                          </DialogFooter>
+                        </div>
+                      </DialogContent>
+                    </Dialog>
+
+                    {form.watch("category") === "vehicle" && (
+                      <>
+                        <FormField
+                          control={form.control}
+                          name="vehicleId"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Vehicle</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select vehicle" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {vehicles.length === 0 ? (
+                                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                      No vehicles found. Add a vehicle in your profile settings.
+                                    </div>
+                                  ) : (
+                                    vehicles.map((vehicle) => (
+                                      <SelectItem key={vehicle.id} value={vehicle.id}>
+                                        {vehicle.name}
+                                      </SelectItem>
+                                    ))
+                                  )}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={form.control}
+                          name="subcategory"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Expense Type</FormLabel>
+                              <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select expense type" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  {VEHICLE_SUBCATEGORIES.map((subcat) => (
+                                    <SelectItem key={subcat.id} value={subcat.id}>
+                                      {subcat.label}
+                                    </SelectItem>
+                                  ))}
+                                </SelectContent>
+                              </Select>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </>
+                    )}
+                    <FormField
+                      control={form.control}
+                      name="vendor"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vendor</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="e.g., Best Buy, Air Canada"
+                              data-testid="input-expense-vendor"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="description"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Notes</FormLabel>
+                          <FormControl>
+                            <Textarea
+                              {...field}
+                              placeholder="Additional details..."
+                              data-testid="input-expense-description"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="isTaxDeductible"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Tax Deductible</FormLabel>
+                            <FormDescription>
+                              Mark this expense as a business deduction
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="switch-tax-deductible"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
+                    {hasGstNumber && (
+                      <FormField
+                        control={form.control}
+                        name="gstHstPaid"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>GST/HST Paid (ITC)</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-expense-gst-hst"
+                                />
+                              </div>
+                            </FormControl>
+                            <FormDescription>Input Tax Credit for GST/HST on this expense</FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                  </form>
+                </Form>
+              </div>
+              <DialogFooter className="mt-4">
+                <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-expense" onClick={form.handleSubmit(onSubmit)}>
+                  {createMutation.isPending ? "Saving..." : "Save Expense"}
+                </Button>
+              </DialogFooter>
             </DialogContent>
           </Dialog>
         </div>

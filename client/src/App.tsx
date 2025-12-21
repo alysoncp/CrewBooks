@@ -13,6 +13,7 @@ import NotFound from "@/pages/not-found";
 import Dashboard from "@/pages/dashboard";
 import IncomePage from "@/pages/income";
 import ExpensesPage from "@/pages/expenses";
+import ExpensesSettingsPage from "@/pages/expenses-settings";
 import ReceiptsPage from "@/pages/receipts";
 import TaxCalculatorPage from "@/pages/tax-calculator";
 import OptimizationPage from "@/pages/optimization";
@@ -29,6 +30,7 @@ function AuthenticatedRouter() {
       <Route path="/" component={Dashboard} />
       <Route path="/income" component={IncomePage} />
       <Route path="/expenses" component={ExpensesPage} />
+      <Route path="/expenses/settings" component={ExpensesSettingsPage} />
       <Route path="/receipts" component={ReceiptsPage} />
       <Route path="/tax-calculator" component={TaxCalculatorPage} />
       <Route path="/optimization" component={OptimizationPage} />
