@@ -66,6 +66,12 @@ const incomeFormSchema = z.object({
   accountingOffice: z.string().optional(),
   description: z.string().optional(),
   gstHstCollected: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+  dues: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+  retirement: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+  labour: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+  buyout: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+  pension: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+  insurance: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
 });
 
 type IncomeFormData = z.input<typeof incomeFormSchema>;
@@ -98,21 +104,28 @@ export default function IncomePage() {
       accountingOffice: "",
       description: "",
       gstHstCollected: "",
+      dues: "",
+      retirement: "",
+      labour: "",
+      buyout: "",
+      pension: "",
+      insurance: "",
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: IncomeFormData) => {
-      // If "other" is selected and there's a custom value, use the custom value
-      const accountingOfficeValue = data.accountingOffice === "other" && customAccountingOffice.trim()
-        ? customAccountingOffice.trim()
-        : data.accountingOffice;
-      
       return apiRequest("POST", "/api/income", {
         ...data,
         amount: data.amount.toString(),
-        accountingOffice: accountingOfficeValue || null,
+        accountingOffice: data.accountingOffice || null,
         gstHstCollected: data.gstHstCollected?.toString() || null,
+        dues: data.dues?.toString() || null,
+        retirement: data.retirement?.toString() || null,
+        labour: data.labour?.toString() || null,
+        buyout: data.buyout?.toString() || null,
+        pension: data.pension?.toString() || null,
+        insurance: data.insurance?.toString() || null,
       });
     },
     onSuccess: () => {
@@ -157,7 +170,16 @@ export default function IncomePage() {
   });
 
   const onSubmit = (data: IncomeFormData) => {
-    createMutation.mutate(data);
+    // Capture the current value of customAccountingOffice at submission time
+    const customValue = customAccountingOffice;
+    const accountingOfficeValue = data.accountingOffice === "other" && customValue.trim()
+      ? customValue.trim()
+      : data.accountingOffice;
+    
+    createMutation.mutate({
+      ...data,
+      accountingOffice: accountingOfficeValue || data.accountingOffice,
+    });
   };
 
   const filteredIncome = (incomeList || []).filter((item) => {
@@ -359,6 +381,150 @@ export default function IncomePage() {
                       )}
                     />
                   )}
+                  <FormField
+                    control={form.control}
+                    name="dues"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Dues</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-dues"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="retirement"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Retirement</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-retirement"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="labour"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Labour</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-labour"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="buyout"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Buyout</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-buyout"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="pension"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Pension</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-pension"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="insurance"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Insurance</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-insurance"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                 </form>
               </Form>
             </div>

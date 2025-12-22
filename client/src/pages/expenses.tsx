@@ -148,7 +148,7 @@ export default function ExpensesPage() {
   });
 
   // Extract custom categories from existing expenses
-  const allCategories = React.useMemo(() => {
+  const allCategories = useMemo(() => {
     const predefinedSet = new Set<string>(EXPENSE_CATEGORIES);
     const customSet = new Set<string>();
     
@@ -173,75 +173,17 @@ export default function ExpensesPage() {
     };
   }, [expenseList, customCategories]);
 
-  // Add vehicle mutations
-  const createVehicleMutation = useMutation({
-    mutationFn: async (data: VehicleFormData) => {
-      const response = await apiRequest("POST", "/api/vehicles", data);
-      if (!response.ok) {
-        const errorData = await response.json();
-        throw new Error(errorData.details || errorData.error || "Failed to create vehicle");
-      }
-      return response.json();
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
-      setIsVehicleDialogOpen(false);
-      vehicleForm.reset();
-      setEditingVehicle(null);
-      toast({
-        title: "Vehicle added",
-        description: "Your vehicle has been saved successfully.",
-      });
-    },
-    onError: (error: Error) => {
-      toast({
-        title: "Error",
-        description: error.message || "Failed to add vehicle. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const updateVehicleMutation = useMutation({
-    mutationFn: async ({ id, data }: { id: string; data: Partial<VehicleFormData> }) => {
-      return apiRequest("PATCH", `/api/vehicles/${id}`, data);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
-      setIsVehicleDialogOpen(false);
-      vehicleForm.reset();
-      setEditingVehicle(null);
-      toast({
-        title: "Vehicle updated",
-        description: "Your vehicle has been updated successfully.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update vehicle. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const deleteVehicleMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/vehicles/${id}`);
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
-      toast({
-        title: "Vehicle deleted",
-        description: "The vehicle has been removed.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to delete vehicle. Please try again.",
-        variant: "destructive",
-      });
+  // Move form definition BEFORE the useEffect that uses it
+  const form = useForm<ExpenseFormData>({
+    resolver: zodResolver(expenseFormSchema),
+    defaultValues: {
+      amount: "",
+      date: new Date().toISOString().split("T")[0],
+      category: "",
+      vendor: "",
+      description: "",
+      isTaxDeductible: true,
+      gstHstPaid: "",
     },
   });
 
@@ -315,20 +257,6 @@ export default function ExpensesPage() {
     }
   }, [location, form, toast]);
 
-  // Move form definition BEFORE the vehicles query
-  const form = useForm<ExpenseFormData>({
-    resolver: zodResolver(expenseFormSchema),
-    defaultValues: {
-      amount: "",
-      date: new Date().toISOString().split("T")[0],
-      category: "",
-      vendor: "",
-      description: "",
-      isTaxDeductible: true,
-      gstHstPaid: "",
-    },
-  });
-
   // Watch category separately to make it reactive
   const selectedCategory = form.watch("category");
 
@@ -349,6 +277,78 @@ export default function ExpensesPage() {
   // Watch vehicles - remove the conditional enabled, fetch all vehicles
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
+  });
+
+  // Add vehicle mutations
+  const createVehicleMutation = useMutation({
+    mutationFn: async (data: VehicleFormData) => {
+      const response = await apiRequest("POST", "/api/vehicles", data);
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.details || errorData.error || "Failed to create vehicle");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      setIsVehicleDialogOpen(false);
+      vehicleForm.reset();
+      setEditingVehicle(null);
+      toast({
+        title: "Vehicle added",
+        description: "Your vehicle has been saved successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to add vehicle. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateVehicleMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: Partial<VehicleFormData> }) => {
+      return apiRequest("PATCH", `/api/vehicles/${id}`, data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      setIsVehicleDialogOpen(false);
+      vehicleForm.reset();
+      setEditingVehicle(null);
+      toast({
+        title: "Vehicle updated",
+        description: "Your vehicle has been updated successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update vehicle. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const deleteVehicleMutation = useMutation({
+    mutationFn: async (id: string) => {
+      return apiRequest("DELETE", `/api/vehicles/${id}`);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      toast({
+        title: "Vehicle deleted",
+        description: "The vehicle has been removed.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to delete vehicle. Please try again.",
+        variant: "destructive",
+      });
+    },
   });
 
   const createMutation = useMutation({

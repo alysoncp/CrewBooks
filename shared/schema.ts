@@ -265,7 +265,6 @@ export const PRICING_TIERS = {
     description: "Free for unincorporated individuals",
     features: [
       "Unlimited income & expense tracking",
-      "Receipt photo uploads",
       "GST/HST tracking (with GST number)",
       "Basic reports",
     ],
@@ -277,6 +276,7 @@ export const PRICING_TIERS = {
     description: "Full tax tools for individuals",
     features: [
       "Everything in Basic",
+      "Receipt photo uploads",
       "Personal tax calculator",
       "CPP contribution tracking",
       "Quarterly tax estimates",
