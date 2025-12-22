@@ -60,8 +60,9 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Expense } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import React from "react";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 import { Settings, ArrowLeft } from "lucide-react";
+import { useEffect } from "react";
 
 // Define vehicle subcategories (since schema config was rejected, define inline)
 const VEHICLE_SUBCATEGORIES = [
@@ -135,9 +136,12 @@ export default function ExpensesPage() {
   const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
   const [newCategoryName, setNewCategoryName] = useState("");
   const [customCategories, setCustomCategories] = useState<Set<string>>(new Set());
+  const [receiptIdForExpense, setReceiptIdForExpense] = useState<string | null>(null);
+  const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
+  const [location] = useLocation();
 
   const { data: expenseList, isLoading } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
@@ -241,6 +245,76 @@ export default function ExpensesPage() {
     },
   });
 
+  // Check for receiptId in URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const receiptId = params.get("receiptId");
+    if (receiptId) {
+      setReceiptIdForExpense(receiptId);
+      // Fetch receipt data to get image URL
+      fetch(`/api/receipts/${receiptId}`)
+        .then((res) => res.json())
+        .then((receipt) => {
+          if (receipt?.imageUrl) {
+            setReceiptImageUrl(receipt.imageUrl);
+          }
+        })
+        .catch(console.error);
+      
+      // Fetch OCR data and pre-fill form
+      fetch(`/api/receipts/${receiptId}/ocr-to-expense`)
+        .then((res) => {
+          if (!res.ok) {
+            throw new Error(`Failed to fetch OCR data: ${res.statusText}`);
+          }
+          return res.json();
+        })
+        .then((data) => {
+          if (data.error) {
+            throw new Error(data.error);
+          }
+          
+          if (data.expenseData) {
+            // Warn if confidence is low
+            if (data.confidence && data.confidence < 0.7) {
+              toast({
+                title: "Low confidence",
+                description: "OCR results have low confidence. Please verify all fields before submitting.",
+                variant: "default",
+              });
+            }
+            
+            // Open dialog and pre-fill form
+            setIsDialogOpen(true);
+            form.reset({
+              amount: data.expenseData.amount?.toString() || "",
+              date: data.expenseData.date || new Date().toISOString().split("T")[0],
+              category: data.expenseData.category || "",
+              vendor: data.expenseData.vendor || "",
+              description: data.expenseData.description || "",
+              isTaxDeductible: data.expenseData.isTaxDeductible !== false,
+              gstHstPaid: data.expenseData.gstHstPaid?.toString() || "",
+            });
+            
+            // Clear URL param
+            window.history.replaceState({}, "", "/expenses");
+          } else {
+            throw new Error("No expense data available");
+          }
+        })
+        .catch((error) => {
+          console.error("Error fetching OCR data:", error);
+          // Still open dialog so user can create expense manually
+          setIsDialogOpen(true);
+          toast({
+            title: "Warning",
+            description: "Failed to load receipt OCR data. You can still create the expense manually.",
+            variant: "default",
+          });
+        });
+    }
+  }, [location, form, toast]);
+
   // Move form definition BEFORE the vehicles query
   const form = useForm<ExpenseFormData>({
     resolver: zodResolver(expenseFormSchema),
@@ -279,20 +353,29 @@ export default function ExpensesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: ExpenseFormData) => {
-      return apiRequest("POST", "/api/expenses", {
+      const payload: any = {
         ...data,
         amount: data.amount.toString(),
         gstHstPaid: data.gstHstPaid?.toString() || null,
-      });
+      };
+      
+      // Link receipt if creating from receipt
+      if (receiptIdForExpense) {
+        payload.linkedReceiptId = receiptIdForExpense;
+      }
+      
+      return apiRequest("POST", "/api/expenses", payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
       form.reset();
+      setReceiptIdForExpense(null);
+      setReceiptImageUrl(null);
       toast({
         title: "Expense added",
-        description: "Your expense has been recorded successfully.",
+        description: receiptIdForExpense ? "Your expense has been created from the receipt." : "Your expense has been recorded successfully.",
       });
     },
     onError: () => {
@@ -425,8 +508,19 @@ export default function ExpensesPage() {
             </DialogTrigger>
             <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
               <DialogHeader>
-                <DialogTitle>Add Expense</DialogTitle>
+                <DialogTitle>
+                  {receiptIdForExpense ? "Create Expense from Receipt" : "Add Expense"}
+                </DialogTitle>
               </DialogHeader>
+              {receiptImageUrl && (
+                <div className="mb-4 rounded-lg border p-2">
+                  <img
+                    src={receiptImageUrl}
+                    alt="Receipt"
+                    className="max-h-32 w-full object-contain rounded"
+                  />
+                </div>
+              )}
               <div className="overflow-y-auto flex-1 pr-2">
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">

@@ -185,8 +185,25 @@ export async function registerRoutes(
   app.post("/api/expenses", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const data = insertExpenseSchema.parse({ ...req.body, userId });
+      const { linkedReceiptId, ...expenseData } = req.body;
+      const data = insertExpenseSchema.parse({ ...expenseData, userId });
       const expense = await storage.createExpense(data);
+      
+      // Link receipt to expense if provided
+      if (linkedReceiptId) {
+        try {
+          const receipt = await storage.getReceiptById(linkedReceiptId);
+          if (receipt && receipt.userId === userId) {
+            await storage.updateReceipt(linkedReceiptId, {
+              linkedExpenseId: expense.id,
+            });
+          }
+        } catch (error) {
+          // Don't fail expense creation if receipt linking fails
+          console.error("Failed to link receipt to expense:", error);
+        }
+      }
+      
       res.status(201).json(expense);
     } catch (error) {
       if (error instanceof z.ZodError) {
@@ -257,6 +274,233 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete receipt" });
+    }
+  });
+
+  // OCR endpoints
+  const { processReceiptOCR, getOCRResult } = await import("./veryfi-ocr");
+
+  app.post("/api/receipts/ocr/process", isAuthenticated, upload.single("file"), async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const file = req.file as Express.Multer.File;
+
+      if (!file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const filePath = path.join(process.cwd(), "uploads", file.filename);
+
+      // Process receipt with Veryfi OCR
+      const ocrResult = await processReceiptOCR(filePath);
+
+      if (ocrResult.status === "failed") {
+        // Still create receipt but mark OCR as failed
+        const receipt = await storage.createReceipt({
+          userId,
+          imageUrl: `/uploads/${file.filename}`,
+          notes: req.body.notes || "",
+          ocrJobId: null,
+          ocrStatus: "failed",
+          ocrResult: ocrResult.rawResponse || null,
+          ocrProcessedAt: null,
+        });
+        
+        return res.status(201).json({
+          receipt,
+          ocrResult: {
+            status: "failed",
+            error: ocrResult.rawResponse?.error || "OCR processing failed",
+          },
+          warning: "Receipt uploaded but OCR processing failed. You can still create an expense manually.",
+        });
+      }
+
+      // Create receipt record
+      const receipt = await storage.createReceipt({
+        userId,
+        imageUrl: `/uploads/${file.filename}`,
+        notes: req.body.notes || "",
+        ocrJobId: ocrResult.documentId || null,
+        ocrStatus: ocrResult.status,
+        ocrResult: ocrResult.rawResponse || null,
+        ocrProcessedAt: ocrResult.status === "completed" ? new Date() : null,
+      });
+
+      res.status(201).json({
+        receipt,
+        ocrResult: {
+          status: ocrResult.status,
+          documentId: ocrResult.documentId,
+          amount: ocrResult.amount,
+          date: ocrResult.date,
+          vendor: ocrResult.vendor,
+          tax: ocrResult.tax,
+          confidence: ocrResult.confidence,
+        },
+      });
+    } catch (error: any) {
+      console.error("Error processing receipt OCR:", error);
+      res.status(500).json({
+        error: "Failed to process receipt OCR",
+        details: error.message,
+      });
+    }
+  });
+
+  app.get("/api/receipts/ocr/status/:documentId", isAuthenticated, async (req: any, res) => {
+    try {
+      const documentId = req.params.documentId;
+      const ocrResult = await getOCRResult(documentId);
+
+      res.json({
+        status: ocrResult.status,
+        documentId: ocrResult.documentId,
+        amount: ocrResult.amount,
+        date: ocrResult.date,
+        vendor: ocrResult.vendor,
+        tax: ocrResult.tax,
+        lineItems: ocrResult.lineItems,
+        confidence: ocrResult.confidence,
+      });
+    } catch (error: any) {
+      console.error("Error fetching OCR status:", error);
+      res.status(500).json({
+        error: "Failed to fetch OCR status",
+        details: error.message,
+      });
+    }
+  });
+
+  app.post("/api/receipts/:receiptId/ocr-to-expense", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const receiptId = req.params.receiptId;
+
+      const receipt = await storage.getReceiptById(receiptId);
+      if (!receipt) {
+        return res.status(404).json({ error: "Receipt not found" });
+      }
+
+      if (receipt.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // If OCR result is not available, try to fetch it
+      let ocrData = receipt.ocrResult;
+      if (!ocrData && receipt.ocrJobId) {
+        const ocrResult = await getOCRResult(receipt.ocrJobId);
+        ocrData = ocrResult.rawResponse;
+        
+        // Update receipt with OCR result if we fetched it
+        if (ocrResult.status === "completed") {
+          await storage.updateReceipt(receiptId, {
+            ocrResult: ocrData,
+            ocrStatus: "completed",
+            ocrProcessedAt: new Date(),
+          });
+        }
+      }
+
+      if (!ocrData) {
+        return res.status(400).json({ 
+          error: "OCR data not available for this receipt",
+          message: "This receipt has not been processed with OCR yet, or OCR processing failed.",
+        });
+      }
+
+      // Parse OCR data to create expense form data
+      let ocrResult: any;
+      try {
+        ocrResult = typeof ocrData === "string" ? JSON.parse(ocrData) : ocrData;
+      } catch (parseError) {
+        return res.status(400).json({
+          error: "Invalid OCR data format",
+          message: "The OCR data for this receipt is corrupted or invalid.",
+        });
+      }
+      
+      // Extract expense fields from OCR result
+      // Don't fail if fields are missing - allow user to fill manually
+      const expenseData: any = {};
+
+      if (ocrResult.total !== null && ocrResult.total !== undefined) {
+        const amount = parseFloat(ocrResult.total.toString());
+        if (!isNaN(amount) && amount > 0) {
+          expenseData.amount = amount;
+        }
+      }
+
+      if (ocrResult.date) {
+        try {
+          const date = new Date(ocrResult.date);
+          if (!isNaN(date.getTime())) {
+            expenseData.date = date.toISOString().split("T")[0];
+          }
+        } catch (e) {
+          // Try to use as-is if already in correct format
+          if (typeof ocrResult.date === "string" && ocrResult.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
+            expenseData.date = ocrResult.date;
+          }
+        }
+      }
+
+      if (ocrResult.vendor?.name) {
+        expenseData.vendor = ocrResult.vendor.name;
+      } else if (ocrResult.merchant_name) {
+        expenseData.vendor = ocrResult.merchant_name;
+      }
+
+      // Build description from line items if available
+      if (ocrResult.line_items && Array.isArray(ocrResult.line_items) && ocrResult.line_items.length > 0) {
+        expenseData.description = ocrResult.line_items
+          .map((item: any) => item.description || item.text)
+          .filter(Boolean)
+          .join(", ");
+      }
+
+      // Extract GST/HST if available
+      if (ocrResult.tax !== null && ocrResult.tax !== undefined) {
+        const tax = parseFloat(ocrResult.tax.toString());
+        if (!isNaN(tax) && tax >= 0) {
+          expenseData.gstHstPaid = tax;
+        }
+      } else if (ocrResult.total_tax !== null && ocrResult.total_tax !== undefined) {
+        const tax = parseFloat(ocrResult.total_tax.toString());
+        if (!isNaN(tax) && tax >= 0) {
+          expenseData.gstHstPaid = tax;
+        }
+      }
+
+      // Default category to "other" if not detected
+      expenseData.category = ocrResult.category || "other";
+      expenseData.isTaxDeductible = true;
+
+      const confidence = ocrResult.confidence_score || 0;
+      const warnings: string[] = [];
+      
+      if (confidence < 0.7) {
+        warnings.push("Low confidence score - please verify all fields");
+      }
+      if (!expenseData.amount) {
+        warnings.push("Amount not detected - please enter manually");
+      }
+      if (!expenseData.date) {
+        warnings.push("Date not detected - please enter manually");
+      }
+
+      res.json({
+        expenseData,
+        receiptId,
+        confidence,
+        warnings: warnings.length > 0 ? warnings : undefined,
+      });
+    } catch (error: any) {
+      console.error("Error converting OCR to expense:", error);
+      res.status(500).json({
+        error: "Failed to convert OCR data to expense",
+        details: error.message,
+      });
     }
   });
 

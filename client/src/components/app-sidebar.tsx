@@ -32,9 +32,6 @@ import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 
 const mainMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
-  { title: "Income", url: "/income", icon: DollarSign },
-  { title: "Expenses", url: "/expenses", icon: Receipt },
-  { title: "Receipts", url: "/receipts", icon: FileImage },
 ];
 
 const settingsMenuItems = [
@@ -102,6 +99,60 @@ export function AppSidebar() {
                   </SidebarMenuButton>
                 </SidebarMenuItem>
               ))}
+              
+              {/* Income with Paystubs submenu */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/income"}
+                  data-testid="nav-income"
+                >
+                  <Link href="/income">
+                    <DollarSign className="h-4 w-4" />
+                    <span>Income</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/paystubs"}
+                  data-testid="nav-paystubs"
+                  className="pl-8"
+                >
+                  <Link href="/paystubs">
+                    <FileText className="h-4 w-4" />
+                    <span>Paystubs</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              
+              {/* Expenses with Receipts submenu */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/expenses"}
+                  data-testid="nav-expenses"
+                >
+                  <Link href="/expenses">
+                    <Receipt className="h-4 w-4" />
+                    <span>Expenses</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/receipts"}
+                  data-testid="nav-receipts"
+                  className="pl-8"
+                >
+                  <Link href="/receipts">
+                    <FileImage className="h-4 w-4" />
+                    <span>Receipts</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
             </SidebarMenu>
           </SidebarGroupContent>
         </SidebarGroup>

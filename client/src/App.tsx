@@ -23,6 +23,7 @@ import GstHstPage from "@/pages/gst-hst";
 import PricingPage from "@/pages/pricing";
 import TaxFilingT1Page from "@/pages/tax-filing-t1";
 import TaxFilingT2Page from "@/pages/tax-filing-t2";
+import PaystubsPage from "@/pages/paystubs";
 
 function AuthenticatedRouter() {
   return (
@@ -39,6 +40,7 @@ function AuthenticatedRouter() {
       <Route path="/tax-filing-t2" component={TaxFilingT2Page} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/pricing" component={PricingPage} />
+      <Route path="/paystubs" component={PaystubsPage} />
       <Route component={NotFound} />
     </Switch>
   );

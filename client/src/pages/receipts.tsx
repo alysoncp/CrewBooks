@@ -1,6 +1,7 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Upload, Trash2, Image, X, ZoomIn, FileImage } from "lucide-react";
+import { Upload, Trash2, Image, X, ZoomIn, FileImage, Scan, Receipt as ReceiptIcon, Loader2 } from "lucide-react";
+import { Badge } from "@/components/ui/badge";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -29,47 +30,152 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDate } from "@/lib/format";
 import type { Receipt } from "@shared/schema";
+import { useLocation } from "wouter";
+
+// Component to create expense from receipt
+function CreateExpenseFromReceiptButton({ receiptId }: { receiptId: string }) {
+  const [, setLocation] = useLocation();
+  const { toast } = useToast();
+
+  const handleCreateExpense = () => {
+    // Navigate to expenses page with receipt ID
+    setLocation(`/expenses?receiptId=${receiptId}`);
+  };
+
+  return (
+    <Button
+      variant="default"
+      size="icon"
+      onClick={handleCreateExpense}
+      data-testid={`button-create-expense-${receiptId}`}
+      title="Create expense from receipt"
+    >
+      <ReceiptIcon className="h-4 w-4" />
+    </Button>
+  );
+}
 
 export default function ReceiptsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
   const [notes, setNotes] = useState("");
+  const [scanWithOCR, setScanWithOCR] = useState(false);
   const { toast } = useToast();
 
   const { data: receipts, isLoading } = useQuery<Receipt[]>({
     queryKey: ["/api/receipts"],
   });
 
+  // Poll for OCR status on receipts that are processing
+  useEffect(() => {
+    if (!receipts) return;
+
+    const processingReceipts = receipts.filter(
+      (r) => r.ocrStatus === "processing" && r.ocrJobId
+    );
+
+    if (processingReceipts.length === 0) return;
+
+    const pollInterval = setInterval(() => {
+      processingReceipts.forEach(async (receipt) => {
+        if (!receipt.ocrJobId) return;
+
+        try {
+          const response = await fetch(
+            `/api/receipts/ocr/status/${receipt.ocrJobId}`
+          );
+          if (response.ok) {
+            const data = await response.json();
+            if (data.status === "completed" || data.status === "failed") {
+              // Invalidate to refresh receipt data
+              queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
+            }
+          }
+        } catch (error) {
+          console.error("Error polling OCR status:", error);
+        }
+      });
+    }, 3000); // Poll every 3 seconds
+
+    return () => clearInterval(pollInterval);
+  }, [receipts, queryClient]);
+
   const uploadMutation = useMutation({
-    mutationFn: async (files: File[]) => {
-      const formData = new FormData();
-      files.forEach((file) => {
-        formData.append("files", file);
-      });
-      formData.append("notes", notes);
-      formData.append("userId", "demo-user");
-      
-      const response = await fetch("/api/receipts/upload", {
-        method: "POST",
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error("Upload failed");
+    mutationFn: async ({ files, useOCR }: { files: File[]; useOCR: boolean }) => {
+      if (useOCR && files.length === 1) {
+        // Use OCR processing endpoint for single file
+        const { compressImage } = await import("@/lib/image-compression");
+        const compressedFile = await compressImage(files[0]);
+        
+        const formData = new FormData();
+        formData.append("file", compressedFile);
+        formData.append("notes", notes);
+        
+        const response = await fetch("/api/receipts/ocr/process", {
+          method: "POST",
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error("OCR upload failed");
+        }
+        
+        return response.json();
+      } else {
+        // Regular upload for multiple files or non-OCR
+        const formData = new FormData();
+        files.forEach((file) => {
+          formData.append("files", file);
+        });
+        formData.append("notes", notes);
+        
+        const response = await fetch("/api/receipts/upload", {
+          method: "POST",
+          body: formData,
+        });
+        
+        if (!response.ok) {
+          throw new Error("Upload failed");
+        }
+        
+        return response.json();
       }
-      
-      return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
       setIsDialogOpen(false);
       setPreviewFiles([]);
       setNotes("");
-      toast({
-        title: "Receipts uploaded",
-        description: "Your receipts have been saved successfully.",
-      });
+      setScanWithOCR(false);
+      
+      if (data.ocrResult) {
+        if (data.ocrResult.status === "failed") {
+          toast({
+            title: "Receipt uploaded",
+            description: data.warning || "OCR scanning failed, but receipt was saved. You can create an expense manually.",
+            variant: "default",
+          });
+        } else if (data.ocrResult.status === "completed") {
+          const confidence = data.ocrResult.confidence || 0;
+          const confidenceWarning = confidence < 0.7 ? " (Low confidence - please verify)" : "";
+          toast({
+            title: "Receipt scanned",
+            description: `OCR completed${confidenceWarning}. ${data.ocrResult.amount ? `Amount: $${data.ocrResult.amount.toFixed(2)}` : ""}`,
+            variant: confidence < 0.7 ? "default" : "default",
+          });
+        } else {
+          toast({
+            title: "Receipt scanned",
+            description: `OCR processing in progress. Results will be available shortly.`,
+          });
+        }
+      } else {
+        toast({
+          title: "Receipts uploaded",
+          description: "Your receipts have been saved successfully.",
+        });
+      }
     },
     onError: () => {
       toast({
@@ -120,7 +226,10 @@ export default function ReceiptsPage() {
 
   const handleUpload = () => {
     if (previewFiles.length === 0) return;
-    uploadMutation.mutate(previewFiles.map((p) => p.file));
+    uploadMutation.mutate({
+      files: previewFiles.map((p) => p.file),
+      useOCR: scanWithOCR,
+    });
   };
 
   const handleDrop = useCallback((e: React.DragEvent) => {
@@ -158,6 +267,24 @@ export default function ReceiptsPage() {
               <DialogTitle>Upload Receipts</DialogTitle>
             </DialogHeader>
             <div className="space-y-4">
+              <div className="flex items-center space-x-2">
+                <input
+                  type="checkbox"
+                  id="scan-ocr"
+                  checked={scanWithOCR}
+                  onChange={(e) => setScanWithOCR(e.target.checked)}
+                  disabled={previewFiles.length > 1}
+                  className="h-4 w-4 rounded border-gray-300"
+                />
+                <label htmlFor="scan-ocr" className="text-sm font-medium leading-none peer-disabled:cursor-not-allowed peer-disabled:opacity-70">
+                  Scan with OCR (single file only)
+                </label>
+              </div>
+              {previewFiles.length > 1 && scanWithOCR && (
+                <p className="text-xs text-muted-foreground">
+                  OCR scanning is only available for single file uploads. Please upload one file at a time to use OCR.
+                </p>
+              )}
               <div
                 className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-6 transition-colors hover:border-muted-foreground/50"
                 onDrop={handleDrop}
@@ -222,10 +349,20 @@ export default function ReceiptsPage() {
             <DialogFooter>
               <Button
                 onClick={handleUpload}
-                disabled={previewFiles.length === 0 || uploadMutation.isPending}
+                disabled={previewFiles.length === 0 || uploadMutation.isPending || (scanWithOCR && previewFiles.length > 1)}
                 data-testid="button-submit-receipt"
               >
-                {uploadMutation.isPending ? "Uploading..." : `Upload ${previewFiles.length} Receipt${previewFiles.length !== 1 ? "s" : ""}`}
+                {uploadMutation.isPending ? (
+                  <>
+                    <Loader2 className="mr-2 h-4 w-4 animate-spin" />
+                    {scanWithOCR ? "Scanning..." : "Uploading..."}
+                  </>
+                ) : (
+                  <>
+                    {scanWithOCR && previewFiles.length === 1 && <Scan className="mr-2 h-4 w-4" />}
+                    {scanWithOCR && previewFiles.length === 1 ? "Scan Receipt" : `Upload ${previewFiles.length} Receipt${previewFiles.length !== 1 ? "s" : ""}`}
+                  </>
+                )}
               </Button>
             </DialogFooter>
           </DialogContent>
@@ -276,6 +413,9 @@ export default function ReceiptsPage() {
                     >
                       <ZoomIn className="h-4 w-4" />
                     </Button>
+                    {receipt.ocrStatus === "completed" && (
+                      <CreateExpenseFromReceiptButton receiptId={receipt.id} />
+                    )}
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -304,6 +444,22 @@ export default function ReceiptsPage() {
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
+                  </div>
+                  <div className="mt-2 flex items-center gap-2">
+                    {receipt.ocrStatus && (
+                      <Badge
+                        variant={
+                          receipt.ocrStatus === "completed"
+                            ? "default"
+                            : receipt.ocrStatus === "processing"
+                            ? "secondary"
+                            : "destructive"
+                        }
+                        className="text-xs"
+                      >
+                        {receipt.ocrStatus === "completed" ? "Scanned" : receipt.ocrStatus === "processing" ? "Scanning..." : "Scan Failed"}
+                      </Badge>
+                    )}
                   </div>
                   {receipt.notes && (
                     <p className="mt-2 truncate text-xs text-muted-foreground">{receipt.notes}</p>

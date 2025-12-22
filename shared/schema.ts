@@ -178,6 +178,10 @@ export const receipts = pgTable("receipts", {
   linkedExpenseId: varchar("linked_expense_id"),
   linkedIncomeId: varchar("linked_income_id"),
   notes: text("notes"),
+  ocrJobId: varchar("ocr_job_id"), // Track Veryfi document ID
+  ocrStatus: text("ocr_status"), // 'processing', 'completed', 'failed'
+  ocrResult: jsonb("ocr_result"), // Store parsed OCR data
+  ocrProcessedAt: timestamp("ocr_processed_at"), // When OCR completed
 });
 
 export const insertReceiptSchema = createInsertSchema(receipts).omit({ id: true, uploadedAt: true });
@@ -362,3 +366,17 @@ export const T2_SECTIONS = [
   { id: "gst_payroll", name: "GST/HST & Payroll", description: "Sales tax and employee payroll information" },
   { id: "summary", name: "Filing Summary", description: "Review and submit your corporate return" },
 ] as const;
+
+// Paystubs Table (for uploaded paystub images)
+export const paystubs = pgTable("paystubs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  imageUrl: text("image_url").notNull(),
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
+  linkedIncomeId: varchar("linked_income_id"),
+  notes: text("notes"),
+});
+
+export const insertPaystubSchema = createInsertSchema(paystubs).omit({ id: true, uploadedAt: true });
+export type InsertPaystub = z.infer<typeof insertPaystubSchema>;
+export type Paystub = typeof paystubs.$inferSelect;
