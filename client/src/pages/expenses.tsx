@@ -67,12 +67,23 @@ import { useEffect } from "react";
 // Define vehicle subcategories (since schema config was rejected, define inline)
 const VEHICLE_SUBCATEGORIES = [
   { id: 'fuel', label: 'Fuel' },
+  { id: 'electric_vehicle_charging', label: 'Electric Vehicle Charging' },
   { id: 'maintenance', label: 'Maintenance & Repairs' },
   { id: 'insurance', label: 'Insurance' },
   { id: 'registration', label: 'Registration & Licensing' },
   { id: 'parking', label: 'Parking & Tolls' },
   { id: 'lease_payment', label: 'Lease or Loan Payment' },
   { id: 'other_vehicle', label: 'Other' },
+] as const;
+
+// Define home office subcategories
+const HOME_OFFICE_SUBCATEGORIES = [
+  { id: 'heat', label: 'Heat' },
+  { id: 'electricity', label: 'Electricity' },
+  { id: 'insurance', label: 'Insurance' },
+  { id: 'maintenance', label: 'Maintenance' },
+  { id: 'mortgage_interest', label: 'Mortgage Interest' },
+  { id: 'property_taxes', label: 'Property Taxes' },
 ] as const;
 
 // Add Vehicle type (you already have this, but ensure it matches schema)
@@ -116,7 +127,7 @@ const expenseFormSchema = z.object({
   isTaxDeductible: z.boolean().default(true),
   gstHstPaid: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
 }).refine((data) => {
-  if (data.category === 'vehicle' && !data.vehicleId) {
+  if (data.category === 'motor_vehicle_expenses' && !data.vehicleId) {
     return false;
   }
   return true;
@@ -658,7 +669,7 @@ export default function ExpensesPage() {
                       </DialogContent>
                     </Dialog>
 
-                    {form.watch("category") === "vehicle" && (
+                    {form.watch("category") === "motor_vehicle_expenses" && (
                       <>
                         <FormField
                           control={form.control}
@@ -715,6 +726,32 @@ export default function ExpensesPage() {
                           )}
                         />
                       </>
+                    )}
+                    {form.watch("category") === "home_office_expenses" && (
+                      <FormField
+                        control={form.control}
+                        name="subcategory"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Expense Type</FormLabel>
+                            <Select onValueChange={field.onChange} defaultValue={field.value}>
+                              <FormControl>
+                                <SelectTrigger>
+                                  <SelectValue placeholder="Select expense type" />
+                                </SelectTrigger>
+                              </FormControl>
+                              <SelectContent>
+                                {HOME_OFFICE_SUBCATEGORIES.map((subcat) => (
+                                  <SelectItem key={subcat.id} value={subcat.id}>
+                                    {subcat.label}
+                                  </SelectItem>
+                                ))}
+                              </SelectContent>
+                            </Select>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
                     )}
                     <FormField
                       control={form.control}
