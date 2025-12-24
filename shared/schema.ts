@@ -225,6 +225,7 @@ export interface TaxCalculation {
   cppContribution: number;
   totalOwed: number;
   effectiveTaxRate: number;
+  marginalTaxRate: number;
 }
 
 // GST/HST Summary for incorporated users

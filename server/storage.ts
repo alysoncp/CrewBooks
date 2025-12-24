@@ -72,6 +72,7 @@ export interface IStorage {
   deleteVehicle(id: string): Promise<boolean>;
 
   updateExpenseCategory(userId: string, oldCategory: string, newCategory: string): Promise<number>;
+  getProvincialBracketBreakdown(income: number, province: string): Array<{ bracket: string; rate: number; tax: number }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -199,6 +200,128 @@ export class DatabaseStorage implements IStorage {
     return result.length > 0;
   }
 
+  // Get the marginal federal tax rate for a given income
+  private getFederalMarginalRate(income: number): number {
+    const brackets = [
+      { limit: 55867, rate: 0.15 },
+      { limit: 111733, rate: 0.205 },
+      { limit: 173205, rate: 0.26 },
+      { limit: 246752, rate: 0.29 },
+      { limit: Infinity, rate: 0.33 },
+    ];
+
+    for (const bracket of brackets) {
+      if (income <= bracket.limit) {
+        return bracket.rate;
+      }
+    }
+    return brackets[brackets.length - 1].rate;
+  }
+
+  // Get the marginal provincial tax rate for a given income and province
+  private getProvincialMarginalRate(income: number, province: string): number {
+    const provincialBrackets: Record<string, Array<{ limit: number; rate: number }>> = {
+      AB: [
+        { limit: 60000, rate: 0.08 },
+        { limit: 151234, rate: 0.10 },
+        { limit: 181481, rate: 0.12 },
+        { limit: 241974, rate: 0.13 },
+        { limit: 362961, rate: 0.14 },
+        { limit: Infinity, rate: 0.15 },
+      ],
+      BC: [
+        { limit: 49279, rate: 0.0506 },
+        { limit: 98560, rate: 0.077 },
+        { limit: 113158, rate: 0.105 },
+        { limit: 137407, rate: 0.1229 },
+        { limit: 186306, rate: 0.147 },
+        { limit: 259829, rate: 0.168 },
+        { limit: Infinity, rate: 0.205 },
+      ],
+      MB: [
+        { limit: 47000, rate: 0.108 },
+        { limit: 100000, rate: 0.1275 },
+        { limit: Infinity, rate: 0.174 },
+      ],
+      NB: [
+        { limit: 51306, rate: 0.094 },
+        { limit: 102614, rate: 0.14 },
+        { limit: 190060, rate: 0.16 },
+        { limit: Infinity, rate: 0.195 },
+      ],
+      NL: [
+        { limit: 44192, rate: 0.087 },
+        { limit: 88382, rate: 0.145 },
+        { limit: 157792, rate: 0.158 },
+        { limit: 220910, rate: 0.178 },
+        { limit: 282214, rate: 0.198 },
+        { limit: 564429, rate: 0.208 },
+        { limit: 1128858, rate: 0.213 },
+        { limit: Infinity, rate: 0.218 },
+      ],
+      NS: [
+        { limit: 30507, rate: 0.0879 },
+        { limit: 61015, rate: 0.1495 },
+        { limit: 95883, rate: 0.1667 },
+        { limit: 154650, rate: 0.175 },
+        { limit: Infinity, rate: 0.21 },
+      ],
+      NT: [
+        { limit: 51964, rate: 0.059 },
+        { limit: 103930, rate: 0.086 },
+        { limit: 168967, rate: 0.122 },
+        { limit: Infinity, rate: 0.1405 },
+      ],
+      NU: [
+        { limit: 54707, rate: 0.04 },
+        { limit: 109413, rate: 0.07 },
+        { limit: 177885, rate: 0.09 },
+        { limit: Infinity, rate: 0.115 },
+      ],
+      ON: [
+        { limit: 52886, rate: 0.0505 },
+        { limit: 105775, rate: 0.0915 },
+        { limit: 150000, rate: 0.1116 },
+        { limit: 220000, rate: 0.1216 },
+        { limit: Infinity, rate: 0.1316 },
+      ],
+      PE: [
+        { limit: 33328, rate: 0.095 },
+        { limit: 64656, rate: 0.1347 },
+        { limit: 105000, rate: 0.166 },
+        { limit: 140000, rate: 0.1762 },
+        { limit: Infinity, rate: 0.19 },
+      ],
+      QC: [
+        { limit: 53255, rate: 0.14 },
+        { limit: 106495, rate: 0.19 },
+        { limit: 129590, rate: 0.24 },
+        { limit: Infinity, rate: 0.2575 },
+      ],
+      SK: [
+        { limit: 53463, rate: 0.105 },
+        { limit: 152750, rate: 0.125 },
+        { limit: Infinity, rate: 0.145 },
+      ],
+      YT: [
+        { limit: 57375, rate: 0.064 },
+        { limit: 114750, rate: 0.09 },
+        { limit: 177882, rate: 0.109 },
+        { limit: 500000, rate: 0.128 },
+        { limit: Infinity, rate: 0.15 },
+      ],
+    };
+
+    const brackets = provincialBrackets[province] || provincialBrackets.ON;
+
+    for (const bracket of brackets) {
+      if (income <= bracket.limit) {
+        return bracket.rate;
+      }
+    }
+    return brackets[brackets.length - 1].rate;
+  }
+
   async calculateTax(userId: string): Promise<TaxCalculation> {
     const incomeRecords = await this.getIncome(userId);
     const expenseRecords = await this.getExpenses(userId);
@@ -216,6 +339,11 @@ export class DatabaseStorage implements IStorage {
     const totalIncomeTax = federalTax + provincialTax;
     const totalOwed = totalIncomeTax + cppContribution;
     const effectiveTaxRate = netIncome > 0 ? (totalOwed / netIncome) * 100 : 0;
+    
+    // Calculate marginal tax rate (federal + provincial rate for the current bracket)
+    const federalMarginalRate = this.getFederalMarginalRate(netIncome);
+    const provincialMarginalRate = this.getProvincialMarginalRate(netIncome, user?.province || "ON");
+    const marginalTaxRate = (federalMarginalRate + provincialMarginalRate) * 100;
 
     return {
       grossIncome,
@@ -227,6 +355,7 @@ export class DatabaseStorage implements IStorage {
       cppContribution,
       totalOwed,
       effectiveTaxRate,
+      marginalTaxRate,
     };
   }
 
@@ -617,6 +746,135 @@ export class DatabaseStorage implements IStorage {
       .returning({ id: expenses.id });
     
     return result.length;
+  }
+
+  // Get provincial bracket breakdown for display
+  getProvincialBracketBreakdown(income: number, province: string): Array<{ bracket: string; rate: number; tax: number }> {
+    // Use the same brackets structure from calculateProvincialTax
+    const provincialBrackets: Record<string, Array<{ limit: number; rate: number }>> = {
+      AB: [
+        { limit: 60000, rate: 0.08 },
+        { limit: 151234, rate: 0.10 },
+        { limit: 181481, rate: 0.12 },
+        { limit: 241974, rate: 0.13 },
+        { limit: 362961, rate: 0.14 },
+        { limit: Infinity, rate: 0.15 },
+      ],
+      BC: [
+        { limit: 49279, rate: 0.0506 },
+        { limit: 98560, rate: 0.077 },
+        { limit: 113158, rate: 0.105 },
+        { limit: 137407, rate: 0.1229 },
+        { limit: 186306, rate: 0.147 },
+        { limit: 259829, rate: 0.168 },
+        { limit: Infinity, rate: 0.205 },
+      ],
+      MB: [
+        { limit: 47000, rate: 0.108 },
+        { limit: 100000, rate: 0.1275 },
+        { limit: Infinity, rate: 0.174 },
+      ],
+      NB: [
+        { limit: 51306, rate: 0.094 },
+        { limit: 102614, rate: 0.14 },
+        { limit: 190060, rate: 0.16 },
+        { limit: Infinity, rate: 0.195 },
+      ],
+      NL: [
+        { limit: 44192, rate: 0.087 },
+        { limit: 88382, rate: 0.145 },
+        { limit: 157792, rate: 0.158 },
+        { limit: 220910, rate: 0.178 },
+        { limit: 282214, rate: 0.198 },
+        { limit: 564429, rate: 0.208 },
+        { limit: 1128858, rate: 0.213 },
+        { limit: Infinity, rate: 0.218 },
+      ],
+      NS: [
+        { limit: 30507, rate: 0.0879 },
+        { limit: 61015, rate: 0.1495 },
+        { limit: 95883, rate: 0.1667 },
+        { limit: 154650, rate: 0.175 },
+        { limit: Infinity, rate: 0.21 },
+      ],
+      NT: [
+        { limit: 51964, rate: 0.059 },
+        { limit: 103930, rate: 0.086 },
+        { limit: 168967, rate: 0.122 },
+        { limit: Infinity, rate: 0.1405 },
+      ],
+      NU: [
+        { limit: 54707, rate: 0.04 },
+        { limit: 109413, rate: 0.07 },
+        { limit: 177885, rate: 0.09 },
+        { limit: Infinity, rate: 0.115 },
+      ],
+      ON: [
+        { limit: 52886, rate: 0.0505 },
+        { limit: 105775, rate: 0.0915 },
+        { limit: 150000, rate: 0.1116 },
+        { limit: 220000, rate: 0.1216 },
+        { limit: Infinity, rate: 0.1316 },
+      ],
+      PE: [
+        { limit: 33328, rate: 0.095 },
+        { limit: 64656, rate: 0.1347 },
+        { limit: 105000, rate: 0.166 },
+        { limit: 140000, rate: 0.1762 },
+        { limit: Infinity, rate: 0.19 },
+      ],
+      QC: [
+        { limit: 53255, rate: 0.14 },
+        { limit: 106495, rate: 0.19 },
+        { limit: 129590, rate: 0.24 },
+        { limit: Infinity, rate: 0.2575 },
+      ],
+      SK: [
+        { limit: 53463, rate: 0.105 },
+        { limit: 152750, rate: 0.125 },
+        { limit: Infinity, rate: 0.145 },
+      ],
+      YT: [
+        { limit: 57375, rate: 0.064 },
+        { limit: 114750, rate: 0.09 },
+        { limit: 177882, rate: 0.109 },
+        { limit: 500000, rate: 0.128 },
+        { limit: Infinity, rate: 0.15 },
+      ],
+    };
+
+    const brackets = provincialBrackets[province] || provincialBrackets.ON;
+    const breakdown: Array<{ bracket: string; rate: number; tax: number }> = [];
+    
+    let prevLimit = 0;
+    let remaining = income;
+
+    // Always show ALL brackets for the province
+    for (let i = 0; i < brackets.length; i++) {
+      const bracket = brackets[i];
+      
+      // Calculate how much income falls in this bracket (0 if income hasn't reached it)
+      const bracketSize = bracket.limit === Infinity 
+        ? Math.max(0, remaining) 
+        : Math.min(Math.max(0, remaining), bracket.limit - prevLimit);
+      
+      const taxInBracket = bracketSize * bracket.rate;
+      
+      const bracketLabel = bracket.limit === Infinity 
+        ? `$${prevLimit.toLocaleString()}+`
+        : `$${prevLimit.toLocaleString()} - $${bracket.limit.toLocaleString()}`;
+      
+      breakdown.push({
+        bracket: bracketLabel,
+        rate: bracket.rate * 100, // Convert to percentage for display
+        tax: taxInBracket,
+      });
+      
+      remaining -= bracketSize;
+      prevLimit = bracket.limit;
+    }
+
+    return breakdown;
   }
 }
 

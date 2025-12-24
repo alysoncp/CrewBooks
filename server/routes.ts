@@ -289,18 +289,21 @@ export async function registerRoutes(
       }
       
       const calculation = await storage.calculateTax(userId);
+      
+      // Get user's net income for bracket breakdown
+      const incomeRecords = await storage.getIncome(userId);
+      const expenseRecords = await storage.getExpenses(userId);
+      const grossIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+      const totalExpenses = expenseRecords.reduce((sum, e) => sum + parseFloat(e.amount), 0);
+      const netIncome = Math.max(0, grossIncome - totalExpenses);
 
       const breakdown = {
         federalBrackets: [
-          { bracket: "$0 - $55,867", rate: 15, tax: calculation.federalTax * 0.35 },
-          { bracket: "$55,867 - $111,733", rate: 20.5, tax: calculation.federalTax * 0.4 },
-          { bracket: "$111,733+", rate: 26, tax: calculation.federalTax * 0.25 },
+          { bracket: "$0 - $57,375", rate: 15, tax: calculation.federalTax * 0.35 },
+          { bracket: "$57,375 - $114,750", rate: 20.5, tax: calculation.federalTax * 0.4 },
+          { bracket: "$114,750+", rate: 26, tax: calculation.federalTax * 0.25 },
         ],
-        provincialBrackets: [
-          { bracket: "$0 - $51,446", rate: 5.05, tax: calculation.provincialTax * 0.4 },
-          { bracket: "$51,446 - $102,894", rate: 9.15, tax: calculation.provincialTax * 0.4 },
-          { bracket: "$102,894+", rate: 11.16, tax: calculation.provincialTax * 0.2 },
-        ],
+        provincialBrackets: storage.getProvincialBracketBreakdown(netIncome, user?.province || "ON"),
       };
 
       res.json({ calculation, user, breakdown });

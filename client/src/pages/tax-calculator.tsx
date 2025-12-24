@@ -9,6 +9,7 @@ import { Calculator, DollarSign, Percent, TrendingDown, Building, Lock, Sparkles
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { Link } from "wouter";
 import type { TaxCalculation, User } from "@shared/schema";
+import { CANADIAN_PROVINCES } from "@shared/schema";
 
 interface TaxData {
   calculation: TaxCalculation;
@@ -161,23 +162,7 @@ export default function TaxCalculatorPage() {
                 </CardTitle>
                 <CardDescription>Canada Revenue Agency</CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {data?.breakdown?.federalBrackets?.map((bracket, index, arr) => (
-                  <TaxBracketRow
-                    key={bracket.bracket}
-                    bracket={bracket.bracket}
-                    rate={bracket.rate}
-                    tax={bracket.tax}
-                    isLast={index === arr.length - 1}
-                  />
-                )) || (
-                  <div className="space-y-3">
-                    <TaxBracketRow bracket="$0 - $55,867" rate={15} tax={calculation?.federalTax ? calculation.federalTax * 0.3 : 0} />
-                    <TaxBracketRow bracket="$55,867 - $111,733" rate={20.5} tax={calculation?.federalTax ? calculation.federalTax * 0.4 : 0} />
-                    <TaxBracketRow bracket="$111,733 - $173,205" rate={26} tax={calculation?.federalTax ? calculation.federalTax * 0.2 : 0} isLast />
-                  </div>
-                )}
-                <Separator />
+              <CardContent>
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Total Federal Tax</span>
                   <span className="font-mono text-lg font-semibold" data-testid="stat-federal-total">
@@ -194,26 +179,10 @@ export default function TaxCalculatorPage() {
                   Provincial Tax
                 </CardTitle>
                 <CardDescription>
-                  {user?.province === "ON" ? "Ontario" : user?.province || "Ontario"}
+                  {CANADIAN_PROVINCES.find(p => p.code === user?.province)?.name || "Ontario"}
                 </CardDescription>
               </CardHeader>
-              <CardContent className="space-y-4">
-                {data?.breakdown?.provincialBrackets?.map((bracket, index, arr) => (
-                  <TaxBracketRow
-                    key={bracket.bracket}
-                    bracket={bracket.bracket}
-                    rate={bracket.rate}
-                    tax={bracket.tax}
-                    isLast={index === arr.length - 1}
-                  />
-                )) || (
-                  <div className="space-y-3">
-                    <TaxBracketRow bracket="$0 - $51,446" rate={5.05} tax={calculation?.provincialTax ? calculation.provincialTax * 0.35 : 0} />
-                    <TaxBracketRow bracket="$51,446 - $102,894" rate={9.15} tax={calculation?.provincialTax ? calculation.provincialTax * 0.45 : 0} />
-                    <TaxBracketRow bracket="$102,894 - $150,000" rate={11.16} tax={calculation?.provincialTax ? calculation.provincialTax * 0.2 : 0} isLast />
-                  </div>
-                )}
-                <Separator />
+              <CardContent>
                 <div className="flex items-center justify-between">
                   <span className="font-medium">Total Provincial Tax</span>
                   <span className="font-mono text-lg font-semibold" data-testid="stat-provincial-total">
@@ -223,6 +192,36 @@ export default function TaxCalculatorPage() {
               </CardContent>
             </Card>
           </div>
+
+          <Card>
+            <CardHeader>
+              <CardTitle className="flex items-center gap-2">
+                <Percent className="h-5 w-5" />
+                Tax Rates
+              </CardTitle>
+              <CardDescription>
+                Your tax rate information
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="grid gap-4 md:grid-cols-2">
+                <div className="space-y-1">
+                  <span className="text-sm text-muted-foreground">Marginal Tax Rate</span>
+                  <p className="font-mono text-xl font-semibold" data-testid="stat-marginal-rate">
+                    {formatPercent(calculation?.marginalTaxRate ?? 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Tax rate on next dollar earned</p>
+                </div>
+                <div className="space-y-1">
+                  <span className="text-sm text-muted-foreground">Effective Tax Rate</span>
+                  <p className="font-mono text-xl font-semibold" data-testid="stat-effective-rate">
+                    {formatPercent(calculation?.effectiveTaxRate ?? 0)}
+                  </p>
+                  <p className="text-xs text-muted-foreground">Average tax rate on total income</p>
+                </div>
+              </div>
+            </CardContent>
+          </Card>
 
           <Card>
             <CardHeader>
