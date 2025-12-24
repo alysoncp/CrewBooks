@@ -205,7 +205,9 @@ export const vehicles = pgTable("vehicles", {
   year: numeric("year", { precision: 4, scale: 0 }),
   licensePlate: text("license_plate"),
   isPrimary: boolean("is_primary").default(false),
-  claimsCca: boolean("claims_cca").default(false), // Add this line
+  claimsCca: boolean("claims_cca").default(false),
+  purchasedThisYear: boolean("purchased_this_year").default(false),
+  purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

@@ -97,6 +97,8 @@ type Vehicle = {
   licensePlate?: string | null;
   isPrimary?: boolean | null;
   claimsCca?: boolean | null;
+  purchasedThisYear?: boolean | null;
+  purchasePrice?: number | null;
   createdAt?: string | null;
   updatedAt?: string | null;
 };
@@ -112,9 +114,20 @@ const vehicleFormSchema = z.object({
   licensePlate: z.string().transform((val) => val.trim() || undefined).optional(),
   isPrimary: z.boolean().default(false),
   claimsCca: z.boolean().default(false),
+  purchasedThisYear: z.boolean().default(false),
+  purchasePrice: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
+}).refine((data) => {
+  // If purchased this year, purchase price should be provided
+  if (data.purchasedThisYear && (!data.purchasePrice || isNaN(data.purchasePrice))) {
+    return false;
+  }
+  return true;
+}, {
+  message: "Purchase price is required when vehicle was purchased this year",
+  path: ["purchasePrice"],
 });
 
-type VehicleFormData = z.infer<typeof vehicleFormSchema>;
+type VehicleFormData = z.input<typeof vehicleFormSchema>;
 
 const expenseFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
@@ -282,8 +295,13 @@ export default function ExpensesPage() {
       licensePlate: "",
       isPrimary: false,
       claimsCca: false,
+      purchasedThisYear: false,
+      purchasePrice: "",
     },
   });
+
+  // Watch purchasedThisYear to conditionally show purchase price field
+  const purchasedThisYear = vehicleForm.watch("purchasedThisYear");
 
   // Watch vehicles - remove the conditional enabled, fetch all vehicles
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
@@ -450,13 +468,15 @@ export default function ExpensesPage() {
   const handleEditVehicle = (vehicle: Vehicle) => {
     setEditingVehicle(vehicle);
     vehicleForm.reset({
-      name: vehicle.name,
+      name: vehicle.name || "",
       make: vehicle.make || "",
       model: vehicle.model || "",
       year: vehicle.year || "",
       licensePlate: vehicle.licensePlate || "",
       isPrimary: vehicle.isPrimary || false,
       claimsCca: vehicle.claimsCca || false,
+      purchasedThisYear: (vehicle as any).purchasedThisYear || false,
+      purchasePrice: (vehicle as any).purchasePrice?.toString() || "",
     });
     setIsVehicleDialogOpen(true);
   };
@@ -895,150 +915,194 @@ export default function ExpensesPage() {
                   Add Vehicle
                 </Button>
               </DialogTrigger>
-              <DialogContent className="sm:max-w-md">
+              <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
                 <DialogHeader>
                   <DialogTitle>{editingVehicle ? "Edit Vehicle" : "Add Vehicle"}</DialogTitle>
                 </DialogHeader>
-                <Form {...vehicleForm}>
-                  <form onSubmit={vehicleForm.handleSubmit(handleVehicleSubmit)} className="space-y-4">
-                    <FormField
-                      control={vehicleForm.control}
-                      name="name"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Vehicle Name *</FormLabel>
-                          <FormControl>
-                            <Input
-                              {...field}
-                              placeholder="e.g., 2019 Honda Civic, Work Truck"
-                              data-testid="input-vehicle-name"
-                            />
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
+                <div className="overflow-y-auto flex-1 pr-2">
+                  <Form {...vehicleForm}>
+                    <form onSubmit={vehicleForm.handleSubmit(handleVehicleSubmit)} className="space-y-4">
+                      <FormField
+                        control={vehicleForm.control}
+                        name="name"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Vehicle Name *</FormLabel>
+                            <FormControl>
+                              <Input
+                                {...field}
+                                placeholder="e.g., 2019 Honda Civic, Work Truck"
+                                data-testid="input-vehicle-name"
+                              />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <FormField
+                          control={vehicleForm.control}
+                          name="make"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Make</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Honda" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={vehicleForm.control}
+                          name="model"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Model</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="Civic" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <div className="grid gap-4 sm:grid-cols-2">
+                        <FormField
+                          control={vehicleForm.control}
+                          name="year"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Year</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="2019" type="number" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                        <FormField
+                          control={vehicleForm.control}
+                          name="licensePlate"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>License Plate</FormLabel>
+                              <FormControl>
+                                <Input {...field} placeholder="ABC 123" />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                      <FormField
+                        control={vehicleForm.control}
+                        name="isPrimary"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Set as Primary Vehicle</FormLabel>
+                              <FormDescription>
+                                This vehicle will be selected by default when adding vehicle expenses
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={vehicleForm.control}
+                        name="claimsCca"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Claim CCA (Capital Cost Allowance)</FormLabel>
+                              <FormDescription>
+                                I intend to claim Capital Cost Allowance for this vehicle
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={vehicleForm.control}
+                        name="purchasedThisYear"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                            <div className="space-y-0.5">
+                              <FormLabel className="text-base">Did you purchase this vehicle this year?</FormLabel>
+                              <FormDescription>
+                                Select if you purchased this vehicle in the current tax year
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      {purchasedThisYear && (
+                        <FormField
+                          control={vehicleForm.control}
+                          name="purchasePrice"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Purchase Price *</FormLabel>
+                              <FormControl>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="0.00"
+                                  data-testid="input-purchase-price"
+                                />
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
                       )}
-                    />
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <FormField
-                        control={vehicleForm.control}
-                        name="make"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Make</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="Honda" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={vehicleForm.control}
-                        name="model"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Model</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="Civic" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <div className="grid gap-4 sm:grid-cols-2">
-                      <FormField
-                        control={vehicleForm.control}
-                        name="year"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Year</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="2019" type="number" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={vehicleForm.control}
-                        name="licensePlate"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>License Plate</FormLabel>
-                            <FormControl>
-                              <Input {...field} placeholder="ABC 123" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    </div>
-                    <FormField
-                      control={vehicleForm.control}
-                      name="isPrimary"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                            <FormLabel className="text-base">Set as Primary Vehicle</FormLabel>
-                            <FormDescription>
-                              This vehicle will be selected by default when adding vehicle expenses
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <FormField
-                      control={vehicleForm.control}
-                      name="claimsCca"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                            <FormLabel className="text-base">Claim CCA (Capital Cost Allowance)</FormLabel>
-                            <FormDescription>
-                              I intend to claim Capital Cost Allowance for this vehicle
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
-                    <DialogFooter>
-                      <Button
-                        type="button"
-                        variant="outline"
-                        onClick={() => {
-                          setIsVehicleDialogOpen(false);
-                          setEditingVehicle(null);
-                          vehicleForm.reset();
-                        }}
-                      >
-                        Cancel
-                      </Button>
-                      <Button
-                        type="submit"
-                        disabled={createVehicleMutation.isPending || updateVehicleMutation.isPending}
-                      >
-                        {createVehicleMutation.isPending || updateVehicleMutation.isPending
-                          ? "Saving..."
-                          : editingVehicle
-                          ? "Update Vehicle"
-                          : "Add Vehicle"}
-                      </Button>
-                    </DialogFooter>
-                  </form>
-                </Form>
+                    </form>
+                  </Form>
+                </div>
+                <DialogFooter>
+                  <Button
+                    type="button"
+                    variant="outline"
+                    onClick={() => {
+                      setIsVehicleDialogOpen(false);
+                      setEditingVehicle(null);
+                      vehicleForm.reset();
+                    }}
+                  >
+                    Cancel
+                  </Button>
+                  <Button
+                    type="submit"
+                    disabled={createVehicleMutation.isPending || updateVehicleMutation.isPending}
+                    onClick={vehicleForm.handleSubmit(handleVehicleSubmit)}
+                  >
+                    {createVehicleMutation.isPending || updateVehicleMutation.isPending
+                      ? "Saving..."
+                      : editingVehicle
+                      ? "Update Vehicle"
+                      : "Add Vehicle"}
+                  </Button>
+                </DialogFooter>
               </DialogContent>
             </Dialog>
           </div>
