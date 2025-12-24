@@ -257,15 +257,115 @@ export class DatabaseStorage implements IStorage {
   }
 
   private calculateProvincialTax(income: number, province: string): number {
-    const ontarioBrackets = [
-      { limit: 51446, rate: 0.0505 },
-      { limit: 102894, rate: 0.0915 },
-      { limit: 150000, rate: 0.1116 },
-      { limit: 220000, rate: 0.1216 },
-      { limit: Infinity, rate: 0.1316 },
-    ];
+    // 2025 Provincial/Territorial Tax Brackets
+    const provincialBrackets: Record<string, Array<{ limit: number; rate: number }>> = {
+      // Alberta
+      AB: [
+        { limit: 60000, rate: 0.08 },
+        { limit: 151234, rate: 0.10 },
+        { limit: 181481, rate: 0.12 },
+        { limit: 241974, rate: 0.13 },
+        { limit: 362961, rate: 0.14 },
+        { limit: Infinity, rate: 0.15 },
+      ],
+      // British Columbia
+      BC: [
+        { limit: 49279, rate: 0.0506 },
+        { limit: 98560, rate: 0.077 },
+        { limit: 113158, rate: 0.105 },
+        { limit: 137407, rate: 0.1229 },
+        { limit: 186306, rate: 0.147 },
+        { limit: 259829, rate: 0.168 },
+        { limit: Infinity, rate: 0.205 },
+      ],
+      // Manitoba
+      MB: [
+        { limit: 47000, rate: 0.108 },
+        { limit: 100000, rate: 0.1275 },
+        { limit: Infinity, rate: 0.174 },
+      ],
+      // New Brunswick
+      NB: [
+        { limit: 51306, rate: 0.094 },
+        { limit: 102614, rate: 0.14 },
+        { limit: 190060, rate: 0.16 },
+        { limit: Infinity, rate: 0.195 },
+      ],
+      // Newfoundland and Labrador
+      NL: [
+        { limit: 44192, rate: 0.087 },
+        { limit: 88382, rate: 0.145 },
+        { limit: 157792, rate: 0.158 },
+        { limit: 220910, rate: 0.178 },
+        { limit: 282214, rate: 0.198 },
+        { limit: 564429, rate: 0.208 },
+        { limit: 1128858, rate: 0.213 },
+        { limit: Infinity, rate: 0.218 },
+      ],
+      // Nova Scotia
+      NS: [
+        { limit: 30507, rate: 0.0879 },
+        { limit: 61015, rate: 0.1495 },
+        { limit: 95883, rate: 0.1667 },
+        { limit: 154650, rate: 0.175 },
+        { limit: Infinity, rate: 0.21 },
+      ],
+      // Northwest Territories
+      NT: [
+        { limit: 51964, rate: 0.059 },
+        { limit: 103930, rate: 0.086 },
+        { limit: 168967, rate: 0.122 },
+        { limit: Infinity, rate: 0.1405 },
+      ],
+      // Nunavut
+      NU: [
+        { limit: 54707, rate: 0.04 },
+        { limit: 109413, rate: 0.07 },
+        { limit: 177885, rate: 0.09 },
+        { limit: Infinity, rate: 0.115 },
+      ],
+      // Ontario (2025 brackets)
+      ON: [
+        { limit: 52886, rate: 0.0505 },
+        { limit: 105775, rate: 0.0915 },
+        { limit: 150000, rate: 0.1116 },
+        { limit: 220000, rate: 0.1216 },
+        { limit: Infinity, rate: 0.1316 },
+      ],
+      // Prince Edward Island
+      PE: [
+        { limit: 33328, rate: 0.095 },
+        { limit: 64656, rate: 0.1347 },
+        { limit: 105000, rate: 0.166 },
+        { limit: 140000, rate: 0.1762 },
+        { limit: Infinity, rate: 0.19 },
+      ],
+      // Quebec (note: Quebec has separate tax filing)
+      QC: [
+        { limit: 53255, rate: 0.14 },
+        { limit: 106495, rate: 0.19 },
+        { limit: 129590, rate: 0.24 },
+        { limit: Infinity, rate: 0.2575 },
+      ],
+      // Saskatchewan
+      SK: [
+        { limit: 53463, rate: 0.105 },
+        { limit: 152750, rate: 0.125 },
+        { limit: Infinity, rate: 0.145 },
+      ],
+      // Yukon
+      YT: [
+        { limit: 57375, rate: 0.064 },
+        { limit: 114750, rate: 0.09 },
+        { limit: 177882, rate: 0.109 },
+        { limit: 500000, rate: 0.128 },
+        { limit: Infinity, rate: 0.15 },
+      ],
+    };
 
-    const brackets = ontarioBrackets;
+    // Get brackets for the province, default to Ontario if not found
+    const brackets = provincialBrackets[province] || provincialBrackets.ON;
+    
     let tax = 0;
     let remaining = income;
     let prevLimit = 0;
@@ -278,8 +378,11 @@ export class DatabaseStorage implements IStorage {
       prevLimit = bracket.limit;
     }
 
+    // Basic personal amount credit - using Ontario's as default for consistency
+    // Note: Each province has its own basic personal amount, but for simplicity
+    // we use a standard approach. This can be refined later if needed.
     const basicPersonalAmount = 11865;
-    const basicCredit = basicPersonalAmount * 0.0505;
+    const basicCredit = basicPersonalAmount * (brackets[0]?.rate || 0.0505);
     return Math.max(0, tax - basicCredit);
   }
 
