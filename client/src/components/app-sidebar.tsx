@@ -29,6 +29,8 @@ import {
 import { Button } from "@/components/ui/button";
 import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
+import { useQueryClient } from "@tanstack/react-query";
+import { useToast } from "@/hooks/use-toast";
 
 const mainMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -42,6 +44,8 @@ const settingsMenuItems = [
 export function AppSidebar() {
   const [location] = useLocation();
   const { user } = useAuth();
+  const queryClient = useQueryClient();
+  const { toast } = useToast();
 
   const displayName = user?.firstName && user?.lastName 
     ? `${user.firstName} ${user.lastName}`
@@ -66,6 +70,36 @@ export function AppSidebar() {
     ...(hasOptimization ? [{ title: "Optimization", url: "/optimization", icon: TrendingUp }] : []),
     ...(hasGstNumber ? [{ title: "GST/HST", url: "/gst-hst", icon: Percent }] : []),
   ];
+
+  const handleLogout = async () => {
+    try {
+      const response = await fetch("/api/logout", {
+        method: "GET",
+        credentials: "include",
+      });
+
+      if (!response.ok) {
+        throw new Error("Logout failed");
+      }
+
+      // Immediately set user to null to trigger UI update
+      queryClient.setQueryData(["/api/auth/user"], null);
+      
+      // Also invalidate to ensure fresh state on next login
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      
+      toast({
+        title: "Logged out",
+        description: "You have been successfully logged out.",
+      });
+    } catch (error) {
+      toast({
+        title: "Error",
+        description: "Failed to log out. Please try again.",
+        variant: "destructive",
+      });
+    }
+  };
 
   return (
     <Sidebar>
@@ -214,12 +248,16 @@ export function AppSidebar() {
             <p className="text-xs text-muted-foreground">Tax Year 2024</p>
           </div>
         </div>
-        <a href="/api/logout">
-          <Button variant="outline" size="sm" className="w-full" data-testid="button-logout">
-            <LogOut className="h-4 w-4 mr-2" />
-            Sign Out
-          </Button>
-        </a>
+        <Button 
+          variant="outline" 
+          size="sm" 
+          className="w-full" 
+          data-testid="button-logout"
+          onClick={handleLogout}
+        >
+          <LogOut className="h-4 w-4 mr-2" />
+          Sign Out
+        </Button>
       </SidebarFooter>
     </Sidebar>
   );
