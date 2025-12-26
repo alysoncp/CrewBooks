@@ -84,6 +84,7 @@ const HOME_OFFICE_SUBCATEGORIES = [
   { id: 'maintenance', label: 'Maintenance' },
   { id: 'mortgage_interest', label: 'Mortgage Interest' },
   { id: 'property_taxes', label: 'Property Taxes' },
+  { id: 'rent', label: 'Rent' },
 ] as const;
 
 // Add Vehicle type (you already have this, but ensure it matches schema)
