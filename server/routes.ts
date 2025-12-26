@@ -88,6 +88,24 @@ export async function registerRoutes(
         }
       }
       
+      // Convert homeOfficePercentage from string to number (or null if empty)
+      if (profileData.homeOfficePercentage !== undefined) {
+        const percentage = profileData.homeOfficePercentage;
+        if (percentage === "" || percentage === null) {
+          profileData.homeOfficePercentage = null;
+        } else {
+          const numericValue = parseFloat(percentage);
+          profileData.homeOfficePercentage = isNaN(numericValue) ? null : numericValue.toString();
+        }
+      }
+      
+      // Ensure hasHomeOffice is explicitly set as a boolean
+      if (profileData.hasHomeOffice !== undefined) {
+        profileData.hasHomeOffice = Boolean(profileData.hasHomeOffice);
+      }
+      
+      console.log("Updating profile with data:", profileData);
+      
       const updated = await storage.updateUser(userId, profileData);
       if (!updated) {
         return res.status(404).json({ error: "User not found" });

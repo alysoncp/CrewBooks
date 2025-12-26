@@ -60,6 +60,8 @@ const profileFormSchema = z.object({
   hasGstNumber: z.boolean(),
   gstNumber: z.string().optional().or(z.literal("")),
   hasRegularEmployment: z.boolean(),
+  hasHomeOffice: z.boolean(),
+  homeOfficePercentage: z.string().optional().or(z.literal("")),
 });
 
 type ProfileFormData = z.infer<typeof profileFormSchema>;
@@ -107,6 +109,8 @@ export default function ProfilePage() {
       hasGstNumber: false,
       gstNumber: "",
       hasRegularEmployment: false,
+      hasHomeOffice: false,
+      homeOfficePercentage: "",
     },
     values: user
       ? {
@@ -123,6 +127,8 @@ export default function ProfilePage() {
           hasGstNumber: user.hasGstNumber || false,
           gstNumber: user.gstNumber || "",
           hasRegularEmployment: user.hasRegularEmployment || false,
+          hasHomeOffice: user.hasHomeOffice || false,
+          homeOfficePercentage: user.homeOfficePercentage ? user.homeOfficePercentage.toString() : "",
         }
       : undefined,
   });
@@ -130,6 +136,7 @@ export default function ProfilePage() {
   const watchedUserType = useWatch({ control: form.control, name: "userType" });
   const watchedHasAgent = useWatch({ control: form.control, name: "hasAgent" });
   const watchedHasGstNumber = useWatch({ control: form.control, name: "hasGstNumber" });
+  const watchedHasHomeOffice = useWatch({ control: form.control, name: "hasHomeOffice" });
   const watchedUnionAffiliations = useWatch({ control: form.control, name: "unionAffiliations" }) || [];
   
   const isPerformer = watchedUserType === USER_TYPES.PERFORMER || watchedUserType === USER_TYPES.BOTH;
@@ -727,27 +734,80 @@ export default function ProfilePage() {
             </CardHeader>
             <CardContent className="space-y-6">
               {hasPersonalFeatures && (
-                <FormField
-                  control={form.control}
-                  name="hasRegularEmployment"
-                  render={({ field }) => (
-                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                      <div className="space-y-0.5">
-                        <FormLabel className="text-base">Regular Employment Income</FormLabel>
-                        <FormDescription>
-                          Do you also have regular T4 employment income in addition to your self-employment?
-                        </FormDescription>
-                      </div>
-                      <FormControl>
-                        <Switch
-                          checked={field.value}
-                          onCheckedChange={field.onChange}
-                          data-testid="switch-has-employment"
-                        />
-                      </FormControl>
-                    </FormItem>
+                <>
+                  <FormField
+                    control={form.control}
+                    name="hasRegularEmployment"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-base">Regular Employment Income</FormLabel>
+                          <FormDescription>
+                            Do you also have regular T4 employment income in addition to your self-employment?
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="switch-has-employment"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+
+                  <FormField
+                    control={form.control}
+                    name="hasHomeOffice"
+                    render={({ field }) => (
+                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                        <div className="space-y-0.5">
+                          <FormLabel className="text-base">Home Office</FormLabel>
+                          <FormDescription>
+                            Do you use a home office?
+                          </FormDescription>
+                        </div>
+                        <FormControl>
+                          <Switch
+                            checked={field.value}
+                            onCheckedChange={field.onChange}
+                            data-testid="switch-has-home-office"
+                          />
+                        </FormControl>
+                      </FormItem>
+                    )}
+                  />
+
+                  {watchedHasHomeOffice && (
+                    <FormField
+                      control={form.control}
+                      name="homeOfficePercentage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>What percentage of your home is used for business?</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.1"
+                                min="0"
+                                max="100"
+                                placeholder="10"
+                                className="pr-8"
+                                data-testid="input-home-office-percentage"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+                            </div>
+                          </FormControl>
+                          <FormDescription>Enter the percentage of your home used exclusively for business</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
                   )}
-                />
+                </>
               )}
 
               {!hasPersonalFeatures && (

@@ -107,6 +107,8 @@ export const users = pgTable("users", {
   usesPersonalVehicle: boolean("uses_personal_vehicle").default(false),
   usesCorporateVehicle: boolean("uses_corporate_vehicle").default(false),
   hasRegularEmployment: boolean("has_regular_employment").default(false),
+  hasHomeOffice: boolean("has_home_office").default(false),
+  homeOfficePercentage: numeric("home_office_percentage", { precision: 5, scale: 2 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -134,6 +136,8 @@ export const insertUserSchema = createInsertSchema(users).pick({
   usesPersonalVehicle: true,
   usesCorporateVehicle: true,
   hasRegularEmployment: true,
+  hasHomeOffice: true,
+  homeOfficePercentage: true,
 });
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
