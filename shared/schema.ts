@@ -42,7 +42,6 @@ export const EXPENSE_CATEGORIES = [
   "business_taxes",
   "commissions_agent_fees",
   "delivery_freight",
-  "equipment",
   "fuel_costs",
   "insurance",
   "licenses_memberships",

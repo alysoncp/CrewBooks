@@ -83,9 +83,8 @@ export function getCategoryLabel(category: string): string {
     delivery_freight: 'Delivery & Freight',
     motor_vehicle_expenses: 'Vehicle Expenses',
     home_office_expenses: 'Home Office Expenses',
-    equipment: 'Equipment',
     commissions_agent_fees: 'Commissions & Agent Fees',
-    training: 'Training',
+    training: 'Training and Convention',
   };
   
   // If it's a known category, return the label
