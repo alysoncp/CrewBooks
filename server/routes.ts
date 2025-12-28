@@ -571,9 +571,10 @@ export async function registerRoutes(
       cleanedData.claimsCca = req.body.claimsCca === true || req.body.claimsCca === "true";
       cleanedData.ccaClass = (req.body.ccaClass && req.body.ccaClass.trim()) ? req.body.ccaClass.trim() : null;
       cleanedData.purchasedThisYear = req.body.purchasedThisYear === true || req.body.purchasedThisYear === "true";
-      cleanedData.purchasePrice = req.body.purchasePrice ? parseFloat(req.body.purchasePrice.toString()) : null;
-      cleanedData.currentMileage = req.body.currentMileage ? parseFloat(req.body.currentMileage.toString()) : null;
-      cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear ? parseFloat(req.body.mileageAtBeginningOfYear.toString()) : null;
+      // Convert numbers to strings for schema validation (Drizzle numeric columns expect strings)
+      cleanedData.purchasePrice = req.body.purchasePrice !== null && req.body.purchasePrice !== undefined ? String(req.body.purchasePrice) : null;
+      cleanedData.currentMileage = req.body.currentMileage !== null && req.body.currentMileage !== undefined ? String(req.body.currentMileage) : null;
+      cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
       
       console.log("Creating vehicle with cleaned data:", JSON.stringify(cleanedData, null, 2));
       
@@ -634,9 +635,10 @@ export async function registerRoutes(
       if (req.body.claimsCca !== undefined) cleanedData.claimsCca = req.body.claimsCca;
       if (req.body.ccaClass !== undefined) cleanedData.ccaClass = req.body.ccaClass || null;
       if (req.body.purchasedThisYear !== undefined) cleanedData.purchasedThisYear = req.body.purchasedThisYear;
-      if (req.body.purchasePrice !== undefined) cleanedData.purchasePrice = req.body.purchasePrice ? parseFloat(req.body.purchasePrice.toString()) : null;
-      if (req.body.currentMileage !== undefined) cleanedData.currentMileage = req.body.currentMileage ? parseFloat(req.body.currentMileage.toString()) : null;
-      if (req.body.mileageAtBeginningOfYear !== undefined) cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear ? parseFloat(req.body.mileageAtBeginningOfYear.toString()) : null;
+      // Convert numbers to strings for schema validation (Drizzle numeric columns expect strings)
+      if (req.body.purchasePrice !== undefined) cleanedData.purchasePrice = req.body.purchasePrice !== null && req.body.purchasePrice !== undefined ? String(req.body.purchasePrice) : null;
+      if (req.body.currentMileage !== undefined) cleanedData.currentMileage = req.body.currentMileage !== null && req.body.currentMileage !== undefined ? String(req.body.currentMileage) : null;
+      if (req.body.mileageAtBeginningOfYear !== undefined) cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
       
       const updated = await storage.updateVehicle(req.params.id, cleanedData);
       res.json(updated);

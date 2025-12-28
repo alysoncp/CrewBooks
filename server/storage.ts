@@ -717,6 +717,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async createVehicle(vehicleData: InsertVehicle): Promise<Vehicle> {
+    // Data already comes as strings from schema validation (Drizzle numeric columns expect strings)
     const [record] = await db
       .insert(vehicles)
       .values(vehicleData)
@@ -725,6 +726,7 @@ export class DatabaseStorage implements IStorage {
   }
 
   async updateVehicle(id: string, vehicleData: Partial<InsertVehicle>): Promise<Vehicle> {
+    // Data already comes as strings from schema validation (Drizzle numeric columns expect strings)
     const [record] = await db
       .update(vehicles)
       .set({ ...vehicleData, updatedAt: new Date() })
