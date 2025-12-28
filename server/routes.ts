@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertIncomeSchema, insertExpenseSchema, insertVehicleSchema } from "@shared/schema";
+import { insertIncomeSchema, insertExpenseSchema, insertVehicleSchema, insertVehicleMileageLogSchema } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
 import path from "path";
@@ -664,6 +664,94 @@ export async function registerRoutes(
     } catch (error) {
       console.error("Error deleting vehicle:", error);
       res.status(500).json({ error: "Failed to delete vehicle" });
+    }
+  });
+
+  // GET /api/vehicles/:vehicleId/mileage-logs - get mileage logs for a vehicle
+  app.get("/api/vehicles/:vehicleId/mileage-logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.vehicleId);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const logs = await storage.getVehicleMileageLogs(req.params.vehicleId, userId);
+      res.json(logs);
+    } catch (error) {
+      console.error("Error getting mileage logs:", error);
+      res.status(500).json({ error: "Failed to get mileage logs" });
+    }
+  });
+
+  // POST /api/vehicles/:vehicleId/mileage-logs - create mileage log
+  app.post("/api/vehicles/:vehicleId/mileage-logs", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.vehicleId);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const data = insertVehicleMileageLogSchema.parse({ ...req.body, vehicleId: req.params.vehicleId, userId });
+      const log = await storage.createVehicleMileageLog(data);
+      res.status(201).json(log);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      console.error("Error creating mileage log:", error);
+      res.status(500).json({ error: "Failed to create mileage log" });
+    }
+  });
+
+  // PATCH /api/mileage-logs/:id - update mileage log
+  app.patch("/api/mileage-logs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const log = await storage.getVehicleMileageLogById(req.params.id);
+      if (!log) {
+        return res.status(404).json({ error: "Mileage log not found" });
+      }
+      if (log.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const cleanedData: any = {};
+      if (req.body.date !== undefined) cleanedData.date = req.body.date;
+      if (req.body.odometerReading !== undefined) cleanedData.odometerReading = req.body.odometerReading !== null && req.body.odometerReading !== undefined ? String(req.body.odometerReading) : null;
+      if (req.body.description !== undefined) cleanedData.description = req.body.description || null;
+      if (req.body.isBusinessUse !== undefined) cleanedData.isBusinessUse = req.body.isBusinessUse;
+      const updated = await storage.updateVehicleMileageLog(req.params.id, cleanedData);
+      if (!updated) {
+        return res.status(404).json({ error: "Mileage log not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      console.error("Error updating mileage log:", error);
+      res.status(500).json({ error: "Failed to update mileage log" });
+    }
+  });
+
+  // DELETE /api/mileage-logs/:id - delete mileage log
+  app.delete("/api/mileage-logs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const log = await storage.getVehicleMileageLogById(req.params.id);
+      if (!log) {
+        return res.status(404).json({ error: "Mileage log not found" });
+      }
+      if (log.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      await storage.deleteVehicleMileageLog(req.params.id);
+      res.status(204).send();
+    } catch (error) {
+      console.error("Error deleting mileage log:", error);
+      res.status(500).json({ error: "Failed to delete mileage log" });
     }
   });
 

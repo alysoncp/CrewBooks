@@ -24,6 +24,7 @@ import PricingPage from "@/pages/pricing";
 import TaxFilingT1Page from "@/pages/tax-filing-t1";
 import TaxFilingT2Page from "@/pages/tax-filing-t2";
 import PaystubsPage from "@/pages/paystubs";
+import VehicleMileagePage from "@/pages/vehicle-mileage";
 
 function AuthenticatedRouter() {
   return (
@@ -32,6 +33,7 @@ function AuthenticatedRouter() {
       <Route path="/income" component={IncomePage} />
       <Route path="/expenses" component={ExpensesPage} />
       <Route path="/expenses/settings" component={ExpensesSettingsPage} />
+      <Route path="/vehicle-mileage" component={VehicleMileagePage} />
       <Route path="/receipts" component={ReceiptsPage} />
       <Route path="/tax-calculator" component={TaxCalculatorPage} />
       <Route path="/optimization" component={OptimizationPage} />

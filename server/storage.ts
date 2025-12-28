@@ -16,6 +16,8 @@ import {
   type InsertQuestionnaireResponse,
   type Vehicle,
   type InsertVehicle,
+  type VehicleMileageLog,
+  type InsertVehicleMileageLog,
   users,
   income,
   expenses,
@@ -23,6 +25,7 @@ import {
   taxQuestionnaires,
   questionnaireResponses,
   vehicles,
+  vehicleMileageLogs,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, asc } from "drizzle-orm";
@@ -70,6 +73,12 @@ export interface IStorage {
   createVehicle(vehicleData: InsertVehicle): Promise<Vehicle>;
   updateVehicle(id: string, vehicleData: Partial<InsertVehicle>): Promise<Vehicle>;
   deleteVehicle(id: string): Promise<boolean>;
+
+  getVehicleMileageLogs(vehicleId: string, userId: string): Promise<VehicleMileageLog[]>;
+  getVehicleMileageLogById(id: string): Promise<VehicleMileageLog | undefined>;
+  createVehicleMileageLog(logData: InsertVehicleMileageLog): Promise<VehicleMileageLog>;
+  updateVehicleMileageLog(id: string, logData: Partial<InsertVehicleMileageLog>): Promise<VehicleMileageLog | undefined>;
+  deleteVehicleMileageLog(id: string): Promise<boolean>;
 
   updateExpenseCategory(userId: string, oldCategory: string, newCategory: string): Promise<number>;
   getProvincialBracketBreakdown(income: number, province: string): Array<{ bracket: string; rate: number; tax: number }>;
@@ -737,6 +746,41 @@ export class DatabaseStorage implements IStorage {
 
   async deleteVehicle(id: string): Promise<boolean> {
     const result = await db.delete(vehicles).where(eq(vehicles.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getVehicleMileageLogs(vehicleId: string, userId: string): Promise<VehicleMileageLog[]> {
+    return await db
+      .select()
+      .from(vehicleMileageLogs)
+      .where(and(eq(vehicleMileageLogs.vehicleId, vehicleId), eq(vehicleMileageLogs.userId, userId)))
+      .orderBy(desc(vehicleMileageLogs.date), desc(vehicleMileageLogs.createdAt));
+  }
+
+  async getVehicleMileageLogById(id: string): Promise<VehicleMileageLog | undefined> {
+    const [record] = await db.select().from(vehicleMileageLogs).where(eq(vehicleMileageLogs.id, id));
+    return record || undefined;
+  }
+
+  async createVehicleMileageLog(logData: InsertVehicleMileageLog): Promise<VehicleMileageLog> {
+    const [record] = await db
+      .insert(vehicleMileageLogs)
+      .values(logData)
+      .returning();
+    return record;
+  }
+
+  async updateVehicleMileageLog(id: string, logData: Partial<InsertVehicleMileageLog>): Promise<VehicleMileageLog | undefined> {
+    const [record] = await db
+      .update(vehicleMileageLogs)
+      .set({ ...logData, updatedAt: new Date() })
+      .where(eq(vehicleMileageLogs.id, id))
+      .returning();
+    return record || undefined;
+  }
+
+  async deleteVehicleMileageLog(id: string): Promise<boolean> {
+    const result = await db.delete(vehicleMileageLogs).where(eq(vehicleMileageLogs.id, id)).returning();
     return result.length > 0;
   }
 

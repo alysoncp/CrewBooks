@@ -226,6 +226,23 @@ export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true,
 export type InsertVehicle = z.infer<typeof insertVehicleSchema>;
 export type Vehicle = typeof vehicles.$inferSelect;
 
+// Vehicle Mileage Logs Table - Track mileage entries over time
+export const vehicleMileageLogs = pgTable("vehicle_mileage_logs", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vehicleId: varchar("vehicle_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  date: date("date").notNull(),
+  odometerReading: numeric("odometer_reading", { precision: 12, scale: 2 }).notNull(),
+  description: text("description"),
+  isBusinessUse: boolean("is_business_use").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertVehicleMileageLogSchema = createInsertSchema(vehicleMileageLogs).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertVehicleMileageLog = z.infer<typeof insertVehicleMileageLogSchema>;
+export type VehicleMileageLog = typeof vehicleMileageLogs.$inferSelect;
+
 // Tax Calculation Types (not stored, computed)
 export interface TaxCalculation {
   grossIncome: number;

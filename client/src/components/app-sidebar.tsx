@@ -14,6 +14,7 @@ import {
   FileText,
   Building2,
   Settings,
+  Gauge,
 } from "lucide-react";
 import {
   Sidebar,
@@ -163,7 +164,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               
-              {/* Expenses with Receipts submenu */}
+              {/* Expenses with Receipts and Vehicle Mileage submenu */}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -173,6 +174,19 @@ export function AppSidebar() {
                   <Link href="/expenses">
                     <Receipt className="h-4 w-4" />
                     <span>Expenses</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/vehicle-mileage"}
+                  data-testid="nav-vehicle-mileage"
+                  className="pl-8"
+                >
+                  <Link href="/vehicle-mileage">
+                    <Gauge className="h-4 w-4" />
+                    <span>Vehicle Mileage</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
