@@ -118,6 +118,8 @@ export default function ExpensesSettingsPage() {
   // Custom categories state
   const [customCategories, setCustomCategories] = useState<Set<string>>(new Set());
   const [newCustomCategory, setNewCustomCategory] = useState("");
+  const [editingCategory, setEditingCategory] = useState<string | null>(null);
+  const [editingCategoryName, setEditingCategoryName] = useState("");
 
   // Vehicle management state
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
@@ -297,6 +299,56 @@ export default function ExpensesSettingsPage() {
       return updated;
     });
     setNewCustomCategory("");
+  };
+
+  const handleEditCustomCategory = (category: string) => {
+    setEditingCategory(category);
+    setEditingCategoryName(category);
+  };
+
+  const handleSaveEditCustomCategory = () => {
+    if (!editingCategory) return;
+    
+    const trimmed = editingCategoryName.trim();
+    if (!trimmed) {
+      toast({
+        title: "Error",
+        description: "Please enter a category name",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Check if the new name already exists (and it's not the same as the old name)
+    if (trimmed !== editingCategory && (customCategories.has(trimmed) || selectedCategories.has(trimmed) || EXPENSE_CATEGORIES.includes(trimmed as any))) {
+      toast({
+        title: "Error",
+        description: "This category name already exists",
+        variant: "destructive",
+      });
+      return;
+    }
+    
+    // Update custom categories
+    setCustomCategories((prev) => {
+      const updated = new Set(prev);
+      updated.delete(editingCategory);
+      updated.add(trimmed);
+      return updated;
+    });
+    
+    // Update selected categories
+    setSelectedCategories((prev) => {
+      const updated = new Set(prev);
+      if (updated.has(editingCategory)) {
+        updated.delete(editingCategory);
+        updated.add(trimmed);
+      }
+      return updated;
+    });
+    
+    setEditingCategory(null);
+    setEditingCategoryName("");
   };
 
   const handleRemoveCustomCategory = (category: string) => {
@@ -564,15 +616,26 @@ export default function ExpensesSettingsPage() {
                       </Badge>
                     )}
                   </div>
-                  <Button
-                    variant="ghost"
-                    size="icon"
-                    onClick={() => handleRemoveCustomCategory(category)}
-                    disabled={updateEnabledCategoriesMutation.isPending}
-                    className="h-8 w-8"
-                  >
-                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
-                  </Button>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleEditCustomCategory(category)}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                      className="h-8 w-8"
+                    >
+                      <Edit className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => handleRemoveCustomCategory(category)}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                      className="h-8 w-8"
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
                 </div>
               );
             })}
@@ -625,6 +688,50 @@ export default function ExpensesSettingsPage() {
               </div>
             )}
           </div>
+          {/* Edit Custom Category Dialog */}
+          <Dialog open={editingCategory !== null} onOpenChange={(open) => {
+            if (!open) {
+              setEditingCategory(null);
+              setEditingCategoryName("");
+            }
+          }}>
+            <DialogContent>
+              <DialogHeader>
+                <DialogTitle>Edit Custom Category</DialogTitle>
+              </DialogHeader>
+              <div className="space-y-4">
+                <div>
+                  <label className="text-sm font-medium">Category Name</label>
+                  <Input
+                    value={editingCategoryName}
+                    onChange={(e) => setEditingCategoryName(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.preventDefault();
+                        handleSaveEditCustomCategory();
+                      }
+                    }}
+                    placeholder="Enter category name"
+                    className="mt-2"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button
+                  variant="outline"
+                  onClick={() => {
+                    setEditingCategory(null);
+                    setEditingCategoryName("");
+                  }}
+                >
+                  Cancel
+                </Button>
+                <Button onClick={handleSaveEditCustomCategory}>
+                  Save
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
           <div className="mt-6 flex justify-end">
             <Button
               onClick={handleSave}
