@@ -51,6 +51,29 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle } from "@shared/schema";
 import { getCategoryLabel } from "@/lib/format";
 
+// Define vehicle subcategories
+const VEHICLE_SUBCATEGORIES = [
+  { id: 'fuel', label: 'Fuel' },
+  { id: 'electric_vehicle_charging', label: 'Electric Vehicle Charging' },
+  { id: 'maintenance', label: 'Maintenance & Repairs' },
+  { id: 'insurance', label: 'Insurance' },
+  { id: 'registration', label: 'Registration & Licensing' },
+  { id: 'parking', label: 'Parking & Tolls' },
+  { id: 'lease_payment', label: 'Lease or Loan Payment' },
+  { id: 'other_vehicle', label: 'Other' },
+] as const;
+
+// Define home office subcategories
+const HOME_OFFICE_SUBCATEGORIES = [
+  { id: 'heat', label: 'Heat' },
+  { id: 'electricity', label: 'Electricity' },
+  { id: 'insurance', label: 'Insurance' },
+  { id: 'maintenance', label: 'Maintenance' },
+  { id: 'mortgage_interest', label: 'Mortgage Interest' },
+  { id: 'property_taxes', label: 'Property Taxes' },
+  { id: 'rent', label: 'Rent' },
+] as const;
+
 // Vehicle form schema
 const vehicleFormSchema = z.object({
   name: z.string().min(1, "Vehicle name is required"),
@@ -91,6 +114,10 @@ export default function ExpensesSettingsPage() {
   
   // Local state to track selected categories (before saving)
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+
+  // Custom categories state
+  const [customCategories, setCustomCategories] = useState<Set<string>>(new Set());
+  const [newCustomCategory, setNewCustomCategory] = useState("");
 
   // Vehicle management state
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
@@ -140,13 +167,27 @@ export default function ExpensesSettingsPage() {
     return new Set(EXPENSE_CATEGORIES);
   }, [user]);
 
+  // Extract custom categories (those not in EXPENSE_CATEGORIES)
+  const savedCustomCategories = useMemo(() => {
+    if (user?.enabledExpenseCategories) {
+      const allCategories = user.enabledExpenseCategories as string[];
+      return new Set(allCategories.filter(cat => !EXPENSE_CATEGORIES.includes(cat as any)));
+    }
+    return new Set<string>();
+  }, [user]);
+
   // Initialize local state from saved preferences
   useEffect(() => {
-    setSelectedCategories(new Set(savedEnabledCategories));
-  }, [savedEnabledCategories]);
+    // Combine saved enabled categories with all custom categories (custom categories are always enabled)
+    const allSelected = new Set(savedEnabledCategories);
+    savedCustomCategories.forEach(cat => allSelected.add(cat));
+    setSelectedCategories(allSelected);
+    setCustomCategories(savedCustomCategories);
+  }, [savedEnabledCategories, savedCustomCategories]);
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = useMemo(() => {
+    // Check predefined categories
     if (selectedCategories.size !== savedEnabledCategories.size) {
       return true;
     }
@@ -162,8 +203,24 @@ export default function ExpensesSettingsPage() {
         return true;
       }
     }
+    // Check custom categories
+    if (customCategories.size !== savedCustomCategories.size) {
+      return true;
+    }
+    const customArray = Array.from(customCategories);
+    const savedCustomArray = Array.from(savedCustomCategories);
+    for (const category of customArray) {
+      if (!savedCustomCategories.has(category)) {
+        return true;
+      }
+    }
+    for (const category of savedCustomArray) {
+      if (!customCategories.has(category)) {
+        return true;
+      }
+    }
     return false;
-  }, [selectedCategories, savedEnabledCategories]);
+  }, [selectedCategories, savedEnabledCategories, customCategories, savedCustomCategories]);
 
   const updateEnabledCategoriesMutation = useMutation({
     mutationFn: async (categories: string[]) => {
@@ -205,8 +262,63 @@ export default function ExpensesSettingsPage() {
   };
 
   const handleSave = () => {
-    const categoriesArray = Array.from(selectedCategories);
-    updateEnabledCategoriesMutation.mutate(categoriesArray);
+    // Combine predefined and custom categories
+    const allCategories = [...Array.from(selectedCategories), ...Array.from(customCategories)];
+    updateEnabledCategoriesMutation.mutate(allCategories);
+  };
+
+  const handleAddCustomCategory = () => {
+    const trimmed = newCustomCategory.trim();
+    if (!trimmed) {
+      toast({
+        title: "Error",
+        description: "Please enter a category name",
+        variant: "destructive",
+      });
+      return;
+    }
+    if (customCategories.has(trimmed) || selectedCategories.has(trimmed) || EXPENSE_CATEGORIES.includes(trimmed as any)) {
+      toast({
+        title: "Error",
+        description: "This category already exists",
+        variant: "destructive",
+      });
+      return;
+    }
+    setCustomCategories((prev) => {
+      const updated = new Set(prev);
+      updated.add(trimmed);
+      return updated;
+    });
+    // Automatically select the new custom category
+    setSelectedCategories((prev) => {
+      const updated = new Set(prev);
+      updated.add(trimmed);
+      return updated;
+    });
+    setNewCustomCategory("");
+  };
+
+  const handleRemoveCustomCategory = (category: string) => {
+    setCustomCategories((prev) => {
+      const updated = new Set(prev);
+      updated.delete(category);
+      return updated;
+    });
+    // Also remove from selected if it was selected
+    setSelectedCategories((prev) => {
+      const updated = new Set(prev);
+      updated.delete(category);
+      return updated;
+    });
+  };
+
+  // Helper to format custom category labels (convert snake_case to Title Case)
+  const formatCustomCategoryLabel = (category: string) => {
+    return category
+      .split('_')
+      .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+      .join(' ');
   };
 
   // Extract category usage counts
@@ -349,7 +461,62 @@ export default function ExpensesSettingsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-            {EXPENSE_CATEGORIES.map((category) => {
+            {/* Large categories side by side */}
+            <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-2">
+              {["home_office_expenses", "motor_vehicle_expenses"].map((category) => {
+                const isEnabled = selectedCategories.has(category);
+                const count = categoryCounts.get(category) || 0;
+                const subcategories = category === "home_office_expenses" 
+                  ? HOME_OFFICE_SUBCATEGORIES 
+                  : category === "motor_vehicle_expenses"
+                  ? VEHICLE_SUBCATEGORIES
+                  : [];
+                return (
+                  <div
+                    key={category}
+                    className="p-3 rounded-lg border"
+                  >
+                    <div className="flex items-center justify-between mb-2">
+                      <div className="flex items-center gap-3 flex-1">
+                        <Checkbox
+                          id={`category-${category}`}
+                          checked={isEnabled}
+                          onCheckedChange={(checked) => toggleCategory(category, checked as boolean)}
+                          disabled={updateEnabledCategoriesMutation.isPending}
+                        />
+                        <label
+                          htmlFor={`category-${category}`}
+                          className="font-medium cursor-pointer flex-1"
+                        >
+                          {getCategoryLabel(category)}
+                        </label>
+                        {count > 0 && (
+                          <Badge variant="secondary" className="text-xs">
+                            {count} expense{count !== 1 ? "s" : ""}
+                          </Badge>
+                        )}
+                      </div>
+                    </div>
+                    {subcategories.length > 0 && (
+                      <div className="mt-2 pl-7">
+                        <ul className="text-xs text-muted-foreground grid grid-cols-2 gap-x-2 gap-y-0.5">
+                          {subcategories.map((subcat) => (
+                            <li key={subcat.id} className="flex items-center gap-1.5">
+                              <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
+                              {subcat.label}
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    )}
+                  </div>
+                );
+              })}
+            </div>
+            {/* Regular categories */}
+            {EXPENSE_CATEGORIES.filter(
+              (category) => category !== "home_office_expenses" && category !== "motor_vehicle_expenses"
+            ).map((category) => {
               const isEnabled = selectedCategories.has(category);
               const count = categoryCounts.get(category) || 0;
               return (
@@ -379,6 +546,84 @@ export default function ExpensesSettingsPage() {
                 </div>
               );
             })}
+            {/* Custom categories */}
+            {Array.from(customCategories).map((category) => {
+              const count = categoryCounts.get(category) || 0;
+              return (
+                <div
+                  key={category}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    <span className="font-medium flex-1">
+                      {formatCustomCategoryLabel(category)}
+                    </span>
+                    {count > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {count} expense{count !== 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+                  <Button
+                    variant="ghost"
+                    size="icon"
+                    onClick={() => handleRemoveCustomCategory(category)}
+                    disabled={updateEnabledCategoriesMutation.isPending}
+                    className="h-8 w-8"
+                  >
+                    <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                  </Button>
+                </div>
+              );
+            })}
+          </div>
+          {/* Custom Categories Widget */}
+          <div className="mt-6 p-4 rounded-lg border bg-muted/50">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-medium">Custom Categories</h3>
+            </div>
+            <div className="flex gap-2 mb-3">
+              <Input
+                placeholder="Enter custom category name"
+                value={newCustomCategory}
+                onChange={(e) => setNewCustomCategory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    handleAddCustomCategory();
+                  }
+                }}
+                className="flex-1"
+              />
+              <Button
+                onClick={handleAddCustomCategory}
+                size="sm"
+                disabled={updateEnabledCategoriesMutation.isPending}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add
+              </Button>
+            </div>
+            {customCategories.size > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {Array.from(customCategories).map((category) => (
+                  <Badge
+                    key={category}
+                    variant="outline"
+                    className="flex items-center gap-1.5 pr-1"
+                  >
+                    {formatCustomCategoryLabel(category)}
+                    <button
+                      onClick={() => handleRemoveCustomCategory(category)}
+                      className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                    >
+                      <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
           </div>
           <div className="mt-6 flex justify-end">
             <Button

@@ -87,7 +87,17 @@ export function getCategoryLabel(category: string): string {
     commissions_agent_fees: 'Commissions & Agent Fees',
     training: 'Training',
   };
-  return labels[category] || category;
+  
+  // If it's a known category, return the label
+  if (labels[category]) {
+    return labels[category];
+  }
+  
+  // For custom categories, format snake_case to Title Case
+  return category
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
 }
 
 export function getIncomeTypeLabel(type: string): string {

@@ -149,10 +149,22 @@ export default function ExpensesPage() {
     return new Set(EXPENSE_CATEGORIES);
   }, [userProfile]);
 
-  // Filter categories to only show enabled ones
+  // Extract custom categories (those not in EXPENSE_CATEGORIES)
+  const customCategories = useMemo(() => {
+    if (userProfile?.enabledExpenseCategories) {
+      const allCategories = userProfile.enabledExpenseCategories as string[];
+      return allCategories.filter(cat => !EXPENSE_CATEGORIES.includes(cat as any));
+    }
+    return [];
+  }, [userProfile]);
+
+  // Filter categories to only show enabled ones, and include custom categories
   const availableCategories = useMemo(() => {
-    return EXPENSE_CATEGORIES.filter((category) => enabledCategories.has(category));
-  }, [enabledCategories]);
+    const predefined = EXPENSE_CATEGORIES.filter((category) => enabledCategories.has(category));
+    // Add custom categories that are enabled
+    const custom = customCategories.filter(cat => enabledCategories.has(cat));
+    return [...predefined, ...custom];
+  }, [enabledCategories, customCategories]);
 
   // Move form definition BEFORE the useEffect that uses it
   const form = useForm<ExpenseFormData>({
