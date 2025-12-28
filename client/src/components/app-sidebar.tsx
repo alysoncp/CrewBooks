@@ -13,6 +13,7 @@ import {
   CreditCard,
   FileText,
   Building2,
+  Settings,
 } from "lucide-react";
 import {
   Sidebar,
@@ -38,6 +39,7 @@ const mainMenuItems = [
 
 const settingsMenuItems = [
   { title: "Profile", url: "/profile", icon: User },
+  { title: "Expense Settings", url: "/expenses/settings", icon: Settings },
   { title: "Subscription", url: "/pricing", icon: CreditCard },
 ];
 

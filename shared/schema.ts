@@ -109,6 +109,7 @@ export const users = pgTable("users", {
   hasRegularEmployment: boolean("has_regular_employment").default(false),
   hasHomeOffice: boolean("has_home_office").default(false),
   homeOfficePercentage: numeric("home_office_percentage", { precision: 5, scale: 2 }),
+  enabledExpenseCategories: jsonb("enabled_expense_categories").$type<string[]>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
