@@ -97,7 +97,11 @@ type Vehicle = {
   year?: string | null;
   licensePlate?: string | null;
   isPrimary?: boolean | null;
+  usedExclusivelyForBusiness?: boolean | null;
   claimsCca?: boolean | null;
+  ccaClass?: string | null;
+  currentMileage?: number | null;
+  mileageAtBeginningOfYear?: number | null;
   purchasedThisYear?: boolean | null;
   purchasePrice?: number | null;
   createdAt?: string | null;
@@ -111,10 +115,12 @@ const vehicleFormSchema = z.object({
   name: z.string().min(1, "Vehicle name is required"),
   make: z.string().transform((val) => val.trim() || undefined).optional(),
   model: z.string().transform((val) => val.trim() || undefined).optional(),
-  year: z.string().transform((val) => val.trim() || undefined).optional(),
-  licensePlate: z.string().transform((val) => val.trim() || undefined).optional(),
   isPrimary: z.boolean().default(false),
+  usedExclusivelyForBusiness: z.boolean().default(false),
   claimsCca: z.boolean().default(false),
+  ccaClass: z.enum(["Class 10", "Class 10.1"]).optional(),
+  currentMileage: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
+  mileageAtBeginningOfYear: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
   purchasedThisYear: z.boolean().default(false),
   purchasePrice: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
 }).refine((data) => {
@@ -126,6 +132,15 @@ const vehicleFormSchema = z.object({
 }, {
   message: "Purchase price is required when vehicle was purchased this year",
   path: ["purchasePrice"],
+}).refine((data) => {
+  // If claims CCA is selected, CCA class should be provided
+  if (data.claimsCca && !data.ccaClass) {
+    return false;
+  }
+  return true;
+}, {
+  message: "CCA class is required when Claim CCA is selected",
+  path: ["ccaClass"],
 });
 
 type VehicleFormData = z.input<typeof vehicleFormSchema>;
@@ -281,10 +296,12 @@ export default function ExpensesPage() {
       name: "",
       make: "",
       model: "",
-      year: "",
-      licensePlate: "",
       isPrimary: false,
+      usedExclusivelyForBusiness: false,
       claimsCca: false,
+      ccaClass: undefined,
+      currentMileage: "",
+      mileageAtBeginningOfYear: "",
       purchasedThisYear: false,
       purchasePrice: "",
     },
@@ -292,6 +309,8 @@ export default function ExpensesPage() {
 
   // Watch purchasedThisYear to conditionally show purchase price field
   const purchasedThisYear = vehicleForm.watch("purchasedThisYear");
+  // Watch claimsCca to conditionally show CCA class dropdown
+  const claimsCca = vehicleForm.watch("claimsCca");
 
   // Watch vehicles - remove the conditional enabled, fetch all vehicles
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
@@ -450,8 +469,7 @@ export default function ExpensesPage() {
     return (
       vehicle.name.toLowerCase().includes(searchLower) ||
       vehicle.make?.toLowerCase().includes(searchLower) ||
-      vehicle.model?.toLowerCase().includes(searchLower) ||
-      vehicle.licensePlate?.toLowerCase().includes(searchLower)
+      vehicle.model?.toLowerCase().includes(searchLower)
     );
   });
 
@@ -461,10 +479,12 @@ export default function ExpensesPage() {
       name: vehicle.name || "",
       make: vehicle.make || "",
       model: vehicle.model || "",
-      year: vehicle.year || "",
-      licensePlate: vehicle.licensePlate || "",
       isPrimary: vehicle.isPrimary || false,
+      usedExclusivelyForBusiness: (vehicle as any).usedExclusivelyForBusiness || false,
       claimsCca: vehicle.claimsCca || false,
+      ccaClass: (vehicle as any).ccaClass || undefined,
+      currentMileage: (vehicle as any).currentMileage?.toString() || "",
+      mileageAtBeginningOfYear: (vehicle as any).mileageAtBeginningOfYear?.toString() || "",
       purchasedThisYear: (vehicle as any).purchasedThisYear || false,
       purchasePrice: (vehicle as any).purchasePrice?.toString() || "",
     });
@@ -862,40 +882,12 @@ export default function ExpensesPage() {
                           )}
                         />
                       </div>
-                      <div className="grid gap-4 sm:grid-cols-2">
-                        <FormField
-                          control={vehicleForm.control}
-                          name="year"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Year</FormLabel>
-                              <FormControl>
-                                <Input {...field} placeholder="2019" type="number" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={vehicleForm.control}
-                          name="licensePlate"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>License Plate</FormLabel>
-                              <FormControl>
-                                <Input {...field} placeholder="ABC 123" />
-                              </FormControl>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </div>
                       <FormField
                         control={vehicleForm.control}
                         name="isPrimary"
                         render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                            <div className="space-y-0.5">
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-6">
+                            <div className="space-y-0.5 flex-1 pr-4">
                               <FormLabel className="text-base">Set as Primary Vehicle</FormLabel>
                               <FormDescription>
                                 This vehicle will be selected by default when adding vehicle expenses
@@ -912,13 +904,13 @@ export default function ExpensesPage() {
                       />
                       <FormField
                         control={vehicleForm.control}
-                        name="claimsCca"
+                        name="usedExclusivelyForBusiness"
                         render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                            <div className="space-y-0.5">
-                              <FormLabel className="text-base">Claim CCA (Capital Cost Allowance)</FormLabel>
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-6">
+                            <div className="space-y-0.5 flex-1 pr-4">
+                              <FormLabel className="text-base">Business Use Only</FormLabel>
                               <FormDescription>
-                                I intend to claim Capital Cost Allowance for this vehicle
+                                Select if this vehicle is used solely for business (No personal driving)
                               </FormDescription>
                             </div>
                             <FormControl>
@@ -932,10 +924,34 @@ export default function ExpensesPage() {
                       />
                       <FormField
                         control={vehicleForm.control}
+                        name="currentMileage"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Current Mileage</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  placeholder="0"
+                                  value={field.value || ""}
+                                  className="pr-12"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">km</span>
+                              </div>
+                            </FormControl>
+                            <FormDescription>Enter the current odometer reading in kilometers</FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={vehicleForm.control}
                         name="purchasedThisYear"
                         render={({ field }) => (
-                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                            <div className="space-y-0.5">
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-6">
+                            <div className="space-y-0.5 flex-1 pr-4">
                               <FormLabel className="text-base">Did you purchase this vehicle this year?</FormLabel>
                               <FormDescription>
                                 Select if you purchased this vehicle in the current tax year
@@ -966,6 +982,75 @@ export default function ExpensesPage() {
                                   data-testid="input-purchase-price"
                                 />
                               </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                      {!purchasedThisYear && (
+                        <FormField
+                          control={vehicleForm.control}
+                          name="mileageAtBeginningOfYear"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>Mileage at Beginning of Year</FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  <Input
+                                    {...field}
+                                    type="number"
+                                    step="0.01"
+                                    placeholder="0"
+                                    value={field.value || ""}
+                                    className="pr-12"
+                                  />
+                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">km</span>
+                                </div>
+                              </FormControl>
+                              <FormDescription>Enter the odometer reading at the beginning of the tax year in kilometers</FormDescription>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+                      <FormField
+                        control={vehicleForm.control}
+                        name="claimsCca"
+                        render={({ field }) => (
+                          <FormItem className="flex flex-row items-center justify-between rounded-lg border p-6">
+                            <div className="space-y-0.5 flex-1 pr-4">
+                              <FormLabel className="text-base">Claim CCA (Capital Cost Allowance)</FormLabel>
+                              <FormDescription>
+                                I intend to claim Capital Cost Allowance for this vehicle
+                              </FormDescription>
+                            </div>
+                            <FormControl>
+                              <Switch
+                                checked={field.value}
+                                onCheckedChange={field.onChange}
+                              />
+                            </FormControl>
+                          </FormItem>
+                        )}
+                      />
+                      {claimsCca && (
+                        <FormField
+                          control={vehicleForm.control}
+                          name="ccaClass"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>CCA Class *</FormLabel>
+                              <Select onValueChange={field.onChange} value={field.value}>
+                                <FormControl>
+                                  <SelectTrigger>
+                                    <SelectValue placeholder="Select CCA class" />
+                                  </SelectTrigger>
+                                </FormControl>
+                                <SelectContent>
+                                  <SelectItem value="Class 10">Class 10</SelectItem>
+                                  <SelectItem value="Class 10.1">Class 10.1</SelectItem>
+                                </SelectContent>
+                              </Select>
                               <FormMessage />
                             </FormItem>
                           )}

@@ -565,6 +565,15 @@ export async function registerRoutes(
       } else {
         cleanedData.year = null;
       }
+
+      // Handle new fields
+      cleanedData.usedExclusivelyForBusiness = req.body.usedExclusivelyForBusiness === true || req.body.usedExclusivelyForBusiness === "true";
+      cleanedData.claimsCca = req.body.claimsCca === true || req.body.claimsCca === "true";
+      cleanedData.ccaClass = (req.body.ccaClass && req.body.ccaClass.trim()) ? req.body.ccaClass.trim() : null;
+      cleanedData.purchasedThisYear = req.body.purchasedThisYear === true || req.body.purchasedThisYear === "true";
+      cleanedData.purchasePrice = req.body.purchasePrice ? parseFloat(req.body.purchasePrice.toString()) : null;
+      cleanedData.currentMileage = req.body.currentMileage ? parseFloat(req.body.currentMileage.toString()) : null;
+      cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear ? parseFloat(req.body.mileageAtBeginningOfYear.toString()) : null;
       
       console.log("Creating vehicle with cleaned data:", JSON.stringify(cleanedData, null, 2));
       
@@ -621,6 +630,13 @@ export async function registerRoutes(
       if (req.body.licensePlate !== undefined) cleanedData.licensePlate = req.body.licensePlate || null;
       if (req.body.name !== undefined) cleanedData.name = req.body.name;
       if (req.body.isPrimary !== undefined) cleanedData.isPrimary = req.body.isPrimary;
+      if (req.body.usedExclusivelyForBusiness !== undefined) cleanedData.usedExclusivelyForBusiness = req.body.usedExclusivelyForBusiness;
+      if (req.body.claimsCca !== undefined) cleanedData.claimsCca = req.body.claimsCca;
+      if (req.body.ccaClass !== undefined) cleanedData.ccaClass = req.body.ccaClass || null;
+      if (req.body.purchasedThisYear !== undefined) cleanedData.purchasedThisYear = req.body.purchasedThisYear;
+      if (req.body.purchasePrice !== undefined) cleanedData.purchasePrice = req.body.purchasePrice ? parseFloat(req.body.purchasePrice.toString()) : null;
+      if (req.body.currentMileage !== undefined) cleanedData.currentMileage = req.body.currentMileage ? parseFloat(req.body.currentMileage.toString()) : null;
+      if (req.body.mileageAtBeginningOfYear !== undefined) cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear ? parseFloat(req.body.mileageAtBeginningOfYear.toString()) : null;
       
       const updated = await storage.updateVehicle(req.params.id, cleanedData);
       res.json(updated);
