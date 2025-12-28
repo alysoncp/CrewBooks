@@ -334,15 +334,15 @@ export default function ExpensesSettingsPage() {
         <div>
           <h1 className="text-2xl font-semibold flex items-center gap-2">
             <Settings className="h-6 w-6" />
-            Expense Categories
+            Expense Settings
           </h1>
-          <p className="text-muted-foreground">Manage your expense categories</p>
+          <p className="text-muted-foreground">Manage your expense settings</p>
         </div>
       </div>
 
       <Card>
         <CardHeader>
-          <CardTitle>My Business Expense Categories</CardTitle>
+          <CardTitle>Expense Categories</CardTitle>
           <CardDescription>
             Select which type of business expenses you have
           </CardDescription>
