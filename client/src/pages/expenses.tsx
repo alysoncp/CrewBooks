@@ -1,9 +1,9 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Search, Receipt, CheckCircle, Plus, Trash2, Edit } from "lucide-react";
+import { Search, Receipt, Plus, Trash2, Edit } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -62,7 +62,6 @@ import { useAuth } from "@/hooks/useAuth";
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { Settings, ArrowLeft } from "lucide-react";
-import { useEffect } from "react";
 
 // Define vehicle subcategories (since schema config was rejected, define inline)
 const VEHICLE_SUBCATEGORIES = [
@@ -90,7 +89,10 @@ const HOME_OFFICE_SUBCATEGORIES = [
 type ExpenseCategoryTuple = typeof EXPENSE_CATEGORIES;
 
 const expenseFormSchema = z.object({
-  amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
+  baseCost: z.string().optional(),
+  total: z.string().optional(),
+  gstIncluded: z.boolean().default(false),
+  pstIncluded: z.boolean().default(false),
   date: z.string().min(1, "Date is required"),
   title: z.string().optional(),
   category: z.string().min(1, "Category is required"), // Changed from z.enum to z.string
@@ -108,6 +110,14 @@ const expenseFormSchema = z.object({
 }, {
   message: "Please select a vehicle",
   path: ["vehicleId"],
+}).refine((data) => {
+  // At least one of baseCost or total must be provided
+  const baseCost = data.baseCost ? parseFloat(data.baseCost) : null;
+  const total = data.total ? parseFloat(data.total) : null;
+  return (baseCost !== null && !isNaN(baseCost)) || (total !== null && !isNaN(total));
+}, {
+  message: "Please enter either base cost or total amount",
+  path: ["baseCost"],
 });
 
 type ExpenseFormData = z.input<typeof expenseFormSchema>;
@@ -149,7 +159,10 @@ export default function ExpensesPage() {
   const form = useForm<ExpenseFormData>({
     resolver: zodResolver(expenseFormSchema),
     defaultValues: {
-      amount: "",
+      baseCost: "",
+      total: "",
+      gstIncluded: false,
+      pstIncluded: false,
       date: new Date().toISOString().split("T")[0],
       title: "",
       category: "",
@@ -159,6 +172,70 @@ export default function ExpensesPage() {
       gstHstPaid: "",
     },
   });
+
+  // Track which field was last edited to prevent circular updates
+  const [lastEditedField, setLastEditedField] = useState<"baseCost" | "total" | null>(null);
+
+  // Watch form values for calculations
+  const baseCostValue = form.watch("baseCost");
+  const totalValue = form.watch("total");
+  const gstIncluded = form.watch("gstIncluded");
+  const pstIncluded = form.watch("pstIncluded");
+
+  // Calculate GST and PST amounts
+  const calculateTaxes = (base: number, includeGst: boolean, includePst: boolean) => {
+    const gst = includeGst ? base * 0.05 : 0;
+    const pst = includePst ? base * 0.07 : 0;
+    const total = base + gst + pst;
+    return { gst, pst, total };
+  };
+
+  // Calculate base cost from total
+  const calculateBaseFromTotal = (total: number, includeGst: boolean, includePst: boolean) => {
+    // total = base + (base * 0.05 * gstFlag) + (base * 0.07 * pstFlag)
+    // total = base * (1 + 0.05 * gstFlag + 0.07 * pstFlag)
+    const taxMultiplier = 1 + (includeGst ? 0.05 : 0) + (includePst ? 0.07 : 0);
+    return total / taxMultiplier;
+  };
+
+  // Effect to calculate total when baseCost changes
+  useEffect(() => {
+    if (lastEditedField === "baseCost" && baseCostValue) {
+      const base = parseFloat(baseCostValue);
+      if (!isNaN(base) && base > 0) {
+        const { total } = calculateTaxes(base, gstIncluded || false, pstIncluded || false);
+        form.setValue("total", total.toFixed(2), { shouldValidate: false });
+      }
+    }
+  }, [baseCostValue, gstIncluded, pstIncluded, lastEditedField, form]);
+
+  // Effect to calculate baseCost when total changes
+  useEffect(() => {
+    if (lastEditedField === "total" && totalValue) {
+      const total = parseFloat(totalValue);
+      if (!isNaN(total) && total > 0) {
+        const base = calculateBaseFromTotal(total, gstIncluded || false, pstIncluded || false);
+        form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+      }
+    }
+  }, [totalValue, gstIncluded, pstIncluded, lastEditedField, form]);
+
+  // Recalculate when tax checkboxes change
+  useEffect(() => {
+    if (lastEditedField === "baseCost" && baseCostValue) {
+      const base = parseFloat(baseCostValue);
+      if (!isNaN(base) && base > 0) {
+        const { total } = calculateTaxes(base, gstIncluded || false, pstIncluded || false);
+        form.setValue("total", total.toFixed(2), { shouldValidate: false });
+      }
+    } else if (lastEditedField === "total" && totalValue) {
+      const total = parseFloat(totalValue);
+      if (!isNaN(total) && total > 0) {
+        const base = calculateBaseFromTotal(total, gstIncluded || false, pstIncluded || false);
+        form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+      }
+    }
+  }, [gstIncluded, pstIncluded, lastEditedField, baseCostValue, totalValue, form]);
 
   // Check for receiptId in URL params
   useEffect(() => {
@@ -201,8 +278,12 @@ export default function ExpensesPage() {
             
             // Open dialog and pre-fill form
             setIsDialogOpen(true);
+            const ocrAmount = data.expenseData.amount ? parseFloat(data.expenseData.amount.toString()) : 0;
             form.reset({
-              amount: data.expenseData.amount?.toString() || "",
+              baseCost: "",
+              total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
+              gstIncluded: false,
+              pstIncluded: false,
               date: data.expenseData.date || new Date().toISOString().split("T")[0],
               title: data.expenseData.title || "",
               category: data.expenseData.category || "",
@@ -241,9 +322,40 @@ export default function ExpensesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: ExpenseFormData) => {
+      // Calculate values
+      let amount = 0;
+      let baseCost = 0;
+      let gstAmount = 0;
+      let pstAmount = 0;
+
+      if (data.total) {
+        amount = parseFloat(data.total);
+        // Calculate base cost from total
+        baseCost = calculateBaseFromTotal(amount, data.gstIncluded || false, data.pstIncluded || false);
+        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
+        gstAmount = taxes.gst;
+        pstAmount = taxes.pst;
+      } else if (data.baseCost) {
+        baseCost = parseFloat(data.baseCost);
+        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
+        gstAmount = taxes.gst;
+        pstAmount = taxes.pst;
+        amount = taxes.total;
+      }
+
       const payload: any = {
-        ...data,
-        amount: data.amount.toString(),
+        amount: amount.toString(),
+        baseCost: baseCost.toString(),
+        gstAmount: gstAmount.toString(),
+        pstAmount: pstAmount.toString(),
+        date: data.date,
+        title: data.title,
+        category: data.category,
+        subcategory: data.subcategory,
+        vehicleId: data.vehicleId,
+        vendor: data.vendor,
+        description: data.description,
+        isTaxDeductible: data.isTaxDeductible,
         gstHstPaid: data.gstHstPaid?.toString() || null,
       };
       
@@ -259,6 +371,7 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
       setEditingExpense(null);
+      setLastEditedField(null);
       form.reset();
       setReceiptIdForExpense(null);
       setReceiptImageUrl(null);
@@ -278,9 +391,40 @@ export default function ExpensesPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: ExpenseFormData }) => {
+      // Calculate values
+      let amount = 0;
+      let baseCost = 0;
+      let gstAmount = 0;
+      let pstAmount = 0;
+
+      if (data.total) {
+        amount = parseFloat(data.total);
+        // Calculate base cost from total
+        baseCost = calculateBaseFromTotal(amount, data.gstIncluded || false, data.pstIncluded || false);
+        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
+        gstAmount = taxes.gst;
+        pstAmount = taxes.pst;
+      } else if (data.baseCost) {
+        baseCost = parseFloat(data.baseCost);
+        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
+        gstAmount = taxes.gst;
+        pstAmount = taxes.pst;
+        amount = taxes.total;
+      }
+
       const payload: any = {
-        ...data,
-        amount: data.amount.toString(),
+        amount: amount.toString(),
+        baseCost: baseCost.toString(),
+        gstAmount: gstAmount.toString(),
+        pstAmount: pstAmount.toString(),
+        date: data.date,
+        title: data.title,
+        category: data.category,
+        subcategory: data.subcategory,
+        vehicleId: data.vehicleId,
+        vendor: data.vendor,
+        description: data.description,
+        isTaxDeductible: data.isTaxDeductible,
         gstHstPaid: data.gstHstPaid?.toString() || null,
       };
       return apiRequest("PATCH", `/api/expenses/${id}`, payload);
@@ -290,6 +434,7 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
       setEditingExpense(null);
+      setLastEditedField(null);
       form.reset();
       toast({
         title: "Expense updated",
@@ -337,18 +482,50 @@ export default function ExpensesPage() {
   const handleEdit = (expense: Expense) => {
     setEditingExpense(expense);
     setIsDialogOpen(true);
-    form.reset({
-      amount: expense.amount.toString(),
-      date: expense.date,
-      title: expense.title || "",
-      category: expense.category,
-      subcategory: expense.subcategory || "",
-      vehicleId: expense.vehicleId || "",
-      vendor: expense.vendor || "",
-      description: expense.description || "",
-      isTaxDeductible: expense.isTaxDeductible ?? true,
-      gstHstPaid: expense.gstHstPaid?.toString() || "",
-    });
+    
+    // Check if expense has breakdown data
+    const baseCost = expense.baseCost ? parseFloat(expense.baseCost.toString()) : null;
+    const gstAmount = expense.gstAmount ? parseFloat(expense.gstAmount.toString()) : null;
+    const pstAmount = expense.pstAmount ? parseFloat(expense.pstAmount.toString()) : null;
+    const totalAmount = parseFloat(expense.amount.toString());
+    
+    // If we have base cost, use it; otherwise use total
+    if (baseCost !== null && baseCost > 0) {
+      form.reset({
+        baseCost: baseCost.toFixed(2),
+        total: totalAmount.toFixed(2),
+        gstIncluded: (gstAmount !== null && gstAmount > 0),
+        pstIncluded: (pstAmount !== null && pstAmount > 0),
+        date: expense.date,
+        title: expense.title || "",
+        category: expense.category,
+        subcategory: expense.subcategory || "",
+        vehicleId: expense.vehicleId || "",
+        vendor: expense.vendor || "",
+        description: expense.description || "",
+        isTaxDeductible: expense.isTaxDeductible ?? true,
+        gstHstPaid: expense.gstHstPaid?.toString() || "",
+      });
+      setLastEditedField("baseCost");
+    } else {
+      // For old expenses without breakdown, use total
+      form.reset({
+        baseCost: "",
+        total: totalAmount.toFixed(2),
+        gstIncluded: false,
+        pstIncluded: false,
+        date: expense.date,
+        title: expense.title || "",
+        category: expense.category,
+        subcategory: expense.subcategory || "",
+        vehicleId: expense.vehicleId || "",
+        vendor: expense.vendor || "",
+        description: expense.description || "",
+        isTaxDeductible: expense.isTaxDeductible ?? true,
+        gstHstPaid: expense.gstHstPaid?.toString() || "",
+      });
+      setLastEditedField("total");
+    }
   };
 
   const handleDialogOpenChange = (open: boolean) => {
@@ -357,6 +534,7 @@ export default function ExpensesPage() {
       setEditingExpense(null);
       setReceiptIdForExpense(null);
       setReceiptImageUrl(null);
+      setLastEditedField(null);
       form.reset();
     }
   };
@@ -372,9 +550,15 @@ export default function ExpensesPage() {
   });
 
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount), 0);
-  const deductibleExpenses = filteredExpenses
-    .filter((item) => item.isTaxDeductible)
-    .reduce((sum, item) => sum + parseFloat(item.amount), 0);
+  const deductibleExpenses = filteredExpenses.reduce((sum, item) => {
+    const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
+    const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
+    return sum + baseCost + pstAmount;
+  }, 0);
+  const totalGstCredits = filteredExpenses.reduce((sum, item) => {
+    const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
+    return sum + gstAmount;
+  }, 0);
 
 
   return (
@@ -416,30 +600,127 @@ export default function ExpensesPage() {
               <div className="overflow-y-auto flex-1 pr-2">
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                    <FormField
-                      control={form.control}
-                      name="amount"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>Amount</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                              <Input
-                                {...field}
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                placeholder="0.00"
-                                className="pl-7 font-mono"
-                                data-testid="input-expense-amount"
-                              />
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
+                    <div className="space-y-4 rounded-lg border p-4">
+                      <div className="text-sm font-medium">Cost Breakdown</div>
+                      
+                      <FormField
+                        control={form.control}
+                        name="baseCost"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Base Cost</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-expense-base-cost"
+                                  onChange={(e) => {
+                                    field.onChange(e);
+                                    setLastEditedField("baseCost");
+                                  }}
+                                />
+                              </div>
+                            </FormControl>
+                            <FormDescription>Cost before taxes</FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <div className="grid grid-cols-2 gap-4">
+                        <FormField
+                          control={form.control}
+                          name="gstIncluded"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-gst-included"
+                                />
+                              </FormControl>
+                              <div className="space-y-1 leading-none">
+                                <FormLabel>GST (5%)</FormLabel>
+                                <FormDescription>
+                                  {gstIncluded && baseCostValue ? (
+                                    <span className="font-mono">
+                                      ${(parseFloat(baseCostValue || "0") * 0.05).toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    "$0.00"
+                                  )}
+                                </FormDescription>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+
+                        <FormField
+                          control={form.control}
+                          name="pstIncluded"
+                          render={({ field }) => (
+                            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
+                              <FormControl>
+                                <Switch
+                                  checked={field.value}
+                                  onCheckedChange={field.onChange}
+                                  data-testid="switch-pst-included"
+                                />
+                              </FormControl>
+                              <div className="space-y-1 leading-none">
+                                <FormLabel>PST (7%)</FormLabel>
+                                <FormDescription>
+                                  {pstIncluded && baseCostValue ? (
+                                    <span className="font-mono">
+                                      ${(parseFloat(baseCostValue || "0") * 0.07).toFixed(2)}
+                                    </span>
+                                  ) : (
+                                    "$0.00"
+                                  )}
+                                </FormDescription>
+                              </div>
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <FormField
+                        control={form.control}
+                        name="total"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Total</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono font-semibold"
+                                  data-testid="input-expense-total"
+                                  onChange={(e) => {
+                                    field.onChange(e);
+                                    setLastEditedField("total");
+                                  }}
+                                />
+                              </div>
+                            </FormControl>
+                            <FormDescription>Total amount including taxes</FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    </div>
                     <FormField
                       control={form.control}
                       name="date"
@@ -680,8 +961,8 @@ export default function ExpensesPage() {
         </div>
       </div>
 
-      <div className="grid gap-4 md:grid-cols-2">
-        <Card>
+      <div className="grid gap-4 md:grid-cols-5">
+        <Card className="md:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Total Expenses</CardTitle>
           </CardHeader>
@@ -691,13 +972,23 @@ export default function ExpensesPage() {
             </div>
           </CardContent>
         </Card>
-        <Card>
+        <Card className="md:col-span-2">
           <CardHeader className="pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">Tax Deductible</CardTitle>
           </CardHeader>
           <CardContent>
             <div className="font-mono text-2xl font-semibold text-green-600 dark:text-green-400" data-testid="stat-deductible-expenses">
               {formatCurrency(deductibleExpenses)}
+            </div>
+          </CardContent>
+        </Card>
+        <Card className="md:col-span-1">
+          <CardHeader className="pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Total GST Credits</CardTitle>
+          </CardHeader>
+          <CardContent>
+            <div className="font-mono text-2xl font-semibold text-blue-600 dark:text-blue-400" data-testid="stat-gst-credits">
+              {formatCurrency(totalGstCredits)}
             </div>
           </CardContent>
         </Card>
@@ -748,41 +1039,49 @@ export default function ExpensesPage() {
                     <TableHead>Title</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Vendor</TableHead>
-                    <TableHead className="text-center">Deductible</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Total</TableHead>
+                    <TableHead className="text-right">Deductible</TableHead>
+                    <TableHead className="text-right">GST</TableHead>
                     <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredExpenses.map((item) => (
-                    <TableRow key={item.id} data-testid={`row-expense-${item.id}`}>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(item.date)}
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{item.title || "—"}</p>
-                          {item.description && (
-                            <p className="text-sm text-muted-foreground">{item.description}</p>
-                          )}
-                        </div>
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="outline" className="text-xs">
-                          {getCategoryLabel(item.category)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        {item.vendor || "—"}
-                      </TableCell>
-                      <TableCell className="text-center">
-                        {item.isTaxDeductible && (
-                          <CheckCircle className="mx-auto h-4 w-4 text-green-600 dark:text-green-400" />
-                        )}
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-medium text-red-600 dark:text-red-400">
-                        -{formatCurrency(item.amount)}
-                      </TableCell>
+                  {filteredExpenses.map((item) => {
+                    const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
+                    const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
+                    const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
+                    const deductibleAmount = baseCost + pstAmount;
+                    
+                    return (
+                      <TableRow key={item.id} data-testid={`row-expense-${item.id}`}>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(item.date)}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{item.title || "—"}</p>
+                            {item.description && (
+                              <p className="text-sm text-muted-foreground">{item.description}</p>
+                            )}
+                          </div>
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="outline" className="text-xs">
+                            {getCategoryLabel(item.category)}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
+                          {item.vendor || "—"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-medium text-red-600 dark:text-red-400">
+                          -{formatCurrency(item.amount)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-muted-foreground">
+                          {formatCurrency(deductibleAmount)}
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-muted-foreground">
+                          {formatCurrency(gstAmount)}
+                        </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Button
@@ -824,7 +1123,8 @@ export default function ExpensesPage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
