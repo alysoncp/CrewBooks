@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Search, Receipt, CheckCircle, Plus, Trash2 } from "lucide-react";
+import { Search, Receipt, CheckCircle, Plus, Trash2, Edit } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -92,6 +92,7 @@ type ExpenseCategoryTuple = typeof EXPENSE_CATEGORIES;
 const expenseFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
   date: z.string().min(1, "Date is required"),
+  title: z.string().optional(),
   category: z.string().min(1, "Category is required"), // Changed from z.enum to z.string
   subcategory: z.string().optional(),
   vehicleId: z.string().optional(),
@@ -113,6 +114,7 @@ type ExpenseFormData = z.input<typeof expenseFormSchema>;
 
 export default function ExpensesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [receiptIdForExpense, setReceiptIdForExpense] = useState<string | null>(null);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
@@ -149,6 +151,7 @@ export default function ExpensesPage() {
     defaultValues: {
       amount: "",
       date: new Date().toISOString().split("T")[0],
+      title: "",
       category: "",
       vendor: "",
       description: "",
@@ -201,6 +204,7 @@ export default function ExpensesPage() {
             form.reset({
               amount: data.expenseData.amount?.toString() || "",
               date: data.expenseData.date || new Date().toISOString().split("T")[0],
+              title: data.expenseData.title || "",
               category: data.expenseData.category || "",
               vendor: data.expenseData.vendor || "",
               description: data.expenseData.description || "",
@@ -254,6 +258,7 @@ export default function ExpensesPage() {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
+      setEditingExpense(null);
       form.reset();
       setReceiptIdForExpense(null);
       setReceiptImageUrl(null);
@@ -266,6 +271,35 @@ export default function ExpensesPage() {
       toast({
         title: "Error",
         description: "Failed to add expense. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async ({ id, data }: { id: string; data: ExpenseFormData }) => {
+      const payload: any = {
+        ...data,
+        amount: data.amount.toString(),
+        gstHstPaid: data.gstHstPaid?.toString() || null,
+      };
+      return apiRequest("PATCH", `/api/expenses/${id}`, payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setIsDialogOpen(false);
+      setEditingExpense(null);
+      form.reset();
+      toast({
+        title: "Expense updated",
+        description: "Your expense has been updated successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update expense. Please try again.",
         variant: "destructive",
       });
     },
@@ -293,12 +327,44 @@ export default function ExpensesPage() {
   });
 
   const onSubmit = (data: ExpenseFormData) => {
-    createMutation.mutate(data);
+    if (editingExpense) {
+      updateMutation.mutate({ id: editingExpense.id, data });
+    } else {
+      createMutation.mutate(data);
+    }
+  };
+
+  const handleEdit = (expense: Expense) => {
+    setEditingExpense(expense);
+    setIsDialogOpen(true);
+    form.reset({
+      amount: expense.amount.toString(),
+      date: expense.date,
+      title: expense.title || "",
+      category: expense.category,
+      subcategory: expense.subcategory || "",
+      vehicleId: expense.vehicleId || "",
+      vendor: expense.vendor || "",
+      description: expense.description || "",
+      isTaxDeductible: expense.isTaxDeductible ?? true,
+      gstHstPaid: expense.gstHstPaid?.toString() || "",
+    });
+  };
+
+  const handleDialogOpenChange = (open: boolean) => {
+    setIsDialogOpen(open);
+    if (!open) {
+      setEditingExpense(null);
+      setReceiptIdForExpense(null);
+      setReceiptImageUrl(null);
+      form.reset();
+    }
   };
 
   const filteredExpenses = (expenseList || []).filter((item) => {
     const searchLower = searchQuery.toLowerCase();
     return (
+      item.title?.toLowerCase().includes(searchLower) ||
       item.vendor?.toLowerCase().includes(searchLower) ||
       item.description?.toLowerCase().includes(searchLower) ||
       getCategoryLabel(item.category).toLowerCase().includes(searchLower)
@@ -325,7 +391,7 @@ export default function ExpensesPage() {
               Expense Settings
             </Button>
           </Link>
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+          <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
             <DialogTrigger asChild>
               <Button data-testid="button-add-expense">
                 <Plus className="mr-2 h-4 w-4" />
@@ -335,7 +401,7 @@ export default function ExpensesPage() {
             <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>
-                  {receiptIdForExpense ? "Create Expense from Receipt" : "Add Expense"}
+                  {editingExpense ? "Edit Expense" : receiptIdForExpense ? "Create Expense from Receipt" : "Add Expense"}
                 </DialogTitle>
               </DialogHeader>
               {receiptImageUrl && (
@@ -383,6 +449,26 @@ export default function ExpensesPage() {
                           <FormControl>
                             <Input {...field} type="date" data-testid="input-expense-date" />
                           </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="title"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Title</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="e.g., Office Supplies Purchase"
+                              data-testid="input-expense-title"
+                            />
+                          </FormControl>
+                          <FormDescription>
+                            A brief description of this expense
+                          </FormDescription>
                           <FormMessage />
                         </FormItem>
                       )}
@@ -585,8 +671,8 @@ export default function ExpensesPage() {
                 </Form>
               </div>
               <DialogFooter className="mt-4">
-                <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-expense" onClick={form.handleSubmit(onSubmit)}>
-                  {createMutation.isPending ? "Saving..." : "Save Expense"}
+                <Button type="submit" disabled={createMutation.isPending || updateMutation.isPending} data-testid="button-submit-expense" onClick={form.handleSubmit(onSubmit)}>
+                  {createMutation.isPending || updateMutation.isPending ? "Saving..." : editingExpense ? "Update Expense" : "Save Expense"}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -659,11 +745,12 @@ export default function ExpensesPage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
+                    <TableHead>Title</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Vendor</TableHead>
                     <TableHead className="text-center">Deductible</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="w-12"></TableHead>
+                    <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -673,17 +760,20 @@ export default function ExpensesPage() {
                         {formatDate(item.date)}
                       </TableCell>
                       <TableCell>
+                        <div>
+                          <p className="font-medium">{item.title || "—"}</p>
+                          {item.description && (
+                            <p className="text-sm text-muted-foreground">{item.description}</p>
+                          )}
+                        </div>
+                      </TableCell>
+                      <TableCell>
                         <Badge variant="outline" className="text-xs">
                           {getCategoryLabel(item.category)}
                         </Badge>
                       </TableCell>
                       <TableCell>
-                        <div>
-                          <p className="font-medium">{item.vendor || "—"}</p>
-                          {item.description && (
-                            <p className="text-sm text-muted-foreground">{item.description}</p>
-                          )}
-                        </div>
+                        {item.vendor || "—"}
                       </TableCell>
                       <TableCell className="text-center">
                         {item.isTaxDeductible && (
@@ -694,16 +784,25 @@ export default function ExpensesPage() {
                         -{formatCurrency(item.amount)}
                       </TableCell>
                       <TableCell>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              data-testid={`button-delete-expense-${item.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          </AlertDialogTrigger>
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(item)}
+                            data-testid={`button-edit-expense-${item.id}`}
+                          >
+                            <Edit className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                data-testid={`button-delete-expense-${item.id}`}
+                              >
+                                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
                               <AlertDialogTitle>Delete expense entry?</AlertDialogTitle>
@@ -722,6 +821,7 @@ export default function ExpensesPage() {
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

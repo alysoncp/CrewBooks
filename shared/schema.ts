@@ -167,6 +167,7 @@ export const expenses = pgTable("expenses", {
   userId: varchar("user_id").notNull(),
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
   date: date("date").notNull(),
+  title: text("title"),
   category: text("category").notNull(),
   subcategory: text("subcategory"), // Add this if missing
   vehicleId: varchar("vehicle_id"), // Add this if missing

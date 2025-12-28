@@ -44,6 +44,7 @@ export interface IStorage {
   getExpenses(userId: string): Promise<Expense[]>;
   getExpenseById(id: string): Promise<Expense | undefined>;
   createExpense(expense: InsertExpense): Promise<Expense>;
+  updateExpense(id: string, data: Partial<InsertExpense>): Promise<Expense | undefined>;
   deleteExpense(id: string): Promise<boolean>;
 
   getReceipts(userId: string): Promise<Receipt[]>;
@@ -167,6 +168,15 @@ export class DatabaseStorage implements IStorage {
       .values(expenseData)
       .returning();
     return record;
+  }
+
+  async updateExpense(id: string, expenseData: Partial<InsertExpense>): Promise<Expense | undefined> {
+    const [record] = await db
+      .update(expenses)
+      .set(expenseData)
+      .where(eq(expenses.id, id))
+      .returning();
+    return record || undefined;
   }
 
   async deleteExpense(id: string): Promise<boolean> {

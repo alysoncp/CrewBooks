@@ -214,6 +214,32 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/expenses/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const expense = await storage.getExpenseById(req.params.id);
+      
+      if (!expense) {
+        return res.status(404).json({ error: "Expense not found" });
+      }
+      
+      if (expense.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const updated = await storage.updateExpense(req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: "Expense not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to update expense" });
+    }
+  });
+
   app.delete("/api/expenses/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteExpense(req.params.id);
