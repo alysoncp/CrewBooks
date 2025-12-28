@@ -196,6 +196,7 @@ export async function registerRoutes(
       const expenseRecords = await storage.getExpenses(userId);
       res.json(expenseRecords);
     } catch (error) {
+      console.error("Failed to get expenses:", error);
       res.status(500).json({ error: "Failed to get expenses" });
     }
   });
@@ -352,6 +353,7 @@ export async function registerRoutes(
 
       res.json({ calculation, user, breakdown });
     } catch (error) {
+      console.error("Failed to calculate tax:", error);
       res.status(500).json({ error: "Failed to calculate tax" });
     }
   });

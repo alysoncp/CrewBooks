@@ -631,14 +631,21 @@ export class DatabaseStorage implements IStorage {
       0
     );
 
+    // Use gstAmount for Input Tax Credits (GST amount calculated from expense breakdown)
     const inputTaxCredits = expenseRecords.reduce(
-      (sum, e) => sum + (e.gstHstPaid ? parseFloat(e.gstHstPaid) : 0),
+      (sum, e) => {
+        const gstAmount = e.gstAmount ? parseFloat(e.gstAmount.toString()) : 0;
+        return sum + gstAmount;
+      },
       0
     );
 
     const transactionsWithGstHst = 
       incomeRecords.filter((i) => i.gstHstCollected && parseFloat(i.gstHstCollected) > 0).length +
-      expenseRecords.filter((e) => e.gstHstPaid && parseFloat(e.gstHstPaid) > 0).length;
+      expenseRecords.filter((e) => {
+        const gstAmount = e.gstAmount ? parseFloat(e.gstAmount.toString()) : 0;
+        return gstAmount > 0;
+      }).length;
 
     return {
       gstHstCollected,

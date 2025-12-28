@@ -17,7 +17,22 @@ export function formatPercent(value: number): string {
 }
 
 export function formatDate(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  let d: Date;
+  if (typeof date === 'string') {
+    // Parse date string (YYYY-MM-DD) without timezone conversion
+    // This prevents the date from shifting by one day
+    const parts = date.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+      const day = parseInt(parts[2], 10);
+      d = new Date(year, month, day);
+    } else {
+      d = new Date(date);
+    }
+  } else {
+    d = date;
+  }
   return new Intl.DateTimeFormat('en-CA', {
     year: 'numeric',
     month: 'short',
@@ -26,7 +41,21 @@ export function formatDate(date: string | Date): string {
 }
 
 export function formatMonth(date: string | Date): string {
-  const d = typeof date === 'string' ? new Date(date) : date;
+  let d: Date;
+  if (typeof date === 'string') {
+    // Parse date string (YYYY-MM-DD) without timezone conversion
+    const parts = date.split('-');
+    if (parts.length === 3) {
+      const year = parseInt(parts[0], 10);
+      const month = parseInt(parts[1], 10) - 1; // Month is 0-indexed
+      const day = parseInt(parts[2], 10);
+      d = new Date(year, month, day);
+    } else {
+      d = new Date(date);
+    }
+  } else {
+    d = date;
+  }
   return new Intl.DateTimeFormat('en-CA', {
     year: 'numeric',
     month: 'long',

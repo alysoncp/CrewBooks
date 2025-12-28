@@ -175,7 +175,6 @@ export const expenses = pgTable("expenses", {
   vendor: text("vendor"),
   receiptImageUrl: text("receipt_image_url"),
   isTaxDeductible: boolean("is_tax_deductible").default(true),
-  gstHstPaid: numeric("gst_hst_paid", { precision: 12, scale: 2 }),
   baseCost: numeric("base_cost", { precision: 12, scale: 2 }),
   gstAmount: numeric("gst_amount", { precision: 12, scale: 2 }),
   pstAmount: numeric("pst_amount", { precision: 12, scale: 2 }),

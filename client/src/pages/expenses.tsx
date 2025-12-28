@@ -101,7 +101,6 @@ const expenseFormSchema = z.object({
   vendor: z.string().optional(),
   description: z.string().optional(),
   isTaxDeductible: z.boolean().default(true),
-  gstHstPaid: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
 }).refine((data) => {
   if (data.category === 'motor_vehicle_expenses' && !data.vehicleId) {
     return false;
@@ -169,7 +168,6 @@ export default function ExpensesPage() {
       vendor: "",
       description: "",
       isTaxDeductible: true,
-      gstHstPaid: "",
     },
   });
 
@@ -290,7 +288,6 @@ export default function ExpensesPage() {
               vendor: data.expenseData.vendor || "",
               description: data.expenseData.description || "",
               isTaxDeductible: data.expenseData.isTaxDeductible !== false,
-              gstHstPaid: data.expenseData.gstHstPaid?.toString() || "",
             });
             
             // Clear URL param
@@ -356,7 +353,6 @@ export default function ExpensesPage() {
         vendor: data.vendor,
         description: data.description,
         isTaxDeductible: data.isTaxDeductible,
-        gstHstPaid: data.gstHstPaid?.toString() || null,
       };
       
       // Link receipt if creating from receipt
@@ -369,6 +365,7 @@ export default function ExpensesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
       setIsDialogOpen(false);
       setEditingExpense(null);
       setLastEditedField(null);
@@ -425,13 +422,13 @@ export default function ExpensesPage() {
         vendor: data.vendor,
         description: data.description,
         isTaxDeductible: data.isTaxDeductible,
-        gstHstPaid: data.gstHstPaid?.toString() || null,
       };
       return apiRequest("PATCH", `/api/expenses/${id}`, payload);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
       setIsDialogOpen(false);
       setEditingExpense(null);
       setLastEditedField(null);
@@ -457,6 +454,7 @@ export default function ExpensesPage() {
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
       toast({
         title: "Expense deleted",
         description: "The expense entry has been removed.",
@@ -504,7 +502,6 @@ export default function ExpensesPage() {
         vendor: expense.vendor || "",
         description: expense.description || "",
         isTaxDeductible: expense.isTaxDeductible ?? true,
-        gstHstPaid: expense.gstHstPaid?.toString() || "",
       });
       setLastEditedField("baseCost");
     } else {
@@ -522,7 +519,6 @@ export default function ExpensesPage() {
         vendor: expense.vendor || "",
         description: expense.description || "",
         isTaxDeductible: expense.isTaxDeductible ?? true,
-        gstHstPaid: expense.gstHstPaid?.toString() || "",
       });
       setLastEditedField("total");
     }
@@ -536,6 +532,24 @@ export default function ExpensesPage() {
       setReceiptImageUrl(null);
       setLastEditedField(null);
       form.reset();
+    } else if (open) {
+      // When opening the dialog, if not editing and not from receipt, reset to defaults
+      if (!editingExpense && !receiptIdForExpense) {
+        setEditingExpense(null); // Ensure it's cleared
+        form.reset({
+          baseCost: "",
+          total: "",
+          gstIncluded: false,
+          pstIncluded: false,
+          date: new Date().toISOString().split("T")[0],
+          title: "",
+          category: "",
+          vendor: "",
+          description: "",
+          isTaxDeductible: true,
+        });
+        setLastEditedField(null);
+      }
     }
   };
 
@@ -921,33 +935,6 @@ export default function ExpensesPage() {
                         </FormItem>
                       )}
                     />
-                    {hasGstNumber && (
-                      <FormField
-                        control={form.control}
-                        name="gstHstPaid"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>GST/HST Paid (ITC)</FormLabel>
-                            <FormControl>
-                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                <Input
-                                  {...field}
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  placeholder="0.00"
-                                  className="pl-7 font-mono"
-                                  data-testid="input-expense-gst-hst"
-                                />
-                              </div>
-                            </FormControl>
-                            <FormDescription>Input Tax Credit for GST/HST on this expense</FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                    )}
                   </form>
                 </Form>
               </div>
