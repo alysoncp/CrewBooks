@@ -36,28 +36,28 @@ export type UnionId = keyof typeof UNIONS;
 
 // Expense Categories for Film/TV Industry
 export const EXPENSE_CATEGORIES = [
+  "home_office_expenses",
+  "motor_vehicle_expenses",
   "advertising",
-  "meals_entertainment",
-  "insurance",
   "business_taxes",
+  "commissions_agent_fees",
+  "delivery_freight",
+  "equipment",
+  "fuel_costs",
+  "insurance",
   "licenses_memberships",
+  "management_admin_fees",
+  "meals_entertainment",
   "office_expenses",
   "office_supplies",
   "professional_fees",
-  "management_admin_fees",
+  "property_tax",
   "rent",
   "repairs_maintenance",
   "salaries_wages",
-  "property_tax",
+  "training",
   "travel_expenses",
   "utilities",
-  "fuel_costs",
-  "delivery_freight",
-  "motor_vehicle_expenses",
-  "home_office_expenses",
-  "equipment",
-  "commissions_agent_fees",
-  "training",
 ] as const;
 
 export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
@@ -109,6 +109,7 @@ export const users = pgTable("users", {
   hasRegularEmployment: boolean("has_regular_employment").default(false),
   hasHomeOffice: boolean("has_home_office").default(false),
   homeOfficePercentage: numeric("home_office_percentage", { precision: 5, scale: 2 }),
+  enabledExpenseCategories: jsonb("enabled_expense_categories").$type<string[]>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

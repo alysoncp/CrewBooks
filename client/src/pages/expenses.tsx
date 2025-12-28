@@ -57,7 +57,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getCategoryLabel } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Expense } from "@shared/schema";
+import { EXPENSE_CATEGORIES, type Expense, type User } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import React from "react";
 import { Link, useLocation } from "wouter";
@@ -84,6 +84,7 @@ const HOME_OFFICE_SUBCATEGORIES = [
   { id: 'maintenance', label: 'Maintenance' },
   { id: 'mortgage_interest', label: 'Mortgage Interest' },
   { id: 'property_taxes', label: 'Property Taxes' },
+  { id: 'rent', label: 'Rent' },
 ] as const;
 
 // Add Vehicle type (you already have this, but ensure it matches schema)
@@ -157,9 +158,6 @@ export default function ExpensesPage() {
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [vehicleSearchQuery, setVehicleSearchQuery] = useState("");
-  const [isAddCategoryOpen, setIsAddCategoryOpen] = useState(false);
-  const [newCategoryName, setNewCategoryName] = useState("");
-  const [customCategories, setCustomCategories] = useState<Set<string>>(new Set());
   const [receiptIdForExpense, setReceiptIdForExpense] = useState<string | null>(null);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const { toast } = useToast();
@@ -171,31 +169,23 @@ export default function ExpensesPage() {
     queryKey: ["/api/expenses"],
   });
 
-  // Extract custom categories from existing expenses
-  const allCategories = useMemo(() => {
-    const predefinedSet = new Set<string>(EXPENSE_CATEGORIES);
-    const customSet = new Set<string>();
-    
-    if (expenseList) {
-      expenseList.forEach((expense) => {
-        if (expense.category && !predefinedSet.has(expense.category)) {
-          customSet.add(expense.category);
-        }
-      });
+  const { data: userProfile } = useQuery<User>({
+    queryKey: ["/api/user/profile"],
+  });
+
+  // Get enabled categories from user profile (default to all if not set)
+  const enabledCategories = useMemo(() => {
+    if (userProfile?.enabledExpenseCategories) {
+      return new Set(userProfile.enabledExpenseCategories as string[]);
     }
-    
-    // Also include any categories added in this session
-    customCategories.forEach((cat) => {
-      if (!predefinedSet.has(cat)) {
-        customSet.add(cat);
-      }
-    });
-    
-    return {
-      predefined: Array.from(EXPENSE_CATEGORIES),
-      custom: Array.from(customSet).sort(),
-    };
-  }, [expenseList, customCategories]);
+    // Default: all categories enabled
+    return new Set(EXPENSE_CATEGORIES);
+  }, [userProfile]);
+
+  // Filter categories to only show enabled ones
+  const availableCategories = useMemo(() => {
+    return EXPENSE_CATEGORIES.filter((category) => enabledCategories.has(category));
+  }, [enabledCategories]);
 
   // Move form definition BEFORE the useEffect that uses it
   const form = useForm<ExpenseFormData>({
@@ -489,32 +479,6 @@ export default function ExpensesPage() {
     }
   };
 
-  const handleAddCategory = () => {
-    if (!newCategoryName.trim()) {
-      toast({
-        title: "Error",
-        description: "Please enter a category name",
-        variant: "destructive",
-      });
-      return;
-    }
-    
-    // Convert to lowercase with underscores (matching existing format)
-    const categoryKey = newCategoryName.trim().toLowerCase().replace(/\s+/g, '_');
-    
-    // Add to custom categories set
-    setCustomCategories((prev) => new Set(prev).add(categoryKey));
-    
-    // Set the category in the form
-    form.setValue("category", categoryKey);
-    setNewCategoryName("");
-    setIsAddCategoryOpen(false);
-    
-    toast({
-      title: "Category added",
-      description: `Using "${newCategoryName.trim()}" as the category`,
-    });
-  };
 
   return (
     <div className="space-y-6">
@@ -527,7 +491,7 @@ export default function ExpensesPage() {
           <Link href="/expenses/settings">
             <Button variant="outline" data-testid="button-expenses-settings">
               <Settings className="mr-2 h-4 w-4" />
-              Category Settings
+              Expense Settings
             </Button>
           </Link>
           <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
@@ -599,13 +563,7 @@ export default function ExpensesPage() {
                         <FormItem>
                           <FormLabel>Category</FormLabel>
                           <Select 
-                            onValueChange={(value) => {
-                              if (value === "__add_new__") {
-                                setIsAddCategoryOpen(true);
-                              } else {
-                                field.onChange(value);
-                              }
-                            }} 
+                            onValueChange={field.onChange} 
                             value={field.value}
                           >
                             <FormControl>
@@ -614,80 +572,17 @@ export default function ExpensesPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {allCategories.predefined.map((category) => (
+                              {availableCategories.map((category) => (
                                 <SelectItem key={category} value={category}>
                                   {getCategoryLabel(category)}
                                 </SelectItem>
                               ))}
-                              {allCategories.custom.length > 0 && (
-                                <>
-                                  <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                                    Custom Categories
-                                  </div>
-                                  {allCategories.custom.map((category) => (
-                                    <SelectItem key={category} value={category}>
-                                      {getCategoryLabel(category)}
-                                    </SelectItem>
-                                  ))}
-                                </>
-                              )}
-                              <div className="px-2 py-1.5 text-xs font-semibold text-muted-foreground">
-                                Actions
-                              </div>
-                              <SelectItem value="__add_new__" className="text-primary font-medium">
-                                <Plus className="mr-2 h-4 w-4 inline" />
-                                Add New Category
-                              </SelectItem>
                             </SelectContent>
                           </Select>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-                    
-                    {/* Add Category Dialog */}
-                    <Dialog open={isAddCategoryOpen} onOpenChange={setIsAddCategoryOpen}>
-                      <DialogContent className="sm:max-w-md">
-                        <DialogHeader>
-                          <DialogTitle>Add New Category</DialogTitle>
-                        </DialogHeader>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="text-sm font-medium">Category Name</label>
-                            <Input
-                              value={newCategoryName}
-                              onChange={(e) => setNewCategoryName(e.target.value)}
-                              placeholder="e.g., Software Subscriptions"
-                              onKeyDown={(e) => {
-                                if (e.key === "Enter") {
-                                  e.preventDefault();
-                                  handleAddCategory();
-                                }
-                              }}
-                              autoFocus
-                            />
-                          </div>
-                          <DialogFooter>
-                            <Button
-                              type="button"
-                              variant="outline"
-                              onClick={() => {
-                                setIsAddCategoryOpen(false);
-                                setNewCategoryName("");
-                              }}
-                            >
-                              Cancel
-                            </Button>
-                            <Button
-                              type="button"
-                              onClick={handleAddCategory}
-                            >
-                              Add Category
-                            </Button>
-                          </DialogFooter>
-                        </div>
-                      </DialogContent>
-                    </Dialog>
 
                     {form.watch("category") === "motor_vehicle_expenses" && (
                       <>
