@@ -6,6 +6,8 @@ import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -30,7 +32,7 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDate } from "@/lib/format";
 import type { Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
-import { Link } from "wouter";
+import { Link, useLocation } from "wouter";
 
 function LockedContent() {
   return (
@@ -60,6 +62,7 @@ export default function ReceiptsPage() {
   const [scanWithOCR, setScanWithOCR] = useState(false);
   const { toast } = useToast();
   const { user } = useAuth();
+  const [, setLocation] = useLocation();
   
   const isBasicTier = user?.subscriptionTier === "basic";
   const hasReceiptAccess = !isBasicTier; // Personal and Corporate have access
@@ -75,7 +78,9 @@ export default function ReceiptsPage() {
         formData.append("files", file);
       });
       formData.append("notes", notes);
-      formData.append("userId", "demo-user");
+      formData.append("scanWithOCR", scanWithOCR.toString());
+      
+      console.log("Uploading receipt with OCR:", scanWithOCR);
       
       const response = await fetch("/api/receipts/upload", {
         method: "POST",
@@ -88,11 +93,50 @@ export default function ReceiptsPage() {
       
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
+      
+      // Always redirect to expenses page to create expense from receipt
+      if (data && Array.isArray(data) && data.length > 0) {
+        const firstReceipt = data[0];
+        
+        if (firstReceipt.id) {
+          // Close dialog and clear state
+          setIsDialogOpen(false);
+          setPreviewFiles([]);
+          setNotes("");
+          setScanWithOCR(false);
+          
+          // Redirect to expenses page with receiptId to open expense dialog
+          setLocation(`/expenses?receiptId=${firstReceipt.id}`);
+          
+          // Show appropriate toast based on OCR status
+          if (scanWithOCR && firstReceipt.expenseData && firstReceipt.ocrStatus === "completed") {
+            toast({
+              title: "Receipt scanned",
+              description: "Review and confirm the extracted expense data.",
+            });
+          } else if (scanWithOCR && firstReceipt.ocrError) {
+            toast({
+              title: "OCR processing failed",
+              description: "You can still create the expense manually.",
+              variant: "default",
+            });
+          } else {
+            toast({
+              title: "Receipt uploaded",
+              description: "Create an expense for this receipt.",
+            });
+          }
+          return;
+        }
+      }
+      
+      // Fallback: just close dialog if something went wrong
       setIsDialogOpen(false);
       setPreviewFiles([]);
       setNotes("");
+      setScanWithOCR(false);
       toast({
         title: "Receipts uploaded",
         description: "Your receipts have been saved successfully.",
@@ -245,6 +289,24 @@ export default function ReceiptsPage() {
                     onChange={(e) => setNotes(e.target.value)}
                     data-testid="input-receipt-notes"
                   />
+                </div>
+
+                <div className="flex items-center space-x-2 rounded-lg border p-4">
+                  <Switch
+                    id="scan-ocr"
+                    checked={scanWithOCR}
+                    onCheckedChange={setScanWithOCR}
+                    data-testid="switch-scan-ocr"
+                  />
+                  <Label htmlFor="scan-ocr" className="cursor-pointer">
+                    <div className="flex items-center gap-2">
+                      <Scan className="h-4 w-4" />
+                      <span>Scan with OCR</span>
+                    </div>
+                    <p className="text-xs text-muted-foreground mt-1">
+                      Automatically extract receipt details and open expense form
+                    </p>
+                  </Label>
                 </div>
               </div>
               <DialogFooter>

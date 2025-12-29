@@ -8,6 +8,18 @@ import path from "path";
 import fs from "fs";
 import { setupAuth, isAuthenticated } from "./auth";
 import { eq, desc, asc } from "drizzle-orm";
+import { processReceiptOCR, type OCRResult } from "./veryfi-ocr";
+
+// Logging function to avoid circular dependency
+function logRoute(message: string, source = "routes") {
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  console.log(`${formattedTime} [${source}] ${message}`);
+}
 
 const uploadDir = path.join(process.cwd(), "uploads");
 if (!fs.existsSync(uploadDir)) {
@@ -35,6 +47,125 @@ const upload = multer({
 
 function getUserId(req: any): string {
   return req.user?.claims?.sub;
+}
+
+/**
+ * Helper function to map vendor/description to expense category
+ */
+function mapVendorToCategory(vendor?: string, description?: string): string {
+  if (!vendor && !description) {
+    return "office_expenses"; // Default category
+  }
+
+  const searchText = `${vendor || ""} ${description || ""}`.toLowerCase();
+
+  // Fuel and gas stations
+  if (searchText.match(/\b(petro|shell|esso|chevron|mobil|gas|fuel|petrol|diesel)\b/)) {
+    return "fuel_costs";
+  }
+
+  // Vehicle-related
+  if (searchText.match(/\b(auto|car|vehicle|tire|mechanic|repair shop|dealer|honda|toyota|ford|gm|nissan)\b/)) {
+    return "motor_vehicle_expenses";
+  }
+
+  // Office supplies
+  if (searchText.match(/\b(staples|office depot|office max|paper|pen|pencil|notebook|folder|binder)\b/)) {
+    return "office_supplies";
+  }
+
+  // Restaurants and meals
+  if (searchText.match(/\b(restaurant|cafe|coffee|starbucks|tim hortons|mcdonald|subway|pizza|food|meal|dining)\b/)) {
+    return "meals_entertainment";
+  }
+
+  // Hotels and travel
+  if (searchText.match(/\b(hotel|motel|airbnb|booking|travel|airline|air canada|westjet|airport|taxi|uber|lyft)\b/)) {
+    return "travel_expenses";
+  }
+
+  // Professional services
+  if (searchText.match(/\b(lawyer|attorney|legal|accountant|accounting|consultant|professional service)\b/)) {
+    return "professional_fees";
+  }
+
+  // Insurance
+  if (searchText.match(/\b(insurance|coverage|policy|premium)\b/)) {
+    return "insurance";
+  }
+
+  // Training and education
+  if (searchText.match(/\b(course|training|education|class|workshop|seminar|university|college|school)\b/)) {
+    return "training";
+  }
+
+  // Advertising
+  if (searchText.match(/\b(advertising|ad|marketing|promotion|social media|facebook|google ads)\b/)) {
+    return "advertising";
+  }
+
+  // Rent
+  if (searchText.match(/\b(rent|lease|landlord|apartment|building)\b/)) {
+    return "rent";
+  }
+
+  // Utilities
+  if (searchText.match(/\b(hydro|electric|water|gas utility|utility bill|power)\b/)) {
+    return "utilities";
+  }
+
+  // Default to office expenses
+  return "office_expenses";
+}
+
+/**
+ * Convert OCR result to expense data format
+ */
+function convertOCRToExpenseData(ocrResult: OCRResult): any {
+  // Map vendor/description to expense category
+  const category = mapVendorToCategory(ocrResult.vendor, ocrResult.lineItems?.[0]?.description);
+
+  // Calculate tax breakdown (assuming Canadian GST/PST)
+  let baseCost = 0;
+  let gstAmount = 0;
+  let pstAmount = 0;
+  let total = ocrResult.amount || 0;
+
+  if (ocrResult.tax && ocrResult.tax > 0 && total > 0) {
+    // Try to infer tax breakdown
+    const taxRate = ocrResult.tax / total;
+    
+    if (taxRate >= 0.12 && taxRate <= 0.14) {
+      // Likely HST (13% in ON)
+      baseCost = total / 1.13;
+      gstAmount = baseCost * 0.05;
+      pstAmount = baseCost * 0.08; // HST = GST + PST equivalent
+    } else if (taxRate >= 0.04 && taxRate <= 0.06) {
+      // Likely GST only (5%)
+      baseCost = total / 1.05;
+      gstAmount = baseCost * 0.05;
+    } else {
+      // Use tax amount as GST, calculate base
+      baseCost = total - ocrResult.tax;
+      gstAmount = ocrResult.tax;
+    }
+  } else {
+    // No tax detected, assume total is base cost
+    baseCost = total;
+  }
+
+  return {
+    amount: total.toString(),
+    baseCost: baseCost.toString(),
+    gstAmount: gstAmount.toString(),
+    pstAmount: pstAmount.toString(),
+    date: ocrResult.date || new Date().toISOString().split("T")[0],
+    title: ocrResult.lineItems?.[0]?.description || ocrResult.vendor || "Receipt Expense",
+    category: category,
+    vendor: ocrResult.vendor || "",
+    description: ocrResult.lineItems?.map(item => item.description).join(", ") || "",
+    isTaxDeductible: true,
+  };
 }
 
 export async function registerRoutes(
@@ -204,13 +335,26 @@ export async function registerRoutes(
   app.post("/api/expenses", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const data = insertExpenseSchema.parse({ ...req.body, userId });
+      const { linkedReceiptId, ...expenseData } = req.body;
+      const data = insertExpenseSchema.parse({ ...expenseData, userId });
       const expense = await storage.createExpense(data);
+      
+      // If expense was created from a receipt, link them
+      if (linkedReceiptId) {
+        const receipt = await storage.getReceiptById(linkedReceiptId);
+        if (receipt && receipt.userId === userId) {
+          await storage.updateReceipt(linkedReceiptId, {
+            linkedExpenseId: expense.id,
+          });
+        }
+      }
+      
       res.status(201).json(expense);
     } catch (error) {
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
+      console.error("Error creating expense:", error);
       res.status(500).json({ error: "Failed to create expense" });
     }
   });
@@ -265,6 +409,12 @@ export async function registerRoutes(
 
   app.post("/api/receipts/upload", isAuthenticated, upload.array("files", 10), async (req: any, res) => {
     try {
+      logRoute("=== RECEIPT UPLOAD REQUEST ===", "receipts");
+      logRoute(`Request body keys: ${Object.keys(req.body).join(", ")}`, "receipts");
+      logRoute(`Request body scanWithOCR: ${req.body.scanWithOCR}`, "receipts");
+      logRoute(`Request body scanWithOCR type: ${typeof req.body.scanWithOCR}`, "receipts");
+      logRoute(`Files count: ${req.files?.length || 0}`, "receipts");
+      
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
       
@@ -282,20 +432,165 @@ export async function registerRoutes(
       
       const files = req.files as Express.Multer.File[];
       const notes = req.body.notes || "";
+      
+      // Debug: Log all body fields
+      logRoute(`All body fields: ${JSON.stringify(req.body)}`, "receipts");
+      
+      // Parse scanWithOCR - it comes as a string "true" or "false" from FormData
+      const scanWithOCRRaw = req.body.scanWithOCR;
+      const scanWithOCR = scanWithOCRRaw === "true" || scanWithOCRRaw === true || scanWithOCRRaw === "1";
+      
+      logRoute(`Parsed scanWithOCR: ${scanWithOCR} (raw: ${scanWithOCRRaw}, type: ${typeof scanWithOCRRaw})`, "receipts");
 
+      // Process receipts with optional OCR
       const receiptRecords = await Promise.all(
-        files.map((file) =>
-          storage.createReceipt({
+        files.map(async (file) => {
+          const filePath = path.join(process.cwd(), "uploads", file.filename);
+          
+          // Create receipt record
+          const receipt = await storage.createReceipt({
             userId,
             imageUrl: `/uploads/${file.filename}`,
             notes,
-          })
-        )
+            ocrStatus: scanWithOCR ? "processing" : null,
+          });
+
+          // If OCR is requested, process it synchronously
+          if (scanWithOCR) {
+            logRoute(`=== PROCESSING OCR FOR RECEIPT ${receipt.id} ===`, "ocr");
+            logRoute(`File path: ${filePath}`, "ocr");
+            logRoute(`File exists: ${fs.existsSync(filePath)}`, "ocr");
+            try {
+              // Process OCR
+              const ocrResult = await processReceiptOCR(filePath);
+              // Log summary only (detailed logs are in veryfi-ocr.ts)
+              if (ocrResult.status === "completed") {
+                logRoute(`OCR completed for receipt ${receipt.id}: $${ocrResult.amount} at ${ocrResult.vendor}`, "ocr");
+              } else {
+                logRoute(`OCR ${ocrResult.status} for receipt ${receipt.id}`, "ocr");
+              }
+              
+              // Store OCR results
+              await storage.updateReceipt(receipt.id, {
+                ocrJobId: ocrResult.documentId,
+                ocrStatus: ocrResult.status,
+                ocrResult: ocrResult.rawResponse || ocrResult,
+                ocrProcessedAt: ocrResult.status === "completed" ? new Date() : null,
+              });
+
+              // If OCR completed successfully, return expense data for review
+              if (ocrResult.status === "completed") {
+                const expenseData = convertOCRToExpenseData(ocrResult);
+                return {
+                  ...receipt,
+                  ocrStatus: ocrResult.status,
+                  expenseData: expenseData,
+                  confidence: ocrResult.confidence,
+                };
+              } else {
+                // OCR failed
+                return {
+                  ...receipt,
+                  ocrStatus: ocrResult.status,
+                  ocrError: ocrResult.rawResponse?.error || "OCR processing failed",
+                };
+              }
+            } catch (error: any) {
+              logRoute(`Failed to process OCR for receipt ${receipt.id}: ${error.message}`, "ocr");
+              logRoute(`Error stack: ${error.stack}`, "ocr");
+              await storage.updateReceipt(receipt.id, {
+                ocrStatus: "failed",
+                ocrResult: { error: error.message || "Unknown error" },
+              });
+              
+              return {
+                ...receipt,
+                ocrStatus: "failed",
+                ocrError: error.message || "Unknown error",
+              };
+            }
+          } else {
+            logRoute(`OCR not requested for receipt ${receipt.id}`, "receipts");
+          }
+
+          return receipt;
+        })
       );
 
       res.status(201).json(receiptRecords);
     } catch (error) {
+      console.error("Error uploading receipts:", error);
       res.status(500).json({ error: "Failed to upload receipts" });
+    }
+  });
+
+  app.get("/api/receipts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const receipt = await storage.getReceiptById(req.params.id);
+      
+      if (!receipt) {
+        return res.status(404).json({ error: "Receipt not found" });
+      }
+      
+      if (receipt.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(receipt);
+    } catch (error) {
+      console.error("Error fetching receipt:", error);
+      res.status(500).json({ error: "Failed to get receipt" });
+    }
+  });
+
+  app.get("/api/receipts/:id/ocr-to-expense", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const receipt = await storage.getReceiptById(req.params.id);
+      
+      if (!receipt) {
+        return res.status(404).json({ error: "Receipt not found" });
+      }
+      
+      if (receipt.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      if (!receipt.ocrResult) {
+        return res.status(400).json({ error: "OCR has not been processed for this receipt" });
+      }
+
+      if (receipt.ocrStatus !== "completed") {
+        return res.status(400).json({ 
+          error: "OCR is still processing",
+          status: receipt.ocrStatus,
+        });
+      }
+
+      const ocrData = receipt.ocrResult as any;
+      const ocrResult: OCRResult = {
+        amount: ocrData.total || ocrData.amount,
+        date: ocrData.date,
+        vendor: ocrData.vendor?.name || ocrData.merchant_name || ocrData.vendor,
+        tax: ocrData.tax || ocrData.total_tax,
+        lineItems: ocrData.line_items,
+        confidence: ocrData.confidence_score || ocrData.confidence || 0,
+        status: "completed",
+        documentId: receipt.ocrJobId || undefined,
+        rawResponse: ocrData,
+      };
+
+      // Convert OCR to expense data using helper function
+      const expenseData = convertOCRToExpenseData(ocrResult);
+
+      res.json({
+        expenseData,
+        confidence: ocrResult.confidence,
+      });
+    } catch (error) {
+      console.error("Error converting OCR to expense:", error);
+      res.status(500).json({ error: "Failed to convert OCR to expense data" });
     }
   });
 

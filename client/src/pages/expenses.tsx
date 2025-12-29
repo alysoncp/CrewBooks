@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Search, Receipt, Plus, Trash2, Edit } from "lucide-react";
+import { Search, Receipt as ReceiptIcon, Plus, Trash2, Edit, Image as ImageIcon, X } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,6 +13,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
@@ -57,7 +58,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getCategoryLabel } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle } from "@shared/schema";
+import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import React from "react";
 import { Link, useLocation } from "wouter";
@@ -140,6 +141,26 @@ export default function ExpensesPage() {
     queryKey: ["/api/user/profile"],
   });
 
+  // Fetch receipts to match with expenses
+  const { data: receipts } = useQuery<Receipt[]>({
+    queryKey: ["/api/receipts"],
+  });
+
+  // Create a map of expenseId -> receipt for quick lookup
+  const receiptMap = useMemo(() => {
+    if (!receipts) return new Map<string, Receipt>();
+    const map = new Map<string, Receipt>();
+    receipts.forEach((receipt) => {
+      if (receipt.linkedExpenseId) {
+        map.set(receipt.linkedExpenseId, receipt);
+      }
+    });
+    return map;
+  }, [receipts]);
+
+  // State for viewing receipt
+  const [viewingReceipt, setViewingReceipt] = useState<Receipt | null>(null);
+
   // Get enabled categories from user profile (default to all if not set)
   const enabledCategories = useMemo(() => {
     if (userProfile?.enabledExpenseCategories) {
@@ -159,11 +180,13 @@ export default function ExpensesPage() {
   }, [userProfile]);
 
   // Filter categories to only show enabled ones, and include custom categories
+  // Deduplicate to prevent React key warnings
   const availableCategories = useMemo(() => {
     const predefined = EXPENSE_CATEGORIES.filter((category) => enabledCategories.has(category));
-    // Add custom categories that are enabled
-    const custom = customCategories.filter(cat => enabledCategories.has(cat));
-    return [...predefined, ...custom];
+    // Add custom categories that are enabled, but filter out duplicates
+    const custom = customCategories.filter(cat => enabledCategories.has(cat) && !predefined.includes(cat as any));
+    // Use Set to ensure uniqueness, then convert back to array
+    return Array.from(new Set([...predefined, ...custom]));
   }, [enabledCategories, customCategories]);
 
   // Move form definition BEFORE the useEffect that uses it
@@ -263,20 +286,23 @@ export default function ExpensesPage() {
         })
         .catch(console.error);
       
-      // Fetch OCR data and pre-fill form
+      // Try to fetch OCR data and pre-fill form (if available)
       fetch(`/api/receipts/${receiptId}/ocr-to-expense`)
         .then((res) => {
           if (!res.ok) {
+            // If OCR data doesn't exist (404 or 400), that's fine - just open blank form
+            if (res.status === 404 || res.status === 400) {
+              return null;
+            }
             throw new Error(`Failed to fetch OCR data: ${res.statusText}`);
           }
           return res.json();
         })
         .then((data) => {
-          if (data.error) {
-            throw new Error(data.error);
-          }
+          // Clear URL param
+          window.history.replaceState({}, "", "/expenses");
           
-          if (data.expenseData) {
+          if (data && !data.error && data.expenseData) {
             // Warn if confidence is low
             if (data.confidence && data.confidence < 0.7) {
               toast({
@@ -286,8 +312,7 @@ export default function ExpensesPage() {
               });
             }
             
-            // Open dialog and pre-fill form
-            setIsDialogOpen(true);
+            // Pre-fill form with OCR data
             const ocrAmount = data.expenseData.amount ? parseFloat(data.expenseData.amount.toString()) : 0;
             form.reset({
               baseCost: "",
@@ -301,22 +326,44 @@ export default function ExpensesPage() {
               description: data.expenseData.description || "",
               isTaxDeductible: data.expenseData.isTaxDeductible !== false,
             });
-            
-            // Clear URL param
-            window.history.replaceState({}, "", "/expenses");
           } else {
-            throw new Error("No expense data available");
+            // No OCR data available - reset to blank form
+            form.reset({
+              baseCost: "",
+              total: "",
+              gstIncluded: false,
+              pstIncluded: false,
+              date: new Date().toISOString().split("T")[0],
+              title: "",
+              category: "",
+              vendor: "",
+              description: "",
+              isTaxDeductible: true,
+            });
           }
+          
+          // Open dialog after form is reset to ensure DialogTitle is ready
+          setTimeout(() => setIsDialogOpen(true), 0);
         })
         .catch((error) => {
           console.error("Error fetching OCR data:", error);
-          // Still open dialog so user can create expense manually
-          setIsDialogOpen(true);
-          toast({
-            title: "Warning",
-            description: "Failed to load receipt OCR data. You can still create the expense manually.",
-            variant: "default",
+          // Clear URL param
+          window.history.replaceState({}, "", "/expenses");
+          // Reset to blank form and open dialog
+          form.reset({
+            baseCost: "",
+            total: "",
+            gstIncluded: false,
+            pstIncluded: false,
+            date: new Date().toISOString().split("T")[0],
+            title: "",
+            category: "",
+            vendor: "",
+            description: "",
+            isTaxDeductible: true,
           });
+          // Open dialog so user can create expense manually
+          setTimeout(() => setIsDialogOpen(true), 0);
         });
     }
   }, [location, form, toast]);
@@ -376,6 +423,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/receipts"] }); // Invalidate receipts to update receipt map
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
       setIsDialogOpen(false);
@@ -439,6 +487,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/receipts"] }); // Invalidate receipts to update receipt map
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
       setIsDialogOpen(false);
@@ -465,6 +514,7 @@ export default function ExpensesPage() {
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/receipts"] }); // Invalidate receipts to update receipt map
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
       toast({
@@ -611,8 +661,19 @@ export default function ExpensesPage() {
             <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>
-                  {editingExpense ? "Edit Expense" : receiptIdForExpense ? "Create Expense from Receipt" : "Add Expense"}
+                  {editingExpense 
+                    ? "Edit Expense" 
+                    : receiptIdForExpense 
+                      ? "Create Expense from Receipt" 
+                      : "Add Expense"}
                 </DialogTitle>
+                <DialogDescription>
+                  {receiptIdForExpense 
+                    ? "Review and confirm the extracted expense data from your receipt." 
+                    : editingExpense
+                      ? "Update the expense details below."
+                      : "Enter the details for your business expense."}
+                </DialogDescription>
               </DialogHeader>
               {receiptImageUrl && (
                 <div className="mb-4 rounded-lg border p-2">
@@ -1022,7 +1083,7 @@ export default function ExpensesPage() {
           ) : filteredExpenses.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
-                <Receipt className="h-8 w-8 text-muted-foreground" />
+                <ReceiptIcon className="h-8 w-8 text-muted-foreground" />
               </div>
               <h3 className="text-lg font-medium">No expenses recorded</h3>
               <p className="mt-1 text-muted-foreground">
@@ -1083,6 +1144,17 @@ export default function ExpensesPage() {
                         </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
+                          {receiptMap.has(item.id) && (
+                            <Button
+                              variant="ghost"
+                              size="icon"
+                              onClick={() => setViewingReceipt(receiptMap.get(item.id)!)}
+                              data-testid={`button-view-receipt-${item.id}`}
+                              title="View receipt"
+                            >
+                              <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                            </Button>
+                          )}
                           <Button
                             variant="ghost"
                             size="icon"
@@ -1130,6 +1202,32 @@ export default function ExpensesPage() {
           )}
         </CardContent>
       </Card>
+
+      {/* Receipt View Dialog */}
+      <Dialog open={!!viewingReceipt} onOpenChange={(open) => !open && setViewingReceipt(null)}>
+        <DialogContent className="sm:max-w-4xl max-h-[90vh] flex flex-col">
+          <DialogHeader>
+            <DialogTitle>Receipt</DialogTitle>
+            <DialogDescription>
+              {viewingReceipt?.notes || "View receipt image"}
+            </DialogDescription>
+          </DialogHeader>
+          <div className="flex-1 overflow-auto flex items-center justify-center bg-muted rounded-lg p-4">
+            {viewingReceipt && (
+              <img
+                src={viewingReceipt.imageUrl}
+                alt="Receipt"
+                className="max-w-full max-h-[70vh] object-contain rounded-lg"
+              />
+            )}
+          </div>
+          <DialogFooter>
+            <Button variant="outline" onClick={() => setViewingReceipt(null)}>
+              Close
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
     </div>
   );
 }

@@ -1,5 +1,6 @@
 import fs from "fs";
 import path from "path";
+import axios from "axios";
 
 /**
  * Veryfi OCR Service
@@ -31,100 +32,151 @@ export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
   const apiKey = process.env.VERYFI_API_KEY;
 
   if (!clientId || !clientSecret || !username || !apiKey) {
+    const formattedTime = new Date().toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    console.error(`${formattedTime} [veryfi] === VERYFI CREDENTIALS MISSING ===`);
+    console.error(`${formattedTime} [veryfi] VERYFI_CLIENT_ID: ${clientId ? "SET" : "MISSING"}`);
+    console.error(`${formattedTime} [veryfi] VERYFI_CLIENT_SECRET: ${clientSecret ? "SET" : "MISSING"}`);
+    console.error(`${formattedTime} [veryfi] VERYFI_USERNAME: ${username ? "SET" : "MISSING"}`);
+    console.error(`${formattedTime} [veryfi] VERYFI_API_KEY: ${apiKey ? "SET" : "MISSING"}`);
     throw new Error(
       "Veryfi API credentials are not configured. Please set VERYFI_CLIENT_ID, VERYFI_CLIENT_SECRET, VERYFI_USERNAME, and VERYFI_API_KEY environment variables."
     );
   }
+  
+  const formattedTime = new Date().toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: true,
+  });
+  console.log(`${formattedTime} [veryfi] Veryfi credentials found, proceeding with OCR...`);
 
   try {
     // Read the image file
     const imageBuffer = fs.readFileSync(imagePath);
     const fileName = path.basename(imagePath);
 
-    // Create form data for Veryfi API
-    // Use form-data package for Node.js compatibility
-    let FormDataClass: any;
-    try {
-      FormDataClass = (await import("form-data")).default;
-    } catch {
-      // If form-data is not installed, try using native FormData (Node 18+)
-      FormDataClass = globalThis.FormData;
-      if (!FormDataClass) {
-        throw new Error(
-          "form-data package is required. Please install it: npm install form-data"
-        );
-      }
-    }
+    // Veryfi API v8 expects file_data as a base64-encoded string in JSON payload
+    // Convert image buffer to base64
+    const mimeType = "image/jpeg"; // or detect dynamically if you want
+    const fileDataBase64 = `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
 
-    const formData = new FormDataClass();
     
-    // Append file - form-data package uses different API than native FormData
-    if (FormDataClass.prototype.getHeaders) {
-      // form-data package
-      formData.append("file", imageBuffer, {
-        filename: fileName,
-        contentType: "image/jpeg",
-      });
-    } else {
-      // Native FormData (Node 18+)
-      const blob = new Blob([imageBuffer], { type: "image/jpeg" });
-      formData.append("file", blob, fileName);
-    }
+    // Create JSON payload for Veryfi API
+    // Include categories and auto_delete as recommended by Veryfi docs
+    const payload = {
+      file_data: fileDataBase64,
+      file_name: fileName,
+      categories: ["expense"],
+      auto_delete: true,
+    };
+    
 
-    // Prepare headers
+    // Prepare headers - ensure Content-Type is set correctly
     const headers: Record<string, string> = {
+      "Content-Type": "application/json",
       "CLIENT-ID": clientId,
+      "CLIENT-SECRET": clientSecret,
       "AUTHORIZATION": `apikey ${username}:${apiKey}`,
     };
+    
 
-    // Add form-data headers if using form-data package
-    if (formData.getHeaders) {
-      Object.assign(headers, formData.getHeaders());
-    }
-
-    // Make request to Veryfi API
-    const response = await fetch(VERYFI_API_URL, {
-      method: "POST",
-      headers,
-      body: formData as any,
+    // Make request to Veryfi API using axios (more reliable than fetch for this use case)
+    const formattedTime = new Date().toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
+    console.log(`${formattedTime} [veryfi] Making request to Veryfi API: ${VERYFI_API_URL}`);
+    console.log(`${formattedTime} [veryfi] Headers: CLIENT-ID=${clientId.substring(0, 8)}..., AUTHORIZATION=apikey ${username}:***`);
+    console.log(`${formattedTime} [veryfi] File: ${fileName}, Size: ${imageBuffer.length} bytes, Base64: ${fileDataBase64.length} chars`);
+    console.log(`${formattedTime} [veryfi] Payload keys: ${Object.keys(payload).join(", ")}, has file_data: ${!!payload.file_data}, file_data length: ${payload.file_data?.length || 0}`);
+    
+    console.log("[veryfi] Auth sanity:", {
+      hasClientId: !!clientId,
+      hasClientSecret: !!clientSecret,
+      hasUsername: !!username,
+      hasApiKey: !!apiKey,
     });
 
-    if (!response.ok) {
-      const errorText = await response.text();
-      throw new Error(
-        `Veryfi API error: ${response.status} ${response.statusText} - ${errorText}`
-      );
-    }
 
-    const data = await response.json();
+    const response = await axios.post(
+      VERYFI_API_URL,
+      payload,
+      {
+        headers,
+        timeout: 30000, // 30 second timeout
+      }
+    );
+
+    console.log(`${formattedTime} [veryfi] Veryfi API response status: ${response.status} ${response.statusText || ""}`);
+    console.log(`${formattedTime} [veryfi] Veryfi API response received, parsing...`);
+
+    const data = response.data;
 
     // Parse Veryfi response into our OCRResult format
     return parseVeryfiResponse(data);
   } catch (error: any) {
-    console.error("Error processing receipt OCR:", error);
+    const formattedTime = new Date().toLocaleTimeString("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      second: "2-digit",
+      hour12: true,
+    });
     
-    // Handle specific error types
-    if (error.message?.includes("credentials")) {
+    // Axios error handling
+    if (error.response) {
+      // The request was made and the server responded with a status code
+      // that falls out of the range of 2xx
+      const status = error.response.status;
+      const errorText = error.response.data ? JSON.stringify(error.response.data) : error.response.statusText;
+      console.error(`${formattedTime} [veryfi] Veryfi API error: ${status} - ${errorText}`);
+      
+      if (status === 429) {
+        return {
+          status: "failed",
+          confidence: 0,
+          rawResponse: { error: "Veryfi API rate limit exceeded. Please try again later." },
+        };
+      }
+      
       return {
         status: "failed",
         confidence: 0,
-        rawResponse: { error: "Veryfi API credentials are not configured correctly" },
+        rawResponse: { error: `Veryfi API error: ${status} - ${errorText}` },
       };
-    }
-    
-    if (error.message?.includes("rate limit") || error.message?.includes("429")) {
+    } else if (error.request) {
+      // The request was made but no response was received
+      console.error(`${formattedTime} [veryfi] No response from Veryfi API:`, error.message);
       return {
         status: "failed",
         confidence: 0,
-        rawResponse: { error: "Veryfi API rate limit exceeded. Please try again later." },
+        rawResponse: { error: "No response from Veryfi API. Please check your connection." },
+      };
+    } else {
+      // Something happened in setting up the request that triggered an Error
+      console.error(`${formattedTime} [veryfi] Error setting up request:`, error.message);
+      
+      if (error.message?.includes("credentials")) {
+        return {
+          status: "failed",
+          confidence: 0,
+          rawResponse: { error: "Veryfi API credentials are not configured correctly" },
+        };
+      }
+      
+      return {
+        status: "failed",
+        confidence: 0,
+        rawResponse: { error: error.message || "Unknown error occurred during OCR processing" },
       };
     }
-    
-    return {
-      status: "failed",
-      confidence: 0,
-      rawResponse: { error: error.message || "Unknown error occurred during OCR processing" },
-    };
   }
 }
 
