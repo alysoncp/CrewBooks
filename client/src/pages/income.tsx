@@ -1,4 +1,4 @@
-import { useState, useMemo } from "react";
+import { useState, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -55,7 +55,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getIncomeTypeLabel, getTodayLocalDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { INCOME_TYPES, type Income, type User } from "@shared/schema";
+import { INCOME_TYPES, type Income, type User, type Paystub } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 
 const incomeFormSchema = z.object({
@@ -133,6 +133,8 @@ export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [customAccountingOffice, setCustomAccountingOffice] = useState("");
+  const [paystubIdForIncome, setPaystubIdForIncome] = useState<string | null>(null);
+  const [paystubImageUrl, setPaystubImageUrl] = useState<string | null>(null);
   const currentYear = new Date().getFullYear();
   const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const { toast } = useToast();
@@ -165,7 +167,7 @@ export default function IncomePage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: IncomeFormData) => {
-      return apiRequest("POST", "/api/income", {
+      const payload: any = {
         ...data,
         amount: data.amount.toString(),
         accountingOffice: data.accountingOffice || null,
@@ -176,17 +178,38 @@ export default function IncomePage() {
         buyout: data.buyout?.toString() || null,
         pension: data.pension?.toString() || null,
         insurance: data.insurance?.toString() || null,
-      });
+      };
+      
+      // Link paystub if creating from paystub
+      if (paystubIdForIncome && paystubImageUrl) {
+        payload.paystubImageUrl = paystubImageUrl;
+      }
+      
+      const response = await apiRequest("POST", "/api/income", payload);
+      const incomeData = await response.json();
+      
+      // Link paystub to income after creation
+      if (paystubIdForIncome && incomeData.id) {
+        await apiRequest("PATCH", `/api/paystubs/${paystubIdForIncome}`, {
+          linkedIncomeId: incomeData.id,
+        });
+      }
+      
+      return incomeData;
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
       form.reset();
       setCustomAccountingOffice(""); // Reset custom value
+      const hadPaystub = !!paystubIdForIncome;
+      setPaystubIdForIncome(null);
+      setPaystubImageUrl(null);
       toast({
         title: "Income added",
-        description: "Your income has been recorded successfully.",
+        description: hadPaystub ? "Your income has been created from the paystub." : "Your income has been recorded successfully.",
       });
     },
     onError: () => {
@@ -231,6 +254,82 @@ export default function IncomePage() {
       accountingOffice: accountingOfficeValue || data.accountingOffice,
     });
   };
+
+  // Check for paystubId in URL params
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const paystubId = params.get("paystubId");
+    if (paystubId) {
+      setPaystubIdForIncome(paystubId);
+      // Fetch paystub data to get image URL
+      fetch(`/api/paystubs/${paystubId}`)
+        .then((res) => res.json())
+        .then((paystub) => {
+          if (paystub?.imageUrl) {
+            setPaystubImageUrl(paystub.imageUrl);
+          }
+        })
+        .catch(() => {});
+      
+      // Try to fetch OCR data and pre-fill form (if available)
+      fetch(`/api/paystubs/${paystubId}/ocr-to-income`)
+        .then((res) => {
+          if (!res.ok) {
+            // If OCR data doesn't exist (404 or 400), that's fine - just open blank form
+            if (res.status === 404 || res.status === 400) {
+              return null;
+            }
+            throw new Error(`Failed to fetch OCR data: ${res.statusText}`);
+          }
+          return res.json();
+        })
+        .then((data) => {
+          // Clear URL param
+          window.history.replaceState({}, "", "/income");
+          
+          if (data && !data.error && data.incomeData) {
+            // Warn if confidence is low
+            if (data.confidence && data.confidence < 0.7) {
+              toast({
+                title: "Low confidence",
+                description: "OCR results have low confidence. Please verify all fields before submitting.",
+                variant: "default",
+              });
+            }
+            
+            // Pre-fill form with OCR data
+            const ocrAmount = data.incomeData.amount ? parseFloat(data.incomeData.amount.toString()) : 0;
+            form.reset({
+              amount: ocrAmount > 0 ? ocrAmount.toString() : "",
+              date: data.incomeData.date || getTodayLocalDateString(),
+              incomeType: data.incomeData.incomeType || "",
+              productionName: data.incomeData.productionName || "",
+              accountingOffice: data.incomeData.accountingOffice || "",
+              description: data.incomeData.description || "",
+              gstHstCollected: "",
+              dues: "",
+              retirement: "",
+              labour: "",
+              buyout: "",
+              pension: "",
+              insurance: "",
+            });
+            
+            // Set custom accounting office if needed
+            if (data.incomeData.accountingOffice) {
+              setCustomAccountingOffice(data.incomeData.accountingOffice);
+            }
+          }
+          
+          // Open dialog
+          setIsDialogOpen(true);
+        })
+        .catch(() => {
+          // If fetching OCR data fails, just open the dialog anyway
+          setIsDialogOpen(true);
+        });
+    }
+  }, [form, toast]);
 
   // Extract available years from income
   const availableYears = useMemo(() => {
@@ -279,8 +378,24 @@ export default function IncomePage() {
           </DialogTrigger>
           <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
             <DialogHeader>
-              <DialogTitle>Add Income</DialogTitle>
+              <DialogTitle>
+                {paystubIdForIncome ? "Create Income from Paystub" : "Add Income"}
+              </DialogTitle>
+              {paystubIdForIncome && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Review and confirm the extracted income data from your paystub.
+                </p>
+              )}
             </DialogHeader>
+            {paystubImageUrl && (
+              <div className="mb-4 rounded-lg border p-2">
+                <img
+                  src={paystubImageUrl}
+                  alt="Paystub"
+                  className="max-h-32 w-full object-contain rounded"
+                />
+              </div>
+            )}
             <div className="overflow-y-auto flex-1 pr-2">
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
