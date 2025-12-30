@@ -309,7 +309,6 @@ function PersonalInfoStep({
               </FormItem>
             )}
           />
-        </div>
 
         <FormField
           control={form.control}

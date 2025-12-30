@@ -186,19 +186,56 @@ function parseVeryfiResponse(data: any): OCRResult {
     result.amount = parseFloat(data.total.toString());
   }
 
-  // Extract date
+  // Extract date - Veryfi can return dates in various formats
   if (data.date) {
-    // Veryfi returns date in various formats, try to parse it
-    try {
-      const date = new Date(data.date);
-      if (!isNaN(date.getTime())) {
-        result.date = date.toISOString().split("T")[0];
+    let parsedDate: Date | null = null;
+    
+    if (typeof data.date === "string") {
+      const dateStr = data.date.trim();
+      
+      // Try ISO format first (YYYY-MM-DD)
+      if (dateStr.match(/^\d{4}-\d{2}-\d{2}/)) {
+        parsedDate = new Date(dateStr);
       }
-    } catch (e) {
-      // If date parsing fails, try to use as-is if it's already in YYYY-MM-DD format
-      if (typeof data.date === "string" && data.date.match(/^\d{4}-\d{2}-\d{2}$/)) {
-        result.date = data.date;
+      // Try MM/DD/YYYY or DD/MM/YYYY format
+      else if (dateStr.match(/^\d{1,2}[\/\-]\d{1,2}[\/\-]\d{4}/)) {
+        const parts = dateStr.split(/[\/\-]/);
+        if (parts.length === 3) {
+          // Try MM/DD/YYYY (US format) first
+          const month = parseInt(parts[0], 10);
+          const day = parseInt(parts[1], 10);
+          const year = parseInt(parts[2], 10);
+          if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            parsedDate = new Date(year, month - 1, day);
+          }
+        }
       }
+      // Try DD-MM-YYYY format
+      else if (dateStr.match(/^\d{2}-\d{2}-\d{4}/)) {
+        const parts = dateStr.split("-");
+        if (parts.length === 3) {
+          const day = parseInt(parts[0], 10);
+          const month = parseInt(parts[1], 10);
+          const year = parseInt(parts[2], 10);
+          if (month >= 1 && month <= 12 && day >= 1 && day <= 31) {
+            parsedDate = new Date(year, month - 1, day);
+          }
+        }
+      }
+      // Last resort: try JavaScript Date parsing
+      else {
+        parsedDate = new Date(dateStr);
+      }
+    } else if (data.date instanceof Date) {
+      parsedDate = data.date;
+    }
+    
+    // Convert to YYYY-MM-DD format if we have a valid date
+    if (parsedDate && !isNaN(parsedDate.getTime())) {
+      const year = parsedDate.getFullYear();
+      const month = String(parsedDate.getMonth() + 1).padStart(2, "0");
+      const day = String(parsedDate.getDate()).padStart(2, "0");
+      result.date = `${year}-${month}-${day}`;
     }
   }
 

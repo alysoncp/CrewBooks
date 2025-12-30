@@ -104,6 +104,20 @@ const expenseFormSchema = z.object({
   }, {
     message: "Total must be a valid number",
   }),
+  gstAmount: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "GST amount must be a valid number",
+  }),
+  pstAmount: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "PST amount must be a valid number",
+  }),
   gstIncluded: z.boolean().default(false),
   pstIncluded: z.boolean().default(false),
   date: z.string().min(1, "Date is required"),
@@ -210,8 +224,10 @@ export default function ExpensesPage() {
     defaultValues: {
       baseCost: "",
       total: "",
-      gstIncluded: false,
-      pstIncluded: false,
+      gstAmount: "",
+      pstAmount: "",
+      gstIncluded: true,
+      pstIncluded: true,
       date: new Date().toISOString().split("T")[0],
       title: "",
       category: "",
@@ -222,68 +238,115 @@ export default function ExpensesPage() {
   });
 
   // Track which field was last edited to prevent circular updates
-  const [lastEditedField, setLastEditedField] = useState<"baseCost" | "total" | null>(null);
+  const [lastEditedField, setLastEditedField] = useState<"baseCost" | "total" | "gstAmount" | "pstAmount" | null>(null);
 
   // Watch form values for calculations
   const baseCostValue = form.watch("baseCost");
   const totalValue = form.watch("total");
+  const gstAmountValue = form.watch("gstAmount");
+  const pstAmountValue = form.watch("pstAmount");
   const gstIncluded = form.watch("gstIncluded");
   const pstIncluded = form.watch("pstIncluded");
-
-  // Calculate GST and PST amounts
-  const calculateTaxes = (base: number, includeGst: boolean, includePst: boolean) => {
-    const gst = includeGst ? base * 0.05 : 0;
-    const pst = includePst ? base * 0.07 : 0;
-    const total = base + gst + pst;
-    return { gst, pst, total };
-  };
-
-  // Calculate base cost from total
-  const calculateBaseFromTotal = (total: number, includeGst: boolean, includePst: boolean) => {
-    // total = base + (base * 0.05 * gstFlag) + (base * 0.07 * pstFlag)
-    // total = base * (1 + 0.05 * gstFlag + 0.07 * pstFlag)
-    const taxMultiplier = 1 + (includeGst ? 0.05 : 0) + (includePst ? 0.07 : 0);
-    return total / taxMultiplier;
-  };
 
   // Effect to calculate total when baseCost changes
   useEffect(() => {
     if (lastEditedField === "baseCost" && baseCostValue) {
       const base = parseFloat(baseCostValue);
-      if (!isNaN(base) && base > 0) {
-        const { total } = calculateTaxes(base, gstIncluded || false, pstIncluded || false);
+      const gst = gstAmountValue ? parseFloat(gstAmountValue) : 0;
+      const pst = pstAmountValue ? parseFloat(pstAmountValue) : 0;
+      if (!isNaN(base) && base >= 0) {
+        const total = base + gst + pst;
         form.setValue("total", total.toFixed(2), { shouldValidate: false });
       }
     }
-  }, [baseCostValue, gstIncluded, pstIncluded, lastEditedField, form]);
+  }, [baseCostValue, gstAmountValue, pstAmountValue, lastEditedField, form]);
 
-  // Effect to calculate baseCost when total changes
+  // Effect to calculate baseCost, GST, and PST when total changes
   useEffect(() => {
     if (lastEditedField === "total" && totalValue) {
       const total = parseFloat(totalValue);
-      if (!isNaN(total) && total > 0) {
-        const base = calculateBaseFromTotal(total, gstIncluded || false, pstIncluded || false);
-        form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+      if (!isNaN(total) && total >= 0) {
+        // If both GST and PST are enabled, calculate from total
+        if (gstIncluded && pstIncluded) {
+          // Total = Base * (1 + 0.05 + 0.07) = Base * 1.12
+          const base = total / 1.12;
+          const gst = base * 0.05;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else if (gstIncluded) {
+          // Only GST: Total = Base * 1.05
+          const base = total / 1.05;
+          const gst = base * 0.05;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        } else if (pstIncluded) {
+          // Only PST: Total = Base * 1.07
+          const base = total / 1.07;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else {
+          // Neither enabled, total is base cost
+          const base = total;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        }
       }
     }
   }, [totalValue, gstIncluded, pstIncluded, lastEditedField, form]);
 
-  // Recalculate when tax checkboxes change
+  // Effect to recalculate when GST/PST checkboxes are toggled (if total exists)
   useEffect(() => {
-    if (lastEditedField === "baseCost" && baseCostValue) {
-      const base = parseFloat(baseCostValue);
-      if (!isNaN(base) && base > 0) {
-        const { total } = calculateTaxes(base, gstIncluded || false, pstIncluded || false);
-        form.setValue("total", total.toFixed(2), { shouldValidate: false });
-      }
-    } else if (lastEditedField === "total" && totalValue) {
+    // Only recalculate if total was last edited (meaning user entered a total)
+    if (lastEditedField === "total" && totalValue && (gstIncluded || pstIncluded)) {
       const total = parseFloat(totalValue);
-      if (!isNaN(total) && total > 0) {
-        const base = calculateBaseFromTotal(total, gstIncluded || false, pstIncluded || false);
-        form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+      if (!isNaN(total) && total >= 0) {
+        if (gstIncluded && pstIncluded) {
+          const base = total / 1.12;
+          const gst = base * 0.05;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else if (gstIncluded) {
+          const base = total / 1.05;
+          const gst = base * 0.05;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        } else if (pstIncluded) {
+          const base = total / 1.07;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else {
+          const base = total;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        }
       }
     }
-  }, [gstIncluded, pstIncluded, lastEditedField, baseCostValue, totalValue, form]);
+  }, [gstIncluded, pstIncluded, totalValue, lastEditedField, form]);
+
+  // Effect to recalculate total when GST/PST amounts change
+  useEffect(() => {
+    if ((lastEditedField === "gstAmount" || lastEditedField === "pstAmount") && baseCostValue) {
+      const base = parseFloat(baseCostValue);
+      const gst = gstAmountValue ? parseFloat(gstAmountValue) : 0;
+      const pst = pstAmountValue ? parseFloat(pstAmountValue) : 0;
+      if (!isNaN(base) && base >= 0) {
+        const total = base + gst + pst;
+        form.setValue("total", total.toFixed(2), { shouldValidate: false });
+      }
+    }
+  }, [gstAmountValue, pstAmountValue, baseCostValue, lastEditedField, form]);
 
   // Check for receiptId in URL params
   useEffect(() => {
@@ -329,11 +392,15 @@ export default function ExpensesPage() {
             
             // Pre-fill form with OCR data
             const ocrAmount = data.expenseData.amount ? parseFloat(data.expenseData.amount.toString()) : 0;
+            const ocrGstAmount = data.expenseData.gstAmount ? parseFloat(data.expenseData.gstAmount.toString()) : 0;
+            const ocrPstAmount = data.expenseData.pstAmount ? parseFloat(data.expenseData.pstAmount.toString()) : 0;
             form.reset({
-              baseCost: "",
+              baseCost: data.expenseData.baseCost ? parseFloat(data.expenseData.baseCost.toString()).toFixed(2) : "",
               total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
-              gstIncluded: false,
-              pstIncluded: false,
+              gstAmount: ocrGstAmount > 0 ? ocrGstAmount.toFixed(2) : "",
+              pstAmount: ocrPstAmount > 0 ? ocrPstAmount.toFixed(2) : "",
+              gstIncluded: ocrGstAmount > 0,
+              pstIncluded: ocrPstAmount > 0,
               date: data.expenseData.date || new Date().toISOString().split("T")[0],
               title: data.expenseData.title || "",
               category: data.expenseData.category || "",
@@ -346,8 +413,10 @@ export default function ExpensesPage() {
             form.reset({
               baseCost: "",
               total: "",
-              gstIncluded: false,
-              pstIncluded: false,
+              gstAmount: "",
+              pstAmount: "",
+              gstIncluded: true,
+              pstIncluded: true,
               date: new Date().toISOString().split("T")[0],
               title: "",
               category: "",
@@ -367,8 +436,10 @@ export default function ExpensesPage() {
           form.reset({
             baseCost: "",
             total: "",
-            gstIncluded: false,
-            pstIncluded: false,
+            gstAmount: "",
+            pstAmount: "",
+            gstIncluded: true,
+            pstIncluded: true,
             date: new Date().toISOString().split("T")[0],
             title: "",
             category: "",
@@ -392,25 +463,30 @@ export default function ExpensesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: ExpenseFormData) => {
-      // Calculate values
-      let amount = 0;
-      let baseCost = 0;
+      // Use manual amounts if provided, otherwise calculate from baseCost
+      let baseCost = data.baseCost ? parseFloat(data.baseCost) : 0;
       let gstAmount = 0;
       let pstAmount = 0;
+      let amount = 0;
 
+      // Get manual GST/PST amounts if provided and enabled
+      if (data.gstIncluded && data.gstAmount) {
+        gstAmount = parseFloat(data.gstAmount);
+      }
+      if (data.pstIncluded && data.pstAmount) {
+        pstAmount = parseFloat(data.pstAmount);
+      }
+
+      // If total is provided, use it directly
       if (data.total) {
         amount = parseFloat(data.total);
-        // Calculate base cost from total
-        baseCost = calculateBaseFromTotal(amount, data.gstIncluded || false, data.pstIncluded || false);
-        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
-        gstAmount = taxes.gst;
-        pstAmount = taxes.pst;
-      } else if (data.baseCost) {
-        baseCost = parseFloat(data.baseCost);
-        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
-        gstAmount = taxes.gst;
-        pstAmount = taxes.pst;
-        amount = taxes.total;
+        // If baseCost not provided, calculate it from total minus taxes
+        if (!baseCost || baseCost === 0) {
+          baseCost = amount - gstAmount - pstAmount;
+        }
+      } else {
+        // Calculate total from baseCost + taxes
+        amount = baseCost + gstAmount + pstAmount;
       }
 
       const payload: any = {
@@ -462,25 +538,30 @@ export default function ExpensesPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: ExpenseFormData }) => {
-      // Calculate values
-      let amount = 0;
-      let baseCost = 0;
+      // Use manual amounts if provided, otherwise calculate from baseCost
+      let baseCost = data.baseCost ? parseFloat(data.baseCost) : 0;
       let gstAmount = 0;
       let pstAmount = 0;
+      let amount = 0;
 
+      // Get manual GST/PST amounts if provided and enabled
+      if (data.gstIncluded && data.gstAmount) {
+        gstAmount = parseFloat(data.gstAmount);
+      }
+      if (data.pstIncluded && data.pstAmount) {
+        pstAmount = parseFloat(data.pstAmount);
+      }
+
+      // If total is provided, use it directly
       if (data.total) {
         amount = parseFloat(data.total);
-        // Calculate base cost from total
-        baseCost = calculateBaseFromTotal(amount, data.gstIncluded || false, data.pstIncluded || false);
-        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
-        gstAmount = taxes.gst;
-        pstAmount = taxes.pst;
-      } else if (data.baseCost) {
-        baseCost = parseFloat(data.baseCost);
-        const taxes = calculateTaxes(baseCost, data.gstIncluded || false, data.pstIncluded || false);
-        gstAmount = taxes.gst;
-        pstAmount = taxes.pst;
-        amount = taxes.total;
+        // If baseCost not provided, calculate it from total minus taxes
+        if (!baseCost || baseCost === 0) {
+          baseCost = amount - gstAmount - pstAmount;
+        }
+      } else {
+        // Calculate total from baseCost + taxes
+        amount = baseCost + gstAmount + pstAmount;
       }
 
       const payload: any = {
@@ -568,6 +649,8 @@ export default function ExpensesPage() {
       form.reset({
         baseCost: baseCost.toFixed(2),
         total: totalAmount.toFixed(2),
+        gstAmount: gstAmount !== null && gstAmount > 0 ? gstAmount.toFixed(2) : "",
+        pstAmount: pstAmount !== null && pstAmount > 0 ? pstAmount.toFixed(2) : "",
         gstIncluded: (gstAmount !== null && gstAmount > 0),
         pstIncluded: (pstAmount !== null && pstAmount > 0),
         date: expense.date,
@@ -585,6 +668,8 @@ export default function ExpensesPage() {
       form.reset({
         baseCost: "",
         total: totalAmount.toFixed(2),
+        gstAmount: "",
+        pstAmount: "",
         gstIncluded: false,
         pstIncluded: false,
         date: expense.date,
@@ -615,8 +700,10 @@ export default function ExpensesPage() {
         form.reset({
           baseCost: "",
           total: "",
-          gstIncluded: false,
-          pstIncluded: false,
+          gstAmount: "",
+          pstAmount: "",
+          gstIncluded: true,
+          pstIncluded: true,
           date: new Date().toISOString().split("T")[0],
           title: "",
           category: "",
@@ -753,62 +840,114 @@ export default function ExpensesPage() {
                         )}
                       />
 
-                      <div className="grid grid-cols-2 gap-4">
-                        <FormField
-                          control={form.control}
-                          name="gstIncluded"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-gst-included"
-                                />
-                              </FormControl>
-                              <div className="space-y-1 leading-none">
-                                <FormLabel>GST (5%)</FormLabel>
-                                <FormDescription>
-                                  {gstIncluded && baseCostValue ? (
-                                    <span className="font-mono">
-                                      ${(parseFloat(baseCostValue || "0") * 0.05).toFixed(2)}
-                                    </span>
-                                  ) : (
-                                    "$0.00"
-                                  )}
-                                </FormDescription>
-                              </div>
-                            </FormItem>
-                          )}
-                        />
+                      <div className="space-y-4">
+                        <div className="space-y-2">
+                          <div className="flex items-center space-x-3">
+                            <FormField
+                              control={form.control}
+                              name="gstIncluded"
+                              render={({ field: checkboxField }) => (
+                                <FormItem className="flex flex-row items-center space-x-2 space-y-0">
+                                  <FormControl>
+                                    <Switch
+                                      checked={checkboxField.value}
+                                      onCheckedChange={(checked) => {
+                                        checkboxField.onChange(checked);
+                                        if (!checked) {
+                                          form.setValue("gstAmount", "");
+                                        }
+                                      }}
+                                      data-testid="switch-gst-included"
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                            <FormLabel className="!mt-0">GST Amount</FormLabel>
+                          </div>
+                          <FormField
+                            control={form.control}
+                            name="gstAmount"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-expense-gst-amount"
+                                      disabled={!gstIncluded}
+                                      onChange={(e) => {
+                                        field.onChange(e);
+                                        setLastEditedField("gstAmount");
+                                      }}
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
 
-                        <FormField
-                          control={form.control}
-                          name="pstIncluded"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center space-x-3 space-y-0 rounded-md border p-4">
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-pst-included"
-                                />
-                              </FormControl>
-                              <div className="space-y-1 leading-none">
-                                <FormLabel>PST (7%)</FormLabel>
-                                <FormDescription>
-                                  {pstIncluded && baseCostValue ? (
-                                    <span className="font-mono">
-                                      ${(parseFloat(baseCostValue || "0") * 0.07).toFixed(2)}
-                                    </span>
-                                  ) : (
-                                    "$0.00"
-                                  )}
-                                </FormDescription>
-                              </div>
-                            </FormItem>
-                          )}
-                        />
+                        <div className="space-y-2">
+                          <div className="flex items-center space-x-3">
+                            <FormField
+                              control={form.control}
+                              name="pstIncluded"
+                              render={({ field: checkboxField }) => (
+                                <FormItem className="flex flex-row items-center space-x-2 space-y-0">
+                                  <FormControl>
+                                    <Switch
+                                      checked={checkboxField.value}
+                                      onCheckedChange={(checked) => {
+                                        checkboxField.onChange(checked);
+                                        if (!checked) {
+                                          form.setValue("pstAmount", "");
+                                        }
+                                      }}
+                                      data-testid="switch-pst-included"
+                                    />
+                                  </FormControl>
+                                </FormItem>
+                              )}
+                            />
+                            <FormLabel className="!mt-0">PST Amount</FormLabel>
+                          </div>
+                          <FormField
+                            control={form.control}
+                            name="pstAmount"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-expense-pst-amount"
+                                      disabled={!pstIncluded}
+                                      onChange={(e) => {
+                                        field.onChange(e);
+                                        setLastEditedField("pstAmount");
+                                      }}
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </div>
                       </div>
 
                       <FormField
