@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, useMemo } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
@@ -86,6 +86,8 @@ export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
   const [customAccountingOffice, setCustomAccountingOffice] = useState("");
+  const currentYear = new Date().getFullYear();
+  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
   const { toast } = useToast();
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
@@ -182,15 +184,34 @@ export default function IncomePage() {
     });
   };
 
-  const filteredIncome = (incomeList || []).filter((item) => {
-    const searchLower = searchQuery.toLowerCase();
-    return (
-      item.productionName?.toLowerCase().includes(searchLower) ||
-      item.accountingOffice?.toLowerCase().includes(searchLower) ||
-      item.description?.toLowerCase().includes(searchLower) ||
-      getIncomeTypeLabel(item.incomeType).toLowerCase().includes(searchLower)
-    );
-  });
+  // Extract available years from income
+  const availableYears = useMemo(() => {
+    if (!incomeList || incomeList.length === 0) return [currentYear];
+    const years = new Set<number>();
+    incomeList.forEach((income) => {
+      const year = new Date(income.date).getFullYear();
+      years.add(year);
+    });
+    return Array.from(years).sort((a, b) => b - a); // Sort descending (newest first)
+  }, [incomeList, currentYear]);
+
+  // Filter income by year and search query
+  const filteredIncome = useMemo(() => {
+    return (incomeList || []).filter((item) => {
+      // Filter by year
+      const itemYear = new Date(item.date).getFullYear();
+      if (itemYear !== selectedYear) return false;
+
+      // Filter by search query
+      const searchLower = searchQuery.toLowerCase();
+      return (
+        item.productionName?.toLowerCase().includes(searchLower) ||
+        item.accountingOffice?.toLowerCase().includes(searchLower) ||
+        item.description?.toLowerCase().includes(searchLower) ||
+        getIncomeTypeLabel(item.incomeType).toLowerCase().includes(searchLower)
+      );
+    });
+  }, [incomeList, selectedYear, searchQuery]);
 
   const totalIncome = filteredIncome.reduce((sum, item) => sum + parseFloat(item.amount), 0);
 
@@ -543,18 +564,35 @@ export default function IncomePage() {
             <div>
               <CardTitle>Income History</CardTitle>
               <CardDescription>
-                Total: <span className="font-mono font-semibold">{formatCurrency(totalIncome)}</span>
+                Total for {selectedYear}: <span className="font-mono font-semibold">{formatCurrency(totalIncome)}</span>
               </CardDescription>
             </div>
-            <div className="relative w-full sm:w-64">
-              <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
-              <Input
-                placeholder="Search income..."
-                value={searchQuery}
-                onChange={(e) => setSearchQuery(e.target.value)}
-                className="pl-9"
-                data-testid="input-search-income"
-              />
+            <div className="flex gap-2">
+              <Select
+                value={selectedYear.toString()}
+                onValueChange={(value) => setSelectedYear(parseInt(value, 10))}
+              >
+                <SelectTrigger className="w-32" data-testid="select-income-year">
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  {availableYears.map((year) => (
+                    <SelectItem key={year} value={year.toString()}>
+                      {year}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <div className="relative w-full sm:w-64">
+                <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
+                <Input
+                  placeholder="Search income..."
+                  value={searchQuery}
+                  onChange={(e) => setSearchQuery(e.target.value)}
+                  className="pl-9"
+                  data-testid="input-search-income"
+                />
+              </div>
             </div>
           </div>
         </CardHeader>
