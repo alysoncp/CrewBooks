@@ -604,18 +604,30 @@ export default function ExpensesPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/expenses/${id}`);
+    mutationFn: async ({ expenseId, alsoDeleteReceipt }: { expenseId: string; alsoDeleteReceipt?: string }) => {
+      // Delete expense first
+      await apiRequest("DELETE", `/api/expenses/${expenseId}`);
+      // If also deleting receipt, delete it too
+      if (alsoDeleteReceipt) {
+        await apiRequest("DELETE", `/api/receipts/${alsoDeleteReceipt}`);
+      }
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] }); // Invalidate receipts to update receipt map
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
-      toast({
-        title: "Expense deleted",
-        description: "The expense entry has been removed.",
-      });
+      if (variables.alsoDeleteReceipt) {
+        toast({
+          title: "Expense and receipt deleted",
+          description: "The expense and its linked receipt have been removed.",
+        });
+      } else {
+        toast({
+          title: "Expense deleted",
+          description: "The expense entry has been removed.",
+        });
+      }
     },
     onError: () => {
       toast({
@@ -1364,19 +1376,46 @@ export default function ExpensesPage() {
                             </AlertDialogTrigger>
                           <AlertDialogContent>
                             <AlertDialogHeader>
-                              <AlertDialogTitle>Delete expense entry?</AlertDialogTitle>
+                              <AlertDialogTitle>
+                                {receiptMap.has(item.id) ? "Delete expense and receipt?" : "Delete expense entry?"}
+                              </AlertDialogTitle>
                               <AlertDialogDescription>
-                                This will permanently remove this expense record. This action cannot be undone.
+                                {receiptMap.has(item.id) ? (
+                                  <>
+                                    This expense is linked to a receipt. Deleting will remove the expense.
+                                    <br /><br />
+                                    Would you like to also delete the linked receipt? This action cannot be undone.
+                                  </>
+                                ) : (
+                                  <>This will permanently remove this expense record. This action cannot be undone.</>
+                                )}
                               </AlertDialogDescription>
                             </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteMutation.mutate(item.id)}
-                                className="bg-destructive text-destructive-foreground"
-                              >
-                                Delete
-                              </AlertDialogAction>
+                            <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+                              <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                              {receiptMap.has(item.id) ? (
+                                <div className="flex flex-col gap-2 w-full sm:flex-row sm:w-auto">
+                                  <AlertDialogAction
+                                    onClick={() => deleteMutation.mutate({ expenseId: item.id })}
+                                    className="bg-destructive text-destructive-foreground w-full sm:w-auto"
+                                  >
+                                    Expense Only
+                                  </AlertDialogAction>
+                                  <AlertDialogAction
+                                    onClick={() => deleteMutation.mutate({ expenseId: item.id, alsoDeleteReceipt: receiptMap.get(item.id)!.id })}
+                                    className="bg-destructive text-destructive-foreground w-full sm:w-auto"
+                                  >
+                                    Both
+                                  </AlertDialogAction>
+                                </div>
+                              ) : (
+                                <AlertDialogAction
+                                  onClick={() => deleteMutation.mutate({ expenseId: item.id })}
+                                  className="bg-destructive text-destructive-foreground w-full sm:w-auto"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              )}
                             </AlertDialogFooter>
                           </AlertDialogContent>
                         </AlertDialog>

@@ -578,6 +578,48 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/receipts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const receipt = await storage.getReceiptById(req.params.id);
+      
+      if (!receipt) {
+        return res.status(404).json({ error: "Receipt not found" });
+      }
+      
+      if (receipt.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Only allow updating linkedExpenseId
+      if (req.body.linkedExpenseId !== undefined) {
+        // Validate that the expense exists and belongs to the user (if not null)
+        if (req.body.linkedExpenseId !== null) {
+          const userExpenses = await storage.getExpenses(userId);
+          const expenseExists = userExpenses.some(e => e.id === req.body.linkedExpenseId);
+          if (!expenseExists) {
+            return res.status(400).json({ error: "Expense not found or access denied" });
+          }
+        }
+        
+        // Update only the linkedExpenseId field
+        const updated = await storage.updateReceipt(req.params.id, { 
+          linkedExpenseId: req.body.linkedExpenseId 
+        });
+        if (!updated) {
+          return res.status(404).json({ error: "Receipt not found" });
+        }
+        
+        return res.json(updated);
+      }
+      
+      // If no valid fields to update, return error
+      return res.status(400).json({ error: "No valid fields to update" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update receipt" });
+    }
+  });
+
   app.delete("/api/receipts/:id", isAuthenticated, async (req, res) => {
     try {
       const receipt = await storage.getReceiptById(req.params.id);

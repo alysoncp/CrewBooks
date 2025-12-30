@@ -1,6 +1,6 @@
 import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Upload, Trash2, Image, X, ZoomIn, FileImage, Scan, Receipt as ReceiptIcon, Loader2, Lock, Sparkles } from "lucide-react";
+import { Upload, Trash2, Image, X, ZoomIn, FileImage, Scan, Receipt as ReceiptIcon, Loader2, Lock, Sparkles, Link2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -13,6 +13,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
@@ -29,10 +30,17 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { formatDate } from "@/lib/format";
-import type { Receipt } from "@shared/schema";
+import { formatDate, formatCurrency, getCategoryLabel } from "@/lib/format";
+import type { Receipt, Expense } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { Link, useLocation } from "wouter";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 
 function LockedContent() {
   return (
@@ -60,6 +68,7 @@ export default function ReceiptsPage() {
   const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
   const [notes, setNotes] = useState("");
   const [scanWithOCR, setScanWithOCR] = useState(false);
+  const [linkingReceiptId, setLinkingReceiptId] = useState<string | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
   const [, setLocation] = useLocation();
@@ -69,6 +78,10 @@ export default function ReceiptsPage() {
 
   const { data: receipts, isLoading } = useQuery<Receipt[]>({
     queryKey: ["/api/receipts"],
+  });
+
+  const { data: expenses } = useQuery<Expense[]>({
+    queryKey: ["/api/expenses"],
   });
 
   const uploadMutation = useMutation({
@@ -150,15 +163,30 @@ export default function ReceiptsPage() {
   });
 
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/receipts/${id}`);
+    mutationFn: async ({ receiptId, alsoDeleteExpense }: { receiptId: string; alsoDeleteExpense?: string }) => {
+      // Delete receipt first
+      await apiRequest("DELETE", `/api/receipts/${receiptId}`);
+      // If also deleting expense, delete it too
+      if (alsoDeleteExpense) {
+        await apiRequest("DELETE", `/api/expenses/${alsoDeleteExpense}`);
+      }
     },
-    onSuccess: () => {
+    onSuccess: (_, variables) => {
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
-      toast({
-        title: "Receipt deleted",
-        description: "The receipt has been removed.",
-      });
+      if (variables.alsoDeleteExpense) {
+        queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+        queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
+        toast({
+          title: "Receipt and expense deleted",
+          description: "The receipt and its linked expense have been removed.",
+        });
+      } else {
+        toast({
+          title: "Receipt deleted",
+          description: "The receipt has been removed.",
+        });
+      }
     },
     onError: () => {
       toast({
@@ -168,6 +196,35 @@ export default function ReceiptsPage() {
       });
     },
   });
+
+  const linkReceiptMutation = useMutation({
+    mutationFn: async ({ receiptId, expenseId }: { receiptId: string; expenseId: string | null }) => {
+      return apiRequest("PATCH", `/api/receipts/${receiptId}`, {
+        linkedExpenseId: expenseId,
+      });
+    },
+    onSuccess: (_, variables) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
+      setLinkingReceiptId(null);
+      toast({
+        title: variables.expenseId ? "Receipt linked" : "Receipt unlinked",
+        description: variables.expenseId 
+          ? "The receipt has been linked to the expense." 
+          : "The receipt has been unlinked from the expense.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to link receipt. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleLinkReceipt = (receipt: Receipt) => {
+    setLinkingReceiptId(receipt.id);
+  };
 
   const handleFileChange = useCallback((e: React.ChangeEvent<HTMLInputElement>) => {
     const files = Array.from(e.target.files || []);
@@ -375,6 +432,15 @@ export default function ReceiptsPage() {
                     >
                       <ZoomIn className="h-4 w-4" />
                     </Button>
+                    <Button
+                      variant="secondary"
+                      size="icon"
+                      onClick={() => handleLinkReceipt(receipt)}
+                      data-testid={`button-link-receipt-${receipt.id}`}
+                      title={receipt.linkedExpenseId ? "Change linked expense" : "Link to expense"}
+                    >
+                      <Link2 className="h-4 w-4" />
+                    </Button>
                     <AlertDialog>
                       <AlertDialogTrigger asChild>
                         <Button
@@ -387,19 +453,46 @@ export default function ReceiptsPage() {
                       </AlertDialogTrigger>
                       <AlertDialogContent>
                         <AlertDialogHeader>
-                          <AlertDialogTitle>Delete receipt?</AlertDialogTitle>
+                          <AlertDialogTitle>
+                            {receipt.linkedExpenseId ? "Delete receipt and expense?" : "Delete receipt?"}
+                          </AlertDialogTitle>
                           <AlertDialogDescription>
-                            This will permanently remove this receipt image. This action cannot be undone.
+                            {receipt.linkedExpenseId ? (
+                              <>
+                                This receipt is linked to an expense. Deleting will remove the receipt.
+                                <br /><br />
+                                Would you like to also delete the linked expense? This action cannot be undone.
+                              </>
+                            ) : (
+                              <>This will permanently remove this receipt image. This action cannot be undone.</>
+                            )}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
-                        <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
-                          <AlertDialogAction
-                            onClick={() => deleteMutation.mutate(receipt.id)}
-                            className="bg-destructive text-destructive-foreground"
-                          >
-                            Delete
-                          </AlertDialogAction>
+                        <AlertDialogFooter className="flex-col gap-2 sm:flex-row sm:justify-end">
+                          <AlertDialogCancel className="w-full sm:w-auto">Cancel</AlertDialogCancel>
+                          {receipt.linkedExpenseId ? (
+                            <div className="flex flex-col gap-2 w-full sm:flex-row sm:w-auto">
+                              <AlertDialogAction
+                                onClick={() => deleteMutation.mutate({ receiptId: receipt.id })}
+                                className="bg-destructive text-destructive-foreground w-full sm:w-auto"
+                              >
+                                Receipt Only
+                              </AlertDialogAction>
+                              <AlertDialogAction
+                                onClick={() => deleteMutation.mutate({ receiptId: receipt.id, alsoDeleteExpense: receipt.linkedExpenseId! })}
+                                className="bg-destructive text-destructive-foreground w-full sm:w-auto"
+                              >
+                                Both
+                              </AlertDialogAction>
+                            </div>
+                          ) : (
+                            <AlertDialogAction
+                              onClick={() => deleteMutation.mutate({ receiptId: receipt.id })}
+                              className="bg-destructive text-destructive-foreground w-full sm:w-auto"
+                            >
+                              Delete
+                            </AlertDialogAction>
+                          )}
                         </AlertDialogFooter>
                       </AlertDialogContent>
                     </AlertDialog>
@@ -426,6 +519,56 @@ export default function ReceiptsPage() {
               className="max-h-[80vh] w-full object-contain"
             />
           )}
+        </DialogContent>
+      </Dialog>
+
+      {/* Link Receipt Dialog */}
+      <Dialog open={!!linkingReceiptId} onOpenChange={(open) => !open && setLinkingReceiptId(null)}>
+        <DialogContent>
+          <DialogHeader>
+            <DialogTitle>Link Receipt to Expense</DialogTitle>
+            <DialogDescription>
+              Select an expense to link this receipt to, or leave blank to unlink.
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <Select
+              value={receipts?.find(r => r.id === linkingReceiptId)?.linkedExpenseId || "none"}
+              onValueChange={(value) => {
+                if (linkingReceiptId) {
+                  linkReceiptMutation.mutate({ 
+                    receiptId: linkingReceiptId, 
+                    expenseId: value === "none" ? null : value 
+                  });
+                }
+              }}
+            >
+              <SelectTrigger>
+                <SelectValue placeholder="Select an expense" />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="none">No expense (unlink)</SelectItem>
+                {expenses?.map((expense) => (
+                  <SelectItem key={expense.id} value={expense.id}>
+                    {formatDate(expense.date)} - {expense.title || getCategoryLabel(expense.category)} - {formatCurrency(expense.amount)}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+            {(!expenses || expenses.length === 0) && (
+              <p className="text-sm text-muted-foreground">
+                No expenses found. Create an expense first.
+              </p>
+            )}
+          </div>
+          <DialogFooter>
+            <Button
+              variant="outline"
+              onClick={() => setLinkingReceiptId(null)}
+            >
+              Cancel
+            </Button>
+          </DialogFooter>
         </DialogContent>
       </Dialog>
     </div>
