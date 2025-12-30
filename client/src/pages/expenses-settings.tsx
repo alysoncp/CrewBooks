@@ -4,7 +4,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link } from "wouter";
-import { Settings, ArrowLeft, Car, Plus, Edit, Trash2 } from "lucide-react";
+import { Settings, ArrowLeft, Car, Plus, Edit, Trash2, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -28,6 +28,12 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
+import {
+  Tooltip,
+  TooltipContent,
+  TooltipProvider,
+  TooltipTrigger,
+} from "@/components/ui/tooltip";
 import {
   Select,
   SelectContent,
@@ -84,7 +90,6 @@ const vehicleFormSchema = z.object({
   claimsCca: z.boolean().default(false),
   ccaClass: z.enum(["Class 10", "Class 10.1"]).optional(),
   currentMileage: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
-  mileageAtBeginningOfYear: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
   purchasedThisYear: z.boolean().default(false),
   purchasePrice: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
 }).refine((data) => {
@@ -149,7 +154,6 @@ export default function ExpensesSettingsPage() {
       claimsCca: false,
       ccaClass: undefined,
       currentMileage: "",
-      mileageAtBeginningOfYear: "",
       purchasedThisYear: false,
       purchasePrice: "",
     },
@@ -472,7 +476,6 @@ export default function ExpensesSettingsPage() {
       claimsCca: vehicle.claimsCca || false,
       ccaClass: (vehicle as any).ccaClass || undefined,
       currentMileage: (vehicle as any).currentMileage?.toString() || "",
-      mileageAtBeginningOfYear: (vehicle as any).mileageAtBeginningOfYear?.toString() || "",
       purchasedThisYear: (vehicle as any).purchasedThisYear || false,
       purchasePrice: (vehicle as any).purchasePrice?.toString() || "",
     });
@@ -865,7 +868,7 @@ export default function ExpensesSettingsPage() {
                         name="currentMileage"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Current Mileage</FormLabel>
+                            <FormLabel>Starting Mileage</FormLabel>
                             <FormControl>
                               <div className="relative">
                                 <Input
@@ -879,7 +882,7 @@ export default function ExpensesSettingsPage() {
                                 <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">km</span>
                               </div>
                             </FormControl>
-                            <FormDescription>Enter the current odometer reading in kilometers</FormDescription>
+                            <FormDescription>Enter the starting odometer reading in kilometers</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -925,39 +928,29 @@ export default function ExpensesSettingsPage() {
                           )}
                         />
                       )}
-                      {!purchasedThisYear && (
-                        <FormField
-                          control={vehicleForm.control}
-                          name="mileageAtBeginningOfYear"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Mileage at Beginning of Year</FormLabel>
-                              <FormControl>
-                                <div className="relative">
-                                  <Input
-                                    {...field}
-                                    type="number"
-                                    step="0.01"
-                                    placeholder="0"
-                                    value={field.value || ""}
-                                    className="pr-12"
-                                  />
-                                  <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">km</span>
-                                </div>
-                              </FormControl>
-                              <FormDescription>Enter the odometer reading at the beginning of the tax year in kilometers</FormDescription>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      )}
                       <FormField
                         control={vehicleForm.control}
                         name="claimsCca"
                         render={({ field }) => (
                           <FormItem className="flex flex-row items-center justify-between rounded-lg border p-6">
                             <div className="space-y-0.5 flex-1 pr-4">
-                              <FormLabel className="text-base">Claim CCA (Capital Cost Allowance)</FormLabel>
+                              <div className="flex items-center gap-2">
+                                <FormLabel className="text-base">Claim CCA (Capital Cost Allowance)</FormLabel>
+                                <TooltipProvider>
+                                  <Tooltip>
+                                    <TooltipTrigger asChild>
+                                      <Info className="h-4 w-4 text-muted-foreground cursor-help" />
+                                    </TooltipTrigger>
+                                    <TooltipContent className="max-w-xs">
+                                      <p className="text-sm">
+                                        Capital Cost Allowance (CCA) is a tax deduction for the depreciation of your vehicle over time. 
+                                        You can claim a percentage of the vehicle's cost each year based on its CCA class. Class 10 is 
+                                        for general vehicles (30% rate), while Class 10.1 is for  passenger vehicles over $34,000.
+                                      </p>
+                                    </TooltipContent>
+                                  </Tooltip>
+                                </TooltipProvider>
+                              </div>
                               <FormDescription>
                                 I intend to claim Capital Cost Allowance for this vehicle
                               </FormDescription>
@@ -1077,14 +1070,8 @@ export default function ExpensesSettingsPage() {
                         )}
                         {vehicle.currentMileage !== null && vehicle.currentMileage !== undefined && (
                           <div>
-                            <span className="text-muted-foreground">Current Mileage: </span>
+                            <span className="text-muted-foreground">Starting Mileage: </span>
                             <span className="font-medium">{Number(vehicle.currentMileage).toLocaleString()} km</span>
-                          </div>
-                        )}
-                        {vehicle.mileageAtBeginningOfYear !== null && vehicle.mileageAtBeginningOfYear !== undefined && (
-                          <div>
-                            <span className="text-muted-foreground">Mileage at Year Start: </span>
-                            <span className="font-medium">{Number(vehicle.mileageAtBeginningOfYear).toLocaleString()} km</span>
                           </div>
                         )}
                         {vehicle.ccaClass && (

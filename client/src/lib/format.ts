@@ -16,6 +16,18 @@ export function formatPercent(value: number): string {
   }).format(value / 100);
 }
 
+/**
+ * Gets today's date in local timezone as YYYY-MM-DD string.
+ * This avoids timezone issues that occur with toISOString().
+ */
+export function getTodayLocalDateString(): string {
+  const now = new Date();
+  const year = now.getFullYear();
+  const month = String(now.getMonth() + 1).padStart(2, '0');
+  const day = String(now.getDate()).padStart(2, '0');
+  return `${year}-${month}-${day}`;
+}
+
 export function formatDate(date: string | Date): string {
   let d: Date;
   if (typeof date === 'string') {

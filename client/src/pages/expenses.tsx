@@ -56,7 +56,7 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, getCategoryLabel } from "@/lib/format";
+import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
@@ -228,7 +228,7 @@ export default function ExpensesPage() {
       pstAmount: "",
       gstIncluded: true,
       pstIncluded: true,
-      date: new Date().toISOString().split("T")[0],
+      date: getTodayLocalDateString(),
       title: "",
       category: "",
       vendor: "",
@@ -401,7 +401,7 @@ export default function ExpensesPage() {
               pstAmount: ocrPstAmount > 0 ? ocrPstAmount.toFixed(2) : "",
               gstIncluded: ocrGstAmount > 0,
               pstIncluded: ocrPstAmount > 0,
-              date: data.expenseData.date || new Date().toISOString().split("T")[0],
+              date: data.expenseData.date || getTodayLocalDateString(),
               title: data.expenseData.title || "",
               category: data.expenseData.category || "",
               vendor: data.expenseData.vendor || "",
@@ -417,7 +417,7 @@ export default function ExpensesPage() {
               pstAmount: "",
               gstIncluded: true,
               pstIncluded: true,
-              date: new Date().toISOString().split("T")[0],
+              date: getTodayLocalDateString(),
               title: "",
               category: "",
               vendor: "",
@@ -440,7 +440,7 @@ export default function ExpensesPage() {
             pstAmount: "",
             gstIncluded: true,
             pstIncluded: true,
-            date: new Date().toISOString().split("T")[0],
+            date: getTodayLocalDateString(),
             title: "",
             category: "",
             vendor: "",
@@ -704,7 +704,7 @@ export default function ExpensesPage() {
           pstAmount: "",
           gstIncluded: true,
           pstIncluded: true,
-          date: new Date().toISOString().split("T")[0],
+          date: getTodayLocalDateString(),
           title: "",
           category: "",
           vendor: "",

@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Search, Plus, Trash2, Edit2, Car } from "lucide-react";
+import { Search, Plus, Trash2, Edit2, Car, RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,15 +55,17 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { formatDate } from "@/lib/format";
+import { formatDate, getTodayLocalDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { type Vehicle, type VehicleMileageLog } from "@shared/schema";
 
 const mileageLogFormSchema = z.object({
   date: z.string().min(1, "Date is required"),
-  odometerReading: z.string().min(1, "Odometer reading is required").transform((v) => parseFloat(v)),
+  tripTitle: z.string().optional(),
+  odometerReading: z.string().min(1, "Trip distance is required").transform((v) => parseFloat(v)),
   description: z.string().optional(),
   isBusinessUse: z.boolean().default(true),
+  isRepeatTrip: z.boolean().default(false),
 });
 
 type MileageLogFormData = z.input<typeof mileageLogFormSchema>;
@@ -95,18 +97,34 @@ export default function VehicleMileagePage() {
   const form = useForm<MileageLogFormData>({
     resolver: zodResolver(mileageLogFormSchema),
     defaultValues: {
-      date: new Date().toISOString().split("T")[0],
+      date: getTodayLocalDateString(),
+      tripTitle: "",
       odometerReading: "",
       description: "",
       isBusinessUse: true,
+      isRepeatTrip: false,
     },
   });
 
   const createMutation = useMutation({
     mutationFn: async (data: MileageLogFormData) => {
+      // Calculate cumulative odometer reading from trip distance
+      const tripDistance = parseFloat(data.odometerReading.toString()); // This is actually trip distance in the form
+      // Get the latest odometer reading from existing logs or vehicle starting mileage
+      const sortedLogs = [...mileageLogs].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      const lastLog = sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1] : null;
+      const lastOdometer = lastLog 
+        ? Number(lastLog.odometerReading) 
+        : (selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0);
+      const newOdometerReading = lastOdometer + tripDistance;
+      
       return apiRequest("POST", `/api/vehicles/${selectedVehicleId}/mileage-logs`, {
-        ...data,
-        odometerReading: data.odometerReading.toString(),
+        date: data.date,
+        odometerReading: newOdometerReading.toString(),
+        description: data.tripTitle || "",
+        isBusinessUse: data.isBusinessUse,
       });
     },
     onSuccess: () => {
@@ -129,9 +147,38 @@ export default function VehicleMileagePage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: MileageLogFormData }) => {
+      // For updates, calculate new odometer reading based on trip distance
+      const logToUpdate = mileageLogs.find(log => log.id === id);
+      if (!logToUpdate) throw new Error("Log not found");
+      
+      const tripDistance = parseFloat(data.odometerReading.toString()); // This is actually trip distance in the form
+      
+      // Get all logs except the one being updated, sorted by date
+      const otherLogs = [...mileageLogs.filter(log => log.id !== id)].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      
+      // Find the previous log based on the original date (to maintain chronological order)
+      const originalDate = new Date(logToUpdate.date).getTime();
+      const previousLog = otherLogs
+        .filter(log => new Date(log.date).getTime() < originalDate)
+        .pop(); // Get the last log before this one's original date
+      
+      let newOdometerReading: number;
+      if (!previousLog) {
+        // This was the first log chronologically
+        const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+        newOdometerReading = startingMileage + tripDistance;
+      } else {
+        // Use the previous log's odometer reading
+        newOdometerReading = Number(previousLog.odometerReading) + tripDistance;
+      }
+      
       return apiRequest("PATCH", `/api/mileage-logs/${id}`, {
-        ...data,
-        odometerReading: data.odometerReading.toString(),
+        date: data.date,
+        odometerReading: newOdometerReading.toString(),
+        description: data.tripTitle || "",
+        isBusinessUse: data.isBusinessUse,
       });
     },
     onSuccess: () => {
@@ -175,11 +222,27 @@ export default function VehicleMileagePage() {
 
   const handleEdit = (log: VehicleMileageLog) => {
     setEditingLogId(log.id);
+    // Calculate trip distance from this log and the previous one
+    const sortedLogs = [...mileageLogs].sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    const logIndex = sortedLogs.findIndex(l => l.id === log.id);
+    let tripDistance = 0;
+    if (logIndex > 0) {
+      const prevLog = sortedLogs[logIndex - 1];
+      tripDistance = Number(log.odometerReading) - Number(prevLog.odometerReading);
+    } else {
+      // First log, use vehicle starting mileage
+      const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+      tripDistance = Number(log.odometerReading) - startingMileage;
+    }
+    
     form.reset({
       date: log.date,
-      odometerReading: Number(log.odometerReading).toString(),
-      description: log.description || "",
+      tripTitle: log.description || "",
+      odometerReading: tripDistance.toString(),
       isBusinessUse: log.isBusinessUse ?? true,
+      isRepeatTrip: false,
     });
     setIsDialogOpen(true);
   };
@@ -187,10 +250,39 @@ export default function VehicleMileagePage() {
   const handleAdd = () => {
     setEditingLogId(null);
     form.reset({
-      date: new Date().toISOString().split("T")[0],
+      date: getTodayLocalDateString(),
+      tripTitle: "",
       odometerReading: "",
-      description: "",
       isBusinessUse: true,
+      isRepeatTrip: false,
+    });
+    setIsDialogOpen(true);
+  };
+
+  const handleRepeatTrip = (log: VehicleMileageLog) => {
+    setEditingLogId(null);
+    
+    // Calculate trip distance from this log
+    const sortedLogs = [...mileageLogs].sort((a, b) => 
+      new Date(a.date).getTime() - new Date(b.date).getTime()
+    );
+    const logIndex = sortedLogs.findIndex(l => l.id === log.id);
+    
+    let tripDistance = 0;
+    if (logIndex > 0) {
+      const prevLog = sortedLogs[logIndex - 1];
+      tripDistance = Number(log.odometerReading) - Number(prevLog.odometerReading);
+    } else {
+      const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+      tripDistance = Number(log.odometerReading) - startingMileage;
+    }
+    
+    form.reset({
+      date: getTodayLocalDateString(), // Use today's date for the repeat
+      tripTitle: log.description || "",
+      odometerReading: tripDistance.toString(),
+      isBusinessUse: log.isBusinessUse ?? true,
+      isRepeatTrip: true,
     });
     setIsDialogOpen(true);
   };
@@ -203,13 +295,21 @@ export default function VehicleMileagePage() {
     }
   };
 
-  // Calculate distances between consecutive logs
-  const logsWithDistance = mileageLogs.map((log, index) => {
+  // Calculate distances between consecutive logs (sorted by date)
+  const sortedLogs = [...mileageLogs].sort((a, b) => 
+    new Date(a.date).getTime() - new Date(b.date).getTime()
+  );
+  
+  const logsWithDistance = sortedLogs.map((log, index) => {
+    let distance = 0;
     if (index === 0) {
-      return { ...log, distance: 0 };
+      // First log: calculate from vehicle starting mileage
+      const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+      distance = Number(log.odometerReading) - startingMileage;
+    } else {
+      const prevLog = sortedLogs[index - 1];
+      distance = Number(log.odometerReading) - Number(prevLog.odometerReading);
     }
-    const prevLog = mileageLogs[index - 1];
-    const distance = Number(log.odometerReading) - Number(prevLog.odometerReading);
     return { ...log, distance: Math.max(0, distance) };
   });
 
@@ -219,7 +319,7 @@ export default function VehicleMileagePage() {
       log.description?.toLowerCase().includes(searchLower) ||
       formatDate(log.date).toLowerCase().includes(searchLower)
     );
-  });
+  }).sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime());
 
   // Calculate totals
   const totalMileage = logsWithDistance.reduce((sum, log) => sum + log.distance, 0);
@@ -279,6 +379,23 @@ export default function VehicleMileagePage() {
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                   <FormField
                     control={form.control}
+                    name="tripTitle"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Trip Title</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="e.g., Trip to location, Client meeting..."
+                            data-testid="input-trip-title"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
                     name="date"
                     render={({ field }) => (
                       <FormItem>
@@ -295,38 +412,24 @@ export default function VehicleMileagePage() {
                     name="odometerReading"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Odometer Reading (km)</FormLabel>
+                        <FormLabel>Trip Distance (km)</FormLabel>
                         <FormControl>
                           <Input
-                            {...field}
                             type="number"
                             step="0.01"
                             min="0"
                             placeholder="0.00"
                             className="font-mono"
-                            data-testid="input-odometer"
+                            data-testid="input-trip-distance"
+                            value={field.value || ""}
+                            onChange={(e) => field.onChange(e.target.value)}
+                            onBlur={field.onBlur}
+                            ref={field.ref}
                           />
                         </FormControl>
                         <FormDescription>
-                          Enter the current odometer reading for this date
+                          Enter the distance traveled for this trip
                         </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Description</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            {...field}
-                            placeholder="e.g., Trip to location, Client meeting..."
-                            data-testid="input-mileage-description"
-                          />
-                        </FormControl>
                         <FormMessage />
                       </FormItem>
                     )}
@@ -492,31 +595,23 @@ export default function VehicleMileagePage() {
                     <TableHeader>
                       <TableRow>
                         <TableHead>Date</TableHead>
-                        <TableHead>Odometer (km)</TableHead>
+                        <TableHead>Title</TableHead>
                         <TableHead>Distance (km)</TableHead>
-                        <TableHead>Description</TableHead>
                         <TableHead className="text-center">Business</TableHead>
                         <TableHead className="w-24"></TableHead>
                       </TableRow>
                     </TableHeader>
                     <TableBody>
-                      {filteredLogs.map((log, index) => (
+                      {filteredLogs.map((log) => (
                         <TableRow key={log.id} data-testid={`row-mileage-${log.id}`}>
                           <TableCell className="text-muted-foreground">
                             {formatDate(log.date)}
                           </TableCell>
-                          <TableCell className="font-mono">
-                            {Number(log.odometerReading).toLocaleString()}
-                          </TableCell>
-                          <TableCell className="font-mono">
-                            {index === 0 ? (
-                              <span className="text-muted-foreground">—</span>
-                            ) : (
-                              log.distance.toLocaleString()
-                            )}
-                          </TableCell>
                           <TableCell>
                             <div className="max-w-md truncate">{log.description || "—"}</div>
+                          </TableCell>
+                          <TableCell className="font-mono">
+                            {log.distance.toLocaleString()}
                           </TableCell>
                           <TableCell className="text-center">
                             {log.isBusinessUse ? (
@@ -529,6 +624,15 @@ export default function VehicleMileagePage() {
                           </TableCell>
                           <TableCell>
                             <div className="flex gap-2">
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                onClick={() => handleRepeatTrip(log)}
+                                data-testid={`button-repeat-mileage-${log.id}`}
+                                title="Repeat this trip"
+                              >
+                                <RotateCcw className="h-4 w-4 text-muted-foreground" />
+                              </Button>
                               <Button
                                 variant="ghost"
                                 size="icon"

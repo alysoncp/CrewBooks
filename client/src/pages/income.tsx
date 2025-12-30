@@ -53,7 +53,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, getIncomeTypeLabel } from "@/lib/format";
+import { formatCurrency, formatDate, getIncomeTypeLabel, getTodayLocalDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { INCOME_TYPES, type Income, type User } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
@@ -148,7 +148,7 @@ export default function IncomePage() {
     mode: "onBlur", // Validate on blur for immediate feedback
     defaultValues: {
       amount: "",
-      date: new Date().toISOString().split("T")[0],
+      date: getTodayLocalDateString(),
       incomeType: "",
       productionName: "",
       accountingOffice: "",
