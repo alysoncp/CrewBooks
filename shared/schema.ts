@@ -90,7 +90,7 @@ export const users = pgTable("users", {
   lastName: varchar("last_name"),
   profileImageUrl: varchar("profile_image_url"),
   taxFilingStatus: text("tax_filing_status").default("personal_only"),
-  province: text("province").default("ON"),
+  province: text("province").default("BC"),
   subscriptionTier: text("subscription_tier").default("basic"),
   // New profile fields
   userType: text("user_type"), // performer, crew, or both

@@ -59,19 +59,66 @@ import { INCOME_TYPES, type Income, type User } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 
 const incomeFormSchema = z.object({
-  amount: z.string().min(1, "Amount is required").transform((v) => parseFloat(v)),
+  amount: z.string().min(1, "Amount is required").refine((val) => {
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Amount must be a valid number",
+  }).transform((v) => parseFloat(v)),
   date: z.string().min(1, "Date is required"),
   incomeType: z.string().min(1, "Income type is required"),
   productionName: z.string().optional(),
   accountingOffice: z.string().optional(),
   description: z.string().optional(),
-  gstHstCollected: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
-  dues: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
-  retirement: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
-  labour: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
-  buyout: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
-  pension: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
-  insurance: z.string().optional().transform((v) => v ? parseFloat(v) : undefined),
+  gstHstCollected: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "GST/HST collected must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
+  dues: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Dues must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
+  retirement: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Retirement must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
+  labour: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Labour must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
+  buyout: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Buyout must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
+  pension: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Pension must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
+  insurance: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Insurance must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
 });
 
 type IncomeFormData = z.input<typeof incomeFormSchema>;
@@ -98,6 +145,7 @@ export default function IncomePage() {
 
   const form = useForm<IncomeFormData>({
     resolver: zodResolver(incomeFormSchema),
+    mode: "onBlur", // Validate on blur for immediate feedback
     defaultValues: {
       amount: "",
       date: new Date().toISOString().split("T")[0],

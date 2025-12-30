@@ -90,8 +90,20 @@ const HOME_OFFICE_SUBCATEGORIES = [
 type ExpenseCategoryTuple = typeof EXPENSE_CATEGORIES;
 
 const expenseFormSchema = z.object({
-  baseCost: z.string().optional(),
-  total: z.string().optional(),
+  baseCost: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Base cost must be a valid number",
+  }),
+  total: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Total must be a valid number",
+  }),
   gstIncluded: z.boolean().default(false),
   pstIncluded: z.boolean().default(false),
   date: z.string().min(1, "Date is required"),
@@ -111,10 +123,10 @@ const expenseFormSchema = z.object({
   message: "Please select a vehicle",
   path: ["vehicleId"],
 }).refine((data) => {
-  // At least one of baseCost or total must be provided
+  // At least one of baseCost or total must be provided and valid
   const baseCost = data.baseCost ? parseFloat(data.baseCost) : null;
   const total = data.total ? parseFloat(data.total) : null;
-  return (baseCost !== null && !isNaN(baseCost)) || (total !== null && !isNaN(total));
+  return (baseCost !== null && !isNaN(baseCost) && baseCost > 0) || (total !== null && !isNaN(total) && total > 0);
 }, {
   message: "Please enter either base cost or total amount",
   path: ["baseCost"],
@@ -194,6 +206,7 @@ export default function ExpensesPage() {
   // Move form definition BEFORE the useEffect that uses it
   const form = useForm<ExpenseFormData>({
     resolver: zodResolver(expenseFormSchema),
+    mode: "onBlur", // Validate on blur for immediate feedback
     defaultValues: {
       baseCost: "",
       total: "",
@@ -286,7 +299,7 @@ export default function ExpensesPage() {
             setReceiptImageUrl(receipt.imageUrl);
           }
         })
-        .catch(console.error);
+        .catch(() => {});
       
       // Try to fetch OCR data and pre-fill form (if available)
       fetch(`/api/receipts/${receiptId}/ocr-to-expense`)
@@ -347,8 +360,7 @@ export default function ExpensesPage() {
           // Open dialog after form is reset to ensure DialogTitle is ready
           setTimeout(() => setIsDialogOpen(true), 0);
         })
-        .catch((error) => {
-          console.error("Error fetching OCR data:", error);
+        .catch(() => {
           // Clear URL param
           window.history.replaceState({}, "", "/expenses");
           // Reset to blank form and open dialog

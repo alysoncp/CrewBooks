@@ -80,8 +80,6 @@ export default function ReceiptsPage() {
       formData.append("notes", notes);
       formData.append("scanWithOCR", scanWithOCR.toString());
       
-      console.log("Uploading receipt with OCR:", scanWithOCR);
-      
       const response = await fetch("/api/receipts/upload", {
         method: "POST",
         body: formData,

@@ -205,7 +205,6 @@ const companyProfileSchema = z.object({
   businessNumber: z.string().optional(),
   incorporationDate: z.string().optional(),
   fiscalYearEnd: z.string().optional(),
-  province: z.string().min(1, "Province is required"),
   businessType: z.string().optional(),
 });
 
@@ -230,13 +229,15 @@ function CompanyProfileStep({
       businessNumber: (getResponse("businessNumber") as string) || user.businessNumber || "",
       incorporationDate: (getResponse("incorporationDate") as string) || "",
       fiscalYearEnd: (getResponse("fiscalYearEnd") as string) || "",
-      province: (getResponse("province") as string) || user.province || "ON",
       businessType: (getResponse("businessType") as string) || "personal_services",
     },
   });
 
   const onSubmit = (data: z.infer<typeof companyProfileSchema>) => {
-    onSave("company_profile", data);
+    onSave("company_profile", {
+      ...data,
+      province: "BC", // Hardcoded to British Columbia
+    });
   };
 
   return (
@@ -272,28 +273,6 @@ function CompanyProfileStep({
         />
 
         <div className="grid gap-4 md:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="province"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Province of Incorporation</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-t2-province">
-                      <SelectValue placeholder="Select province" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {CANADIAN_PROVINCES.map((p) => (
-                      <SelectItem key={p.code} value={p.code}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
           <FormField
             control={form.control}
             name="businessType"
@@ -565,7 +544,7 @@ function SummaryStep({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Province</span>
-            <span>{getResponse("company_profile", "province") || "Not set"}</span>
+            <span>British Columbia</span>
           </div>
         </CardContent>
       </Card>

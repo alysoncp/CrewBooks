@@ -25,7 +25,6 @@ export async function seedDatabase() {
       for (const income of incomeData) {
         await storage.createIncome(income);
       }
-      console.log("Seeded income records");
     }
 
     const expenseRecords = await storage.getExpenses(userId);
@@ -48,13 +47,10 @@ export async function seedDatabase() {
       for (const expense of expenseData) {
         await storage.createExpense(expense);
       }
-      console.log("Seeded expense records");
     }
 
-    console.log("Database seeding complete");
     return demoUser;
   } catch (error) {
-    console.error("Error seeding database:", error);
     throw error;
   }
 }

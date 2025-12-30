@@ -10,15 +10,9 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { eq, desc, asc } from "drizzle-orm";
 import { processReceiptOCR, type OCRResult } from "./veryfi-ocr";
 
-// Logging function to avoid circular dependency
+// Logging function to avoid circular dependency (disabled for production)
 function logRoute(message: string, source = "routes") {
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-  console.log(`${formattedTime} [${source}] ${message}`);
+  // Logging disabled
 }
 
 const uploadDir = path.join(process.cwd(), "uploads");
@@ -185,7 +179,6 @@ export async function registerRoutes(
       const user = await storage.getUser(userId);
       res.json(user);
     } catch (error) {
-      console.error("Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
@@ -235,15 +228,12 @@ export async function registerRoutes(
         profileData.hasHomeOffice = Boolean(profileData.hasHomeOffice);
       }
       
-      console.log("Updating profile with data:", profileData);
-      
       const updated = await storage.updateUser(userId, profileData);
       if (!updated) {
         return res.status(404).json({ error: "User not found" });
       }
       res.json(updated);
     } catch (error) {
-      console.error("Profile update error:", error);
       res.status(500).json({ error: "Failed to update profile" });
     }
   });
@@ -280,7 +270,6 @@ export async function registerRoutes(
         expensesByCategory,
       });
     } catch (error) {
-      console.error("Dashboard error:", error);
       res.status(500).json({ error: "Failed to load dashboard data" });
     }
   });
@@ -327,7 +316,6 @@ export async function registerRoutes(
       const expenseRecords = await storage.getExpenses(userId);
       res.json(expenseRecords);
     } catch (error) {
-      console.error("Failed to get expenses:", error);
       res.status(500).json({ error: "Failed to get expenses" });
     }
   });
@@ -354,7 +342,6 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating expense:", error);
       res.status(500).json({ error: "Failed to create expense" });
     }
   });
@@ -519,7 +506,6 @@ export async function registerRoutes(
 
       res.status(201).json(receiptRecords);
     } catch (error) {
-      console.error("Error uploading receipts:", error);
       res.status(500).json({ error: "Failed to upload receipts" });
     }
   });
@@ -539,7 +525,6 @@ export async function registerRoutes(
       
       res.json(receipt);
     } catch (error) {
-      console.error("Error fetching receipt:", error);
       res.status(500).json({ error: "Failed to get receipt" });
     }
   });
@@ -589,7 +574,6 @@ export async function registerRoutes(
         confidence: ocrResult.confidence,
       });
     } catch (error) {
-      console.error("Error converting OCR to expense:", error);
       res.status(500).json({ error: "Failed to convert OCR to expense data" });
     }
   });
@@ -643,12 +627,11 @@ export async function registerRoutes(
           { bracket: "$57,375 - $114,750", rate: 20.5, tax: calculation.federalTax * 0.4 },
           { bracket: "$114,750+", rate: 26, tax: calculation.federalTax * 0.25 },
         ],
-        provincialBrackets: storage.getProvincialBracketBreakdown(netIncome, user?.province || "ON"),
+        provincialBrackets: storage.getProvincialBracketBreakdown(netIncome, user?.province || "BC"),
       };
 
       res.json({ calculation, user, breakdown });
     } catch (error) {
-      console.error("Failed to calculate tax:", error);
       res.status(500).json({ error: "Failed to calculate tax" });
     }
   });
@@ -720,7 +703,6 @@ export async function registerRoutes(
       const questionnaires = await storage.getQuestionnaires(userId);
       res.json(questionnaires);
     } catch (error) {
-      console.error("Error fetching questionnaires:", error);
       res.status(500).json({ error: "Failed to fetch questionnaires" });
     }
   });
@@ -741,7 +723,6 @@ export async function registerRoutes(
       const responses = await storage.getQuestionnaireResponses(questionnaire.id);
       res.json({ questionnaire, responses });
     } catch (error) {
-      console.error("Error fetching questionnaire:", error);
       res.status(500).json({ error: "Failed to fetch questionnaire" });
     }
   });
@@ -775,7 +756,6 @@ export async function registerRoutes(
       
       res.status(201).json(questionnaire);
     } catch (error) {
-      console.error("Error creating questionnaire:", error);
       res.status(500).json({ error: "Failed to create questionnaire" });
     }
   });
@@ -796,7 +776,6 @@ export async function registerRoutes(
       const updated = await storage.updateQuestionnaire(req.params.id, req.body);
       res.json(updated);
     } catch (error) {
-      console.error("Error updating questionnaire:", error);
       res.status(500).json({ error: "Failed to update questionnaire" });
     }
   });
@@ -817,7 +796,6 @@ export async function registerRoutes(
       await storage.deleteQuestionnaire(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting questionnaire:", error);
       res.status(500).json({ error: "Failed to delete questionnaire" });
     }
   });
@@ -846,7 +824,6 @@ export async function registerRoutes(
       
       res.json(response);
     } catch (error) {
-      console.error("Error saving response:", error);
       res.status(500).json({ error: "Failed to save response" });
     }
   });
@@ -866,8 +843,6 @@ export async function registerRoutes(
   app.post("/api/vehicles", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      console.log("Received request body:", JSON.stringify(req.body, null, 2));
-      
       // Clean up empty strings - be more explicit
       const cleanedData: any = {
         name: req.body.name?.trim() || "",
@@ -899,31 +874,15 @@ export async function registerRoutes(
       cleanedData.currentMileage = req.body.currentMileage !== null && req.body.currentMileage !== undefined ? String(req.body.currentMileage) : null;
       cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
       
-      console.log("Creating vehicle with cleaned data:", JSON.stringify(cleanedData, null, 2));
-      
       // Validate with schema
       const data = insertVehicleSchema.parse(cleanedData);
-      console.log("Schema validation passed, parsed data:", JSON.stringify(data, null, 2));
       
       // Try to create
-      console.log("Attempting to insert into database...");
       const vehicle = await storage.createVehicle(data);
-      console.log("Vehicle created successfully:", vehicle.id);
       
       res.status(201).json(vehicle);
     } catch (error: any) {
-      console.error("=== ERROR START ===");
-      console.error("Error type:", error?.constructor?.name);
-      console.error("Error message:", error?.message);
-      console.error("Error code:", error?.code);
-      console.error("Full error object:", error);
-      if (error?.stack) {
-        console.error("Stack trace:", error.stack);
-      }
-      console.error("=== ERROR END ===");
-      
       if (error instanceof z.ZodError) {
-        console.error("Validation errors:", JSON.stringify(error.errors, null, 2));
         return res.status(400).json({ error: error.errors });
       }
       const errorMessage = error?.message || String(error);
@@ -966,7 +925,6 @@ export async function registerRoutes(
       const updated = await storage.updateVehicle(req.params.id, cleanedData);
       res.json(updated);
     } catch (error) {
-      console.error("Error updating vehicle:", error);
       res.status(500).json({ error: "Failed to update vehicle" });
     }
   });
@@ -985,7 +943,6 @@ export async function registerRoutes(
       await storage.deleteVehicle(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting vehicle:", error);
       res.status(500).json({ error: "Failed to delete vehicle" });
     }
   });
@@ -1004,7 +961,6 @@ export async function registerRoutes(
       const logs = await storage.getVehicleMileageLogs(req.params.vehicleId, userId);
       res.json(logs);
     } catch (error) {
-      console.error("Error getting mileage logs:", error);
       res.status(500).json({ error: "Failed to get mileage logs" });
     }
   });
@@ -1027,7 +983,6 @@ export async function registerRoutes(
       if (error instanceof z.ZodError) {
         return res.status(400).json({ error: error.errors });
       }
-      console.error("Error creating mileage log:", error);
       res.status(500).json({ error: "Failed to create mileage log" });
     }
   });
@@ -1054,7 +1009,6 @@ export async function registerRoutes(
       }
       res.json(updated);
     } catch (error) {
-      console.error("Error updating mileage log:", error);
       res.status(500).json({ error: "Failed to update mileage log" });
     }
   });
@@ -1073,7 +1027,6 @@ export async function registerRoutes(
       await storage.deleteVehicleMileageLog(req.params.id);
       res.status(204).send();
     } catch (error) {
-      console.error("Error deleting mileage log:", error);
       res.status(500).json({ error: "Failed to delete mileage log" });
     }
   });
@@ -1107,7 +1060,6 @@ export async function registerRoutes(
         updatedCount: updated 
       });
     } catch (error) {
-      console.error("Error renaming category:", error);
       res.status(500).json({ error: "Failed to rename category" });
     }
   });
@@ -1131,7 +1083,6 @@ export async function registerRoutes(
       // Category is not in use, so deletion is just a no-op (category will disappear when not used)
       res.json({ success: true });
     } catch (error) {
-      console.error("Error deleting category:", error);
       res.status(500).json({ error: "Failed to delete category" });
     }
   });

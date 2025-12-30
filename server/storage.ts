@@ -331,7 +331,7 @@ export class DatabaseStorage implements IStorage {
       ],
     };
 
-    const brackets = provincialBrackets[province] || provincialBrackets.ON;
+    const brackets = provincialBrackets[province] || provincialBrackets.BC;
 
     for (const bracket of brackets) {
       if (income <= bracket.limit) {
@@ -353,7 +353,7 @@ export class DatabaseStorage implements IStorage {
     const netIncome = Math.max(0, grossIncome - totalExpenses);
 
     const federalTax = this.calculateFederalTax(netIncome);
-    const provincialTax = this.calculateProvincialTax(netIncome, user?.province || "ON");
+    const provincialTax = this.calculateProvincialTax(netIncome, user?.province || "BC");
     const cppContribution = this.calculateCPP(netIncome);
     const totalIncomeTax = federalTax + provincialTax;
     const totalOwed = totalIncomeTax + cppContribution;
@@ -361,7 +361,7 @@ export class DatabaseStorage implements IStorage {
     
     // Calculate marginal tax rate (federal + provincial rate for the current bracket)
     const federalMarginalRate = this.getFederalMarginalRate(netIncome);
-    const provincialMarginalRate = this.getProvincialMarginalRate(netIncome, user?.province || "ON");
+    const provincialMarginalRate = this.getProvincialMarginalRate(netIncome, user?.province || "BC");
     const marginalTaxRate = (federalMarginalRate + provincialMarginalRate) * 100;
 
     return {
@@ -511,8 +511,8 @@ export class DatabaseStorage implements IStorage {
       ],
     };
 
-    // Get brackets for the province, default to Ontario if not found
-    const brackets = provincialBrackets[province] || provincialBrackets.ON;
+    // Get brackets for the province, default to British Columbia if not found
+    const brackets = provincialBrackets[province] || provincialBrackets.BC;
     
     let tax = 0;
     let remaining = income;
@@ -906,7 +906,7 @@ export class DatabaseStorage implements IStorage {
       ],
     };
 
-    const brackets = provincialBrackets[province] || provincialBrackets.ON;
+    const brackets = provincialBrackets[province] || provincialBrackets.BC;
     const breakdown: Array<{ bracket: string; rate: number; tax: number }> = [];
     
     let prevLimit = 0;

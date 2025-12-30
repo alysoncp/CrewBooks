@@ -50,7 +50,6 @@ const profileFormSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
-  province: z.string().min(1, "Province is required"),
   taxFilingStatus: z.enum([TAX_FILING_STATUS.PERSONAL_ONLY, TAX_FILING_STATUS.PERSONAL_AND_CORPORATE]),
   userType: z.enum([USER_TYPES.PERFORMER, USER_TYPES.CREW, USER_TYPES.BOTH]).nullable(),
   unionAffiliations: z.array(unionAffiliationSchema).nullable(),
@@ -75,7 +74,6 @@ export default function ProfilePage() {
 
   // Error handling
   if (error) {
-    console.error("Profile fetch error:", error);
     return (
       <div className="space-y-6">
         <div>
@@ -99,7 +97,6 @@ export default function ProfilePage() {
       firstName: "",
       lastName: "",
       email: "",
-      province: "ON",
       taxFilingStatus: TAX_FILING_STATUS.PERSONAL_ONLY,
       userType: null,
       unionAffiliations: [],
@@ -117,7 +114,6 @@ export default function ProfilePage() {
           firstName: user.firstName || "",
           lastName: user.lastName || "",
           email: user.email || "",
-          province: user.province || "ON",
           taxFilingStatus: (user.taxFilingStatus as typeof TAX_FILING_STATUS.PERSONAL_ONLY | typeof TAX_FILING_STATUS.PERSONAL_AND_CORPORATE) || TAX_FILING_STATUS.PERSONAL_ONLY,
           userType: (user.userType as typeof USER_TYPES.PERFORMER | typeof USER_TYPES.CREW | typeof USER_TYPES.BOTH) || null,
           unionAffiliations: (user.unionAffiliations as UnionAffiliation[]) || [],
@@ -168,7 +164,10 @@ export default function ProfilePage() {
   });
 
   const onSubmit = (data: ProfileFormData) => {
-    updateMutation.mutate(data);
+    updateMutation.mutate({
+      ...data,
+      province: "BC", // Hardcoded to British Columbia
+    } as ProfileFormData & { province: string });
   };
 
   const toggleUnion = (unionId: string, checked: boolean) => {
@@ -322,31 +321,6 @@ export default function ProfilePage() {
                 )}
               />
 
-              <FormField
-                control={form.control}
-                name="province"
-                render={({ field }) => (
-                  <FormItem>
-                    <FormLabel>Province/Territory</FormLabel>
-                    <Select onValueChange={field.onChange} value={field.value}>
-                      <FormControl>
-                        <SelectTrigger data-testid="select-province">
-                          <SelectValue placeholder="Select your province" />
-                        </SelectTrigger>
-                      </FormControl>
-                      <SelectContent>
-                        {CANADIAN_PROVINCES.map((province) => (
-                          <SelectItem key={province.code} value={province.code}>
-                            {province.name}
-                          </SelectItem>
-                        ))}
-                      </SelectContent>
-                    </Select>
-                    <FormDescription>Used for provincial tax calculations</FormDescription>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
             </CardContent>
           </Card>
 

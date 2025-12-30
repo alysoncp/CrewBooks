@@ -201,7 +201,6 @@ const personalInfoSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   sinNumber: z.string().optional(),
-  province: z.string().min(1, "Province is required"),
   dateOfBirth: z.string().optional(),
   maritalStatus: z.string().optional(),
 });
@@ -226,14 +225,16 @@ function PersonalInfoStep({
       firstName: (getResponse("firstName") as string) || user.firstName || "",
       lastName: (getResponse("lastName") as string) || user.lastName || "",
       sinNumber: (getResponse("sinNumber") as string) || "",
-      province: (getResponse("province") as string) || user.province || "ON",
       dateOfBirth: (getResponse("dateOfBirth") as string) || "",
       maritalStatus: (getResponse("maritalStatus") as string) || "",
     },
   });
 
   const onSubmit = (data: z.infer<typeof personalInfoSchema>) => {
-    onSave("personal_info", data);
+    onSave("personal_info", {
+      ...data,
+      province: "BC", // Hardcoded to British Columbia
+    });
   };
 
   return (
@@ -283,30 +284,7 @@ function PersonalInfoStep({
           )}
         />
 
-        <div className="grid gap-4 md:grid-cols-2">
-          <FormField
-            control={form.control}
-            name="province"
-            render={({ field }) => (
-              <FormItem>
-                <FormLabel>Province/Territory</FormLabel>
-                <Select onValueChange={field.onChange} defaultValue={field.value}>
-                  <FormControl>
-                    <SelectTrigger data-testid="select-t1-province">
-                      <SelectValue placeholder="Select province" />
-                    </SelectTrigger>
-                  </FormControl>
-                  <SelectContent>
-                    {CANADIAN_PROVINCES.map((p) => (
-                      <SelectItem key={p.code} value={p.code}>{p.name}</SelectItem>
-                    ))}
-                  </SelectContent>
-                </Select>
-                <FormMessage />
-              </FormItem>
-            )}
-          />
-          <FormField
+        <FormField
             control={form.control}
             name="maritalStatus"
             render={({ field }) => (
@@ -587,7 +565,7 @@ function SummaryStep({
           </div>
           <div className="flex justify-between">
             <span className="text-muted-foreground">Province</span>
-            <span>{getResponse("personal_info", "province") || "Not set"}</span>
+            <span>British Columbia</span>
           </div>
         </CardContent>
       </Card>

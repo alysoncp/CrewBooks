@@ -9,7 +9,6 @@ import { Calculator, DollarSign, Percent, TrendingDown, Building, Lock, Sparkles
 import { formatCurrency, formatPercent } from "@/lib/format";
 import { Link } from "wouter";
 import type { TaxCalculation, User } from "@shared/schema";
-import { CANADIAN_PROVINCES } from "@shared/schema";
 
 interface TaxData {
   calculation: TaxCalculation;
@@ -179,7 +178,7 @@ export default function TaxCalculatorPage() {
                   Provincial Tax
                 </CardTitle>
                 <CardDescription>
-                  {CANADIAN_PROVINCES.find(p => p.code === user?.province)?.name || "Ontario"}
+                  British Columbia
                 </CardDescription>
               </CardHeader>
               <CardContent>

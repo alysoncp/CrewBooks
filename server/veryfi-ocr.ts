@@ -32,29 +32,10 @@ export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
   const apiKey = process.env.VERYFI_API_KEY;
 
   if (!clientId || !clientSecret || !username || !apiKey) {
-    const formattedTime = new Date().toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    });
-    console.error(`${formattedTime} [veryfi] === VERYFI CREDENTIALS MISSING ===`);
-    console.error(`${formattedTime} [veryfi] VERYFI_CLIENT_ID: ${clientId ? "SET" : "MISSING"}`);
-    console.error(`${formattedTime} [veryfi] VERYFI_CLIENT_SECRET: ${clientSecret ? "SET" : "MISSING"}`);
-    console.error(`${formattedTime} [veryfi] VERYFI_USERNAME: ${username ? "SET" : "MISSING"}`);
-    console.error(`${formattedTime} [veryfi] VERYFI_API_KEY: ${apiKey ? "SET" : "MISSING"}`);
     throw new Error(
       "Veryfi API credentials are not configured. Please set VERYFI_CLIENT_ID, VERYFI_CLIENT_SECRET, VERYFI_USERNAME, and VERYFI_API_KEY environment variables."
     );
   }
-  
-  const formattedTime = new Date().toLocaleTimeString("en-US", {
-    hour: "numeric",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: true,
-  });
-  console.log(`${formattedTime} [veryfi] Veryfi credentials found, proceeding with OCR...`);
 
   try {
     // Read the image file
@@ -84,28 +65,8 @@ export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
       "CLIENT-SECRET": clientSecret,
       "AUTHORIZATION": `apikey ${username}:${apiKey}`,
     };
-    
 
     // Make request to Veryfi API using axios (more reliable than fetch for this use case)
-    const formattedTime = new Date().toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    });
-    console.log(`${formattedTime} [veryfi] Making request to Veryfi API: ${VERYFI_API_URL}`);
-    console.log(`${formattedTime} [veryfi] Headers: CLIENT-ID=${clientId.substring(0, 8)}..., AUTHORIZATION=apikey ${username}:***`);
-    console.log(`${formattedTime} [veryfi] File: ${fileName}, Size: ${imageBuffer.length} bytes, Base64: ${fileDataBase64.length} chars`);
-    console.log(`${formattedTime} [veryfi] Payload keys: ${Object.keys(payload).join(", ")}, has file_data: ${!!payload.file_data}, file_data length: ${payload.file_data?.length || 0}`);
-    
-    console.log("[veryfi] Auth sanity:", {
-      hasClientId: !!clientId,
-      hasClientSecret: !!clientSecret,
-      hasUsername: !!username,
-      hasApiKey: !!apiKey,
-    });
-
-
     const response = await axios.post(
       VERYFI_API_URL,
       payload,
@@ -115,28 +76,17 @@ export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
       }
     );
 
-    console.log(`${formattedTime} [veryfi] Veryfi API response status: ${response.status} ${response.statusText || ""}`);
-    console.log(`${formattedTime} [veryfi] Veryfi API response received, parsing...`);
-
     const data = response.data;
 
     // Parse Veryfi response into our OCRResult format
     return parseVeryfiResponse(data);
   } catch (error: any) {
-    const formattedTime = new Date().toLocaleTimeString("en-US", {
-      hour: "numeric",
-      minute: "2-digit",
-      second: "2-digit",
-      hour12: true,
-    });
-    
     // Axios error handling
     if (error.response) {
       // The request was made and the server responded with a status code
       // that falls out of the range of 2xx
       const status = error.response.status;
       const errorText = error.response.data ? JSON.stringify(error.response.data) : error.response.statusText;
-      console.error(`${formattedTime} [veryfi] Veryfi API error: ${status} - ${errorText}`);
       
       if (status === 429) {
         return {
@@ -153,7 +103,6 @@ export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
       };
     } else if (error.request) {
       // The request was made but no response was received
-      console.error(`${formattedTime} [veryfi] No response from Veryfi API:`, error.message);
       return {
         status: "failed",
         confidence: 0,
@@ -161,8 +110,6 @@ export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
       };
     } else {
       // Something happened in setting up the request that triggered an Error
-      console.error(`${formattedTime} [veryfi] Error setting up request:`, error.message);
-      
       if (error.message?.includes("credentials")) {
         return {
           status: "failed",
@@ -214,7 +161,6 @@ export async function getOCRResult(documentId: string): Promise<OCRResult> {
     const data = await response.json();
     return parseVeryfiResponse(data);
   } catch (error: any) {
-    console.error("Error fetching OCR result:", error);
     return {
       status: "failed",
       confidence: 0,
