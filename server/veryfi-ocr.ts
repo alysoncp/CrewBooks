@@ -23,9 +23,11 @@ export interface OCRResult {
 }
 
 /**
- * Process a receipt image through Veryfi OCR
+ * Process a document image through Veryfi OCR
+ * @param imagePath Path to the image file
+ * @param category Optional category hint for Veryfi (e.g., "expense" for receipts, undefined for auto-detect)
  */
-export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
+export async function processReceiptOCR(imagePath: string, category?: string): Promise<OCRResult> {
   const clientId = process.env.VERYFI_CLIENT_ID;
   const clientSecret = process.env.VERYFI_CLIENT_SECRET;
   const username = process.env.VERYFI_USERNAME;
@@ -50,12 +52,16 @@ export async function processReceiptOCR(imagePath: string): Promise<OCRResult> {
     
     // Create JSON payload for Veryfi API
     // Include categories and auto_delete as recommended by Veryfi docs
-    const payload = {
+    const payload: any = {
       file_data: fileDataBase64,
       file_name: fileName,
-      categories: ["expense"],
       auto_delete: true,
     };
+    
+    // Only include category if specified (let Veryfi auto-detect for paystubs)
+    if (category) {
+      payload.categories = [category];
+    }
     
 
     // Prepare headers - ensure Content-Type is set correctly

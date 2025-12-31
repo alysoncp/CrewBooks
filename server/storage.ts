@@ -7,6 +7,8 @@ import {
   type InsertExpense,
   type Receipt,
   type InsertReceipt,
+  type Paystub,
+  type InsertPaystub,
   type TaxCalculation,
   type DividendSalaryScenario,
   type GstHstSummary,
@@ -22,6 +24,7 @@ import {
   income,
   expenses,
   receipts,
+  paystubs,
   taxQuestionnaires,
   questionnaireResponses,
   vehicles,
@@ -52,6 +55,12 @@ export interface IStorage {
   createReceipt(receipt: InsertReceipt): Promise<Receipt>;
   updateReceipt(id: string, data: Partial<Receipt>): Promise<Receipt | undefined>;
   deleteReceipt(id: string): Promise<boolean>;
+
+  getPaystubs(userId: string): Promise<Paystub[]>;
+  getPaystubById(id: string): Promise<Paystub | undefined>;
+  createPaystub(paystub: InsertPaystub): Promise<Paystub>;
+  updatePaystub(id: string, data: Partial<Paystub>): Promise<Paystub | undefined>;
+  deletePaystub(id: string): Promise<boolean>;
 
   calculateTax(userId: string): Promise<TaxCalculation>;
   calculateOptimization(userId: string, corporateIncome?: number): Promise<{
@@ -216,6 +225,41 @@ export class DatabaseStorage implements IStorage {
 
   async deleteReceipt(id: string): Promise<boolean> {
     const result = await db.delete(receipts).where(eq(receipts.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async getPaystubs(userId: string): Promise<Paystub[]> {
+    return await db
+      .select()
+      .from(paystubs)
+      .where(eq(paystubs.userId, userId))
+      .orderBy(desc(paystubs.uploadedAt));
+  }
+
+  async getPaystubById(id: string): Promise<Paystub | undefined> {
+    const [record] = await db.select().from(paystubs).where(eq(paystubs.id, id));
+    return record || undefined;
+  }
+
+  async createPaystub(paystubData: InsertPaystub): Promise<Paystub> {
+    const [record] = await db
+      .insert(paystubs)
+      .values(paystubData)
+      .returning();
+    return record;
+  }
+
+  async updatePaystub(id: string, data: Partial<Paystub>): Promise<Paystub | undefined> {
+    const [record] = await db
+      .update(paystubs)
+      .set(data)
+      .where(eq(paystubs.id, id))
+      .returning();
+    return record || undefined;
+  }
+
+  async deletePaystub(id: string): Promise<boolean> {
+    const result = await db.delete(paystubs).where(eq(paystubs.id, id)).returning();
     return result.length > 0;
   }
 
