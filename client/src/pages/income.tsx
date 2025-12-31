@@ -69,7 +69,6 @@ const incomeFormSchema = z.object({
   incomeType: z.string().min(1, "Income type is required"),
   productionName: z.string().optional(),
   accountingOffice: z.string().optional(),
-  description: z.string().optional(),
   gstHstCollected: z.string().optional().refine((val) => {
     if (!val || val.trim() === "") return true; // Optional field
     const num = parseFloat(val);
@@ -154,7 +153,6 @@ export default function IncomePage() {
       incomeType: "",
       productionName: "",
       accountingOffice: "",
-      description: "",
       gstHstCollected: "",
       dues: "",
       retirement: "",
@@ -257,33 +255,63 @@ export default function IncomePage() {
 
   // Check for paystubId in URL params
   useEffect(() => {
+    console.log("=== INCOME PAGE useEffect RUNNING ===");
     const params = new URLSearchParams(window.location.search);
     const paystubId = params.get("paystubId");
+    console.log("=== PAYSTUB ID FROM URL ===", paystubId);
+    console.log("Current URL:", window.location.href);
     if (paystubId) {
       setPaystubIdForIncome(paystubId);
       // Fetch paystub data to get image URL
+      console.log("Fetching paystub data for:", paystubId);
       fetch(`/api/paystubs/${paystubId}`)
-        .then((res) => res.json())
+        .then((res) => {
+          console.log("Paystub fetch response status:", res.status);
+          return res.json();
+        })
         .then((paystub) => {
+          console.log("Paystub data:", paystub);
           if (paystub?.imageUrl) {
             setPaystubImageUrl(paystub.imageUrl);
           }
         })
-        .catch(() => {});
+        .catch((err) => {
+          console.error("Error fetching paystub:", err);
+        });
       
       // Try to fetch OCR data and pre-fill form (if available)
+      console.log("Fetching OCR data for paystub:", paystubId);
       fetch(`/api/paystubs/${paystubId}/ocr-to-income`)
-        .then((res) => {
+        .then(async (res) => {
+          console.log("OCR fetch response status:", res.status, res.statusText);
+          console.log("OCR fetch response headers:", Object.fromEntries(res.headers.entries()));
           if (!res.ok) {
             // If OCR data doesn't exist (404 or 400), that's fine - just open blank form
             if (res.status === 404 || res.status === 400) {
+              console.log("OCR data not found (404/400), returning null");
               return null;
             }
             throw new Error(`Failed to fetch OCR data: ${res.statusText}`);
           }
+          // Check content type
+          const contentType = res.headers.get("content-type");
+          console.log("Response content-type:", contentType);
+          if (!contentType || !contentType.includes("application/json")) {
+            const text = await res.text();
+            console.error("Response is not JSON. Content:", text.substring(0, 500));
+            throw new Error(`Expected JSON but got ${contentType}`);
+          }
           return res.json();
         })
         .then((data) => {
+          // Debug: Log the OCR response
+          console.log("=== OCR TO INCOME RESPONSE ===", data);
+          console.log("Income Data:", data?.incomeData);
+          console.log("Confidence:", data?.confidence);
+          console.log("Issuer:", data?.issuer);
+          console.log("Validation Errors:", data?.validationErrors);
+          console.log("Raw OCR Data:", data?.rawOCRData);
+          
           // Clear URL param
           window.history.replaceState({}, "", "/income");
           
@@ -297,34 +325,60 @@ export default function IncomePage() {
               });
             }
             
+            // Show validation errors if any
+            if (data.validationErrors && data.validationErrors.length > 0) {
+              toast({
+                title: "Validation warnings",
+                description: data.validationErrors.join(", "),
+                variant: "default",
+              });
+            }
+            
             // Pre-fill form with OCR data
             const ocrAmount = data.incomeData.amount ? parseFloat(data.incomeData.amount.toString()) : 0;
+            console.log("Setting form values:", {
+              amount: ocrAmount,
+              date: data.incomeData.date,
+              incomeType: data.incomeData.incomeType,
+              productionName: data.incomeData.productionName,
+              accountingOffice: data.incomeData.accountingOffice,
+            });
             form.reset({
               amount: ocrAmount > 0 ? ocrAmount.toString() : "",
               date: data.incomeData.date || getTodayLocalDateString(),
               incomeType: data.incomeData.incomeType || "",
               productionName: data.incomeData.productionName || "",
               accountingOffice: data.incomeData.accountingOffice || "",
-              description: data.incomeData.description || "",
-              gstHstCollected: "",
-              dues: "",
-              retirement: "",
-              labour: "",
-              buyout: "",
-              pension: "",
-              insurance: "",
+              gstHstCollected: data.incomeData.gstHstCollected || "",
+              dues: data.incomeData.dues || "",
+              retirement: data.incomeData.retirement || "",
+              labour: data.incomeData.labour || "",
+              buyout: data.incomeData.buyout || "",
+              pension: data.incomeData.pension || "",
+              insurance: data.incomeData.insurance || "",
             });
             
             // Set custom accounting office if needed
             if (data.incomeData.accountingOffice) {
               setCustomAccountingOffice(data.incomeData.accountingOffice);
             }
+          } else {
+            console.warn("No incomeData in response:", data);
+            // Show toast if no data
+            if (data && !data.error) {
+              toast({
+                title: "No OCR data",
+                description: "OCR completed but no extractable data found. Please enter manually.",
+                variant: "default",
+              });
+            }
           }
           
           // Open dialog
           setIsDialogOpen(true);
         })
-        .catch(() => {
+        .catch((err) => {
+          console.error("Error fetching OCR data:", err);
           // If fetching OCR data fails, just open the dialog anyway
           setIsDialogOpen(true);
         });
@@ -354,7 +408,6 @@ export default function IncomePage() {
       return (
         item.productionName?.toLowerCase().includes(searchLower) ||
         item.accountingOffice?.toLowerCase().includes(searchLower) ||
-        item.description?.toLowerCase().includes(searchLower) ||
         getIncomeTypeLabel(item.incomeType).toLowerCase().includes(searchLower)
       );
     });
@@ -376,7 +429,7 @@ export default function IncomePage() {
               Add Income
             </Button>
           </DialogTrigger>
-          <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
+          <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col overflow-hidden">
             <DialogHeader>
               <DialogTitle>
                 {paystubIdForIncome ? "Create Income from Paystub" : "Add Income"}
@@ -404,7 +457,7 @@ export default function IncomePage() {
                     name="amount"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Amount</FormLabel>
+                        <FormLabel>Net Pay</FormLabel>
                         <FormControl>
                           <div className="relative">
                             <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
@@ -428,7 +481,7 @@ export default function IncomePage() {
                     name="date"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Date</FormLabel>
+                        <FormLabel>Period Ending</FormLabel>
                         <FormControl>
                           <Input {...field} type="date" data-testid="input-income-date" />
                         </FormControl>
@@ -465,7 +518,7 @@ export default function IncomePage() {
                     name="productionName"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Production Name</FormLabel>
+                        <FormLabel>Show</FormLabel>
                         <FormControl>
                           <Input
                             {...field}
@@ -482,7 +535,7 @@ export default function IncomePage() {
                     name="accountingOffice"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Accounting Office</FormLabel>
+                        <FormLabel>Issuer</FormLabel>
                         <Select 
                           onValueChange={(value) => {
                             field.onChange(value);
@@ -494,7 +547,7 @@ export default function IncomePage() {
                         >
                           <FormControl>
                             <SelectTrigger data-testid="select-accounting-office">
-                              <SelectValue placeholder="Select accounting office" />
+                              <SelectValue placeholder="Select issuer" />
                             </SelectTrigger>
                           </FormControl>
                           <SelectContent>
@@ -522,23 +575,6 @@ export default function IncomePage() {
                       </FormControl>
                     </FormItem>
                   )}
-                  <FormField
-                    control={form.control}
-                    name="description"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Notes</FormLabel>
-                        <FormControl>
-                          <Textarea
-                            {...field}
-                            placeholder="Additional details..."
-                            data-testid="input-income-description"
-                          />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                   {hasGstNumber && (
                     <FormField
                       control={form.control}
@@ -802,9 +838,6 @@ export default function IncomePage() {
                       <TableCell>
                         <div>
                           <p className="font-medium">{item.productionName || "—"}</p>
-                          {item.description && (
-                            <p className="text-sm text-muted-foreground">{item.description}</p>
-                          )}
                         </div>
                       </TableCell>
                       <TableCell className="text-right font-mono font-medium text-green-600 dark:text-green-400">
