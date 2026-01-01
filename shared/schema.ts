@@ -301,7 +301,7 @@ export const PRICING_TIERS = {
     id: "basic",
     name: "Basic",
     price: 0,
-    description: "Free for unincorporated individuals",
+    description: "Best for occasional or part time unincorporated performers",
     features: [
       "Unlimited income & expense tracking",
       "GST/HST tracking (with GST number)",
@@ -312,7 +312,7 @@ export const PRICING_TIERS = {
     id: "personal",
     name: "Personal",
     price: 9.99,
-    description: "Full tax tools for individuals",
+    description: "Best for full union members who work regularly but have not yet incorporated",
     features: [
       "Everything in Basic",
       "Receipt photo uploads",
@@ -327,7 +327,7 @@ export const PRICING_TIERS = {
     id: "corporate",
     name: "Corporate",
     price: 24.99,
-    description: "For incorporated individuals",
+    description: "For Incorporated Performers",
     features: [
       "Everything in Personal",
       "Corporate tax calculations",
