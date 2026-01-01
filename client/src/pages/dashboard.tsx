@@ -164,6 +164,11 @@ export default function Dashboard() {
   const cppContribution = (data?.taxCalculation?.cppContribution ?? 0) * incomeRatio;
   const totalTaxOwed = federalTax + provincialTax + cppContribution;
   const effectiveRate = netIncome > 0 ? (totalTaxOwed / netIncome) * 100 : 0;
+  
+  // Determine if it's an amount owed (positive) or refund (negative)
+  const isRefund = totalTaxOwed < 0;
+  const taxLabel = isRefund ? "Estimated CRA Refund" : "Estimated CRA Owing";
+  const taxValueColor = isRefund ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400";
 
   return (
     <div className="space-y-6">
@@ -200,15 +205,30 @@ export default function Dashboard() {
           isLoading={isLoading}
           testId="stat-net-income"
         />
-        <StatCard
-          title="Estimated Tax Owed"
-          value={formatCurrency(totalTaxOwed)}
-          subtitle={`${formatPercent(effectiveRate)} effective rate`}
-          icon={Calculator}
-          trend="neutral"
-          isLoading={isLoading}
-          testId="stat-tax-owed"
-        />
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">{taxLabel}</CardTitle>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+              <Calculator className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            {isLoading ? (
+              <Skeleton className="h-8 w-32" />
+            ) : (
+              <>
+                <div className="flex items-baseline gap-2">
+                  <span className={`font-mono text-2xl font-semibold ${taxValueColor}`} data-testid="stat-tax-owed">
+                    {formatCurrency(Math.abs(totalTaxOwed))}
+                  </span>
+                </div>
+                <p className="mt-1 text-sm text-muted-foreground">
+                  {`${formatPercent(effectiveRate)} effective rate`}
+                </p>
+              </>
+            )}
+          </CardContent>
+        </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">
