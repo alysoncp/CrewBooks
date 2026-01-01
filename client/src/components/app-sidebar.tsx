@@ -1,4 +1,5 @@
 import { Link, useLocation } from "wouter";
+import { useEffect } from "react";
 import {
   LayoutDashboard,
   DollarSign,
@@ -33,6 +34,11 @@ import { useAuth } from "@/hooks/useAuth";
 import { Avatar, AvatarFallback, AvatarImage } from "@/components/ui/avatar";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
+import { useTaxYear } from "@/components/tax-year-provider";
+import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
+import { useQuery } from "@tanstack/react-query";
+import { getYearFromDateString } from "@/lib/format";
+import type { Income, Expense } from "@shared/schema";
 
 const mainMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -49,6 +55,7 @@ export function AppSidebar() {
   const { user } = useAuth();
   const queryClient = useQueryClient();
   const { toast } = useToast();
+  const { taxYear, setTaxYear, availableYears, setAvailableYears } = useTaxYear();
 
   const displayName = user?.firstName && user?.lastName 
     ? `${user.firstName} ${user.lastName}`
@@ -57,6 +64,36 @@ export function AppSidebar() {
   const initials = user?.firstName && user?.lastName
     ? `${user.firstName[0]}${user.lastName[0]}`
     : user?.email?.[0]?.toUpperCase() || "U";
+
+  // Fetch income and expenses to determine available years
+  const { data: incomeData } = useQuery<Income[]>({
+    queryKey: ["/api/income"],
+  });
+
+  const { data: expenseData } = useQuery<Expense[]>({
+    queryKey: ["/api/expenses"],
+  });
+
+  // Update available years when income/expenses data changes
+  const currentYear = new Date().getFullYear();
+  useEffect(() => {
+    if (incomeData || expenseData) {
+      const years = new Set<number>();
+      years.add(currentYear); // Always include current year
+      (incomeData || []).forEach((item) => {
+        // Extract year directly from date string to avoid timezone issues
+        const year = getYearFromDateString(item.date);
+        years.add(year);
+      });
+      (expenseData || []).forEach((item) => {
+        // Extract year directly from date string to avoid timezone issues
+        const year = getYearFromDateString(item.date);
+        years.add(year);
+      });
+      const sortedYears = Array.from(years).sort((a, b) => b - a);
+      setAvailableYears(sortedYears);
+    }
+  }, [incomeData, expenseData, currentYear, setAvailableYears]);
 
   // Feature gating based on subscription tier
   const isBasicTier = user?.subscriptionTier === "basic";
@@ -107,7 +144,7 @@ export function AppSidebar() {
   return (
     <Sidebar>
       <SidebarHeader className="p-4">
-        <Link href="/" className="flex items-center gap-3">
+        <Link href="/" className="flex items-center gap-3 mb-4">
           <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-primary text-primary-foreground">
             <Film className="h-6 w-6" />
           </div>
@@ -116,6 +153,24 @@ export function AppSidebar() {
             <span className="text-xs text-muted-foreground">Film & TV Finance</span>
           </div>
         </Link>
+        <div className="space-y-2">
+          <label className="text-xs text-muted-foreground font-medium">Tax Year</label>
+          <Select
+            value={taxYear.toString()}
+            onValueChange={(value) => setTaxYear(parseInt(value, 10))}
+          >
+            <SelectTrigger className="w-full" data-testid="select-tax-year">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {availableYears.map((year) => (
+                <SelectItem key={year} value={year.toString()}>
+                  {year}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </div>
       </SidebarHeader>
       <SidebarContent>
         <SidebarGroup>
@@ -261,7 +316,7 @@ export function AppSidebar() {
           </Avatar>
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium truncate" data-testid="text-user-name">{displayName}</p>
-            <p className="text-xs text-muted-foreground">Tax Year 2024</p>
+            <p className="text-xs text-muted-foreground">Tax Year {taxYear}</p>
           </div>
         </div>
         <Button 

@@ -53,10 +53,11 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, getIncomeTypeLabel, getTodayLocalDateString } from "@/lib/format";
+import { formatCurrency, formatDate, getIncomeTypeLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { INCOME_TYPES, type Income, type User, type Paystub } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
+import { useTaxYear } from "@/components/tax-year-provider";
 
 const incomeFormSchema = z.object({
   amount: z.string().min(1, "Amount is required").refine((val) => {
@@ -134,8 +135,7 @@ export default function IncomePage() {
   const [customAccountingOffice, setCustomAccountingOffice] = useState("");
   const [paystubIdForIncome, setPaystubIdForIncome] = useState<string | null>(null);
   const [paystubImageUrl, setPaystubImageUrl] = useState<string | null>(null);
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const { taxYear } = useTaxYear();
   const { toast } = useToast();
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
@@ -385,23 +385,12 @@ export default function IncomePage() {
     }
   }, [form, toast]);
 
-  // Extract available years from income
-  const availableYears = useMemo(() => {
-    if (!incomeList || incomeList.length === 0) return [currentYear];
-    const years = new Set<number>();
-    incomeList.forEach((income) => {
-      const year = new Date(income.date).getFullYear();
-      years.add(year);
-    });
-    return Array.from(years).sort((a, b) => b - a); // Sort descending (newest first)
-  }, [incomeList, currentYear]);
-
   // Filter income by year and search query
   const filteredIncome = useMemo(() => {
     return (incomeList || []).filter((item) => {
-      // Filter by year
-      const itemYear = new Date(item.date).getFullYear();
-      if (itemYear !== selectedYear) return false;
+      // Filter by year - extract year directly from date string to avoid timezone issues
+      const itemYear = getYearFromDateString(item.date);
+      if (itemYear !== taxYear) return false;
 
       // Filter by search query
       const searchLower = searchQuery.toLowerCase();
@@ -411,7 +400,7 @@ export default function IncomePage() {
         getIncomeTypeLabel(item.incomeType).toLowerCase().includes(searchLower)
       );
     });
-  }, [incomeList, selectedYear, searchQuery]);
+  }, [incomeList, taxYear, searchQuery]);
 
   const totalIncome = filteredIncome.reduce((sum, item) => sum + parseFloat(item.amount), 0);
 
@@ -763,25 +752,10 @@ export default function IncomePage() {
             <div>
               <CardTitle>Income History</CardTitle>
               <CardDescription>
-                Total for {selectedYear}: <span className="font-mono font-semibold">{formatCurrency(totalIncome)}</span>
+                Total for {taxYear}: <span className="font-mono font-semibold">{formatCurrency(totalIncome)}</span>
               </CardDescription>
             </div>
             <div className="flex gap-2">
-              <Select
-                value={selectedYear.toString()}
-                onValueChange={(value) => setSelectedYear(parseInt(value, 10))}
-              >
-                <SelectTrigger className="w-32" data-testid="select-income-year">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableYears.map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input

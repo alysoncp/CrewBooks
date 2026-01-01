@@ -1,12 +1,12 @@
 import { useQuery } from "@tanstack/react-query";
-import { useState, useMemo } from "react";
+import { useMemo } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, DollarSign, Receipt, Calculator, Percent } from "lucide-react";
-import { formatCurrency, formatPercent, getCategoryLabel } from "@/lib/format";
+import { formatCurrency, formatPercent, getCategoryLabel, getYearFromDateString } from "@/lib/format";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
-import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
 import type { Income, Expense, TaxCalculation } from "@shared/schema";
+import { useTaxYear } from "@/components/tax-year-provider";
 
 interface DashboardData {
   income: Income[];
@@ -79,42 +79,28 @@ function StatCard({
 }
 
 export default function Dashboard() {
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const { taxYear } = useTaxYear();
   
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/dashboard"],
   });
 
-  // Extract available years from income and expenses
-  const availableYears = useMemo(() => {
-    if (!data?.income && !data?.expenses) return [currentYear];
-    const years = new Set<number>();
-    (data?.income || []).forEach((item) => {
-      const year = new Date(item.date).getFullYear();
-      years.add(year);
-    });
-    (data?.expenses || []).forEach((item) => {
-      const year = new Date(item.date).getFullYear();
-      years.add(year);
-    });
-    return Array.from(years).sort((a, b) => b - a); // Sort descending (newest first)
-  }, [data, currentYear]);
-
   // Filter income and expenses by selected year
   const filteredIncome = useMemo(() => {
     return (data?.income || []).filter((item) => {
-      const itemYear = new Date(item.date).getFullYear();
-      return itemYear === selectedYear;
+      // Extract year directly from date string to avoid timezone issues
+      const itemYear = getYearFromDateString(item.date);
+      return itemYear === taxYear;
     });
-  }, [data?.income, selectedYear]);
+  }, [data?.income, taxYear]);
 
   const filteredExpenses = useMemo(() => {
     return (data?.expenses || []).filter((item) => {
-      const itemYear = new Date(item.date).getFullYear();
-      return itemYear === selectedYear;
+      // Extract year directly from date string to avoid timezone issues
+      const itemYear = getYearFromDateString(item.date);
+      return itemYear === taxYear;
     });
-  }, [data?.expenses, selectedYear]);
+  }, [data?.expenses, taxYear]);
 
   // Recalculate monthly data from filtered data
   const monthlyData = useMemo(() => {
@@ -181,26 +167,9 @@ export default function Dashboard() {
 
   return (
     <div className="space-y-6">
-      <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
-        <div>
-          <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">Dashboard</h1>
-          <p className="text-muted-foreground">Your financial overview for {selectedYear}</p>
-        </div>
-        <Select
-          value={selectedYear.toString()}
-          onValueChange={(value) => setSelectedYear(parseInt(value, 10))}
-        >
-          <SelectTrigger className="w-32" data-testid="select-dashboard-year">
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {availableYears.map((year) => (
-              <SelectItem key={year} value={year.toString()}>
-                {year}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+      <div>
+        <h1 className="text-2xl font-semibold" data-testid="text-dashboard-title">Dashboard</h1>
+        <p className="text-muted-foreground">Your financial overview for {taxYear}</p>
       </div>
 
       <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
@@ -246,7 +215,7 @@ export default function Dashboard() {
         <Card className="lg:col-span-2">
           <CardHeader>
             <CardTitle>Income vs. Expenses</CardTitle>
-            <CardDescription>Monthly breakdown for {selectedYear}</CardDescription>
+            <CardDescription>Monthly breakdown for {taxYear}</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (
@@ -357,7 +326,7 @@ export default function Dashboard() {
       <Card>
         <CardHeader>
           <CardTitle>Tax Breakdown</CardTitle>
-          <CardDescription>Estimated tax obligations for {selectedYear}</CardDescription>
+          <CardDescription>Estimated tax obligations for {taxYear}</CardDescription>
         </CardHeader>
         <CardContent>
           {isLoading ? (

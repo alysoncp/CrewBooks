@@ -56,10 +56,11 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString } from "@/lib/format";
+import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
+import { useTaxYear } from "@/components/tax-year-provider";
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { Settings, ArrowLeft } from "lucide-react";
@@ -154,8 +155,7 @@ export default function ExpensesPage() {
   const [searchQuery, setSearchQuery] = useState("");
   const [receiptIdForExpense, setReceiptIdForExpense] = useState<string | null>(null);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
-  const currentYear = new Date().getFullYear();
-  const [selectedYear, setSelectedYear] = useState<number>(currentYear);
+  const { taxYear } = useTaxYear();
   const { toast } = useToast();
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
@@ -728,23 +728,12 @@ export default function ExpensesPage() {
     }
   };
 
-  // Extract available years from expenses
-  const availableYears = useMemo(() => {
-    if (!expenseList || expenseList.length === 0) return [currentYear];
-    const years = new Set<number>();
-    expenseList.forEach((expense) => {
-      const year = new Date(expense.date).getFullYear();
-      years.add(year);
-    });
-    return Array.from(years).sort((a, b) => b - a); // Sort descending (newest first)
-  }, [expenseList, currentYear]);
-
   // Filter expenses by year and search query
   const filteredExpenses = useMemo(() => {
     return (expenseList || []).filter((item) => {
-      // Filter by year
-      const itemYear = new Date(item.date).getFullYear();
-      if (itemYear !== selectedYear) return false;
+      // Filter by year - extract year directly from date string to avoid timezone issues
+      const itemYear = getYearFromDateString(item.date);
+      if (itemYear !== taxYear) return false;
 
       // Filter by search query
       const searchLower = searchQuery.toLowerCase();
@@ -755,7 +744,7 @@ export default function ExpensesPage() {
         getCategoryLabel(item.category).toLowerCase().includes(searchLower)
       );
     });
-  }, [expenseList, selectedYear, searchQuery]);
+  }, [expenseList, taxYear, searchQuery]);
 
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount), 0);
   const deductibleExpenses = filteredExpenses.reduce((sum, item) => {
@@ -1243,24 +1232,9 @@ export default function ExpensesPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Expense History</CardTitle>
-              <CardDescription>All recorded business expenses for {selectedYear}</CardDescription>
+              <CardDescription>All recorded business expenses for {taxYear}</CardDescription>
             </div>
             <div className="flex gap-2">
-              <Select
-                value={selectedYear.toString()}
-                onValueChange={(value) => setSelectedYear(parseInt(value, 10))}
-              >
-                <SelectTrigger className="w-32" data-testid="select-expense-year">
-                  <SelectValue />
-                </SelectTrigger>
-                <SelectContent>
-                  {availableYears.map((year) => (
-                    <SelectItem key={year} value={year.toString()}>
-                      {year}
-                    </SelectItem>
-                  ))}
-                </SelectContent>
-              </Select>
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input

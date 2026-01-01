@@ -28,6 +28,17 @@ export function getTodayLocalDateString(): string {
   return `${year}-${month}-${day}`;
 }
 
+/**
+ * Extracts the year from a date string (YYYY-MM-DD format).
+ * This avoids timezone conversion issues that occur with new Date().getFullYear()
+ */
+export function getYearFromDateString(dateString: string): number {
+  // Dates from the database are in YYYY-MM-DD format
+  // Split and take the first part to avoid timezone issues
+  const parts = dateString.split('-');
+  return parseInt(parts[0], 10);
+}
+
 export function formatDate(date: string | Date): string {
   let d: Date;
   if (typeof date === 'string') {

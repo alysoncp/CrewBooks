@@ -52,6 +52,7 @@ import {
   type QuestionnaireResponse,
 } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
+import { useTaxYear } from "@/components/tax-year-provider";
 
 const STEP_ICONS: Record<string, typeof Building2> = {
   company_profile: Building2,
@@ -591,6 +592,7 @@ function SummaryStep({
 export default function TaxFilingT2Page() {
   const { toast } = useToast();
   const { user } = useAuth();
+  const { taxYear } = useTaxYear();
   const [selectedQuestionnaireId, setSelectedQuestionnaireId] = useState<string | null>(null);
   const [currentStep, setCurrentStep] = useState(0);
   const [completedSteps, setCompletedSteps] = useState<Set<string>>(new Set());
@@ -616,7 +618,7 @@ export default function TaxFilingT2Page() {
     mutationFn: async () => {
       return apiRequest("POST", "/api/questionnaires", {
         questionnaireType: "t2",
-        taxYear: new Date().getFullYear().toString(),
+        taxYear: taxYear.toString(),
       });
     },
     onSuccess: async (response) => {

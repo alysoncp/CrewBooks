@@ -7,6 +7,7 @@ import { ThemeProvider } from "@/components/theme-provider";
 import { ThemeToggle } from "@/components/theme-toggle";
 import { SidebarProvider, SidebarTrigger } from "@/components/ui/sidebar";
 import { AppSidebar } from "@/components/app-sidebar";
+import { TaxYearProvider } from "@/components/tax-year-provider";
 import { useAuth } from "@/hooks/useAuth";
 import { Loader2 } from "lucide-react";
 import NotFound from "@/pages/not-found";
@@ -114,10 +115,12 @@ function App() {
   return (
     <QueryClientProvider client={queryClient}>
       <ThemeProvider defaultTheme="light" storageKey="crewbooks-theme">
-        <TooltipProvider>
-          <AppContent />
-          <Toaster />
-        </TooltipProvider>
+        <TaxYearProvider>
+          <TooltipProvider>
+            <AppContent />
+            <Toaster />
+          </TooltipProvider>
+        </TaxYearProvider>
       </ThemeProvider>
     </QueryClientProvider>
   );

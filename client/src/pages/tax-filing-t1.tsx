@@ -51,6 +51,7 @@ import {
   type QuestionnaireResponse,
 } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
+import { useTaxYear } from "@/components/tax-year-provider";
 
 const STEP_ICONS: Record<string, typeof User> = {
   personal_info: User,
@@ -633,11 +634,13 @@ export default function TaxFilingT1Page() {
     enabled: !!selectedQuestionnaireId,
   });
 
+  const { taxYear } = useTaxYear();
+  
   const createMutation = useMutation({
     mutationFn: async () => {
       return apiRequest("POST", "/api/questionnaires", {
         questionnaireType: "t1",
-        taxYear: new Date().getFullYear().toString(),
+        taxYear: taxYear.toString(),
       });
     },
     onSuccess: async (response) => {
