@@ -61,26 +61,6 @@ export const EXPENSE_CATEGORIES = [
 
 export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
 
-// Personal Expense Categories (CRA deductible/credit-generating personal expenses)
-export const PERSONAL_EXPENSE_CATEGORIES = [
-  "childcare_expenses",
-  "medical_expenses",
-  "moving_expenses",
-  "student_loan_interest",
-  "charitable_donations",
-  "political_contributions",
-  "tuition_textbooks",
-  "disability_supports",
-  "home_accessibility_renovations",
-  "adoption_expenses",
-  "legal_fees_personal",
-  "investment_counseling_fees",
-  "rrsp_contributions",
-  "fhsa_contributions",
-] as const;
-
-export type PersonalExpenseCategory = typeof PERSONAL_EXPENSE_CATEGORIES[number];
-
 // Income Types for Film/TV Industry
 export const INCOME_TYPES = [
   "union_production",
@@ -129,7 +109,6 @@ export const users = pgTable("users", {
   hasHomeOffice: boolean("has_home_office").default(false),
   homeOfficePercentage: numeric("home_office_percentage", { precision: 5, scale: 2 }),
   enabledExpenseCategories: jsonb("enabled_expense_categories").$type<string[]>(),
-  enabledPersonalExpenseCategories: jsonb("enabled_personal_expense_categories").$type<string[]>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -198,8 +177,6 @@ export const expenses = pgTable("expenses", {
   baseCost: numeric("base_cost", { precision: 12, scale: 2 }),
   gstAmount: numeric("gst_amount", { precision: 12, scale: 2 }),
   pstAmount: numeric("pst_amount", { precision: 12, scale: 2 }),
-  expenseType: text("expense_type").default("business"), // "business", "personal", or "mixed"
-  businessPercentage: numeric("business_percentage", { precision: 5, scale: 2 }), // 0-100, only used if expenseType is "mixed"
 });
 
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true });

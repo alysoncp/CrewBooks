@@ -100,7 +100,3 @@ export async function compressImage(
   });
 }
 
-
-
-
-

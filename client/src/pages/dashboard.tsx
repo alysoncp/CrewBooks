@@ -188,9 +188,9 @@ export default function Dashboard() {
           testId="stat-total-income"
         />
         <StatCard
-          title="Total Expenses"
+          title="Deductible Expenses"
           value={formatCurrency(totalExpenses)}
-          subtitle="Tax deductible"
+          subtitle="Year to date"
           icon={Receipt}
           trend="neutral"
           isLoading={isLoading}

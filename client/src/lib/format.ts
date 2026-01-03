@@ -87,7 +87,6 @@ export function formatMonth(date: string | Date): string {
 
 export function getCategoryLabel(category: string): string {
   const labels: Record<string, string> = {
-    // Business expense categories
     advertising: 'Advertising',
     meals_entertainment: 'Meals & Entertainment',
     insurance: 'Business Insurance',
@@ -109,21 +108,6 @@ export function getCategoryLabel(category: string): string {
     home_office_expenses: 'Home Office Expenses',
     commissions_agent_fees: 'Commissions & Agent Fees',
     training: 'Training and Convention',
-    // Personal expense categories
-    childcare_expenses: 'Childcare Expenses',
-    medical_expenses: 'Medical Expenses',
-    moving_expenses: 'Moving Expenses',
-    student_loan_interest: 'Student Loan Interest',
-    charitable_donations: 'Charitable Donations',
-    political_contributions: 'Political Contributions',
-    tuition_textbooks: 'Tuition & Textbooks',
-    disability_supports: 'Disability Supports',
-    home_accessibility_renovations: 'Home Accessibility Renovations',
-    adoption_expenses: 'Adoption Expenses',
-    legal_fees_personal: 'Legal Fees (Personal)',
-    investment_counseling_fees: 'Investment Counseling Fees',
-    rrsp_contributions: 'RRSP Contributions',
-    fhsa_contributions: 'FHSA Contributions',
   };
   
   // If it's a known category, return the label
