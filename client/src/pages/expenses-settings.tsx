@@ -269,7 +269,10 @@ export default function ExpensesSettingsPage() {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedUser) => {
+      // Update the query cache with the returned data for immediate UI update
+      queryClient.setQueryData(["/api/user/profile"], updatedUser);
+      // Also invalidate to ensure consistency
       queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
       toast({
         title: "Categories updated",

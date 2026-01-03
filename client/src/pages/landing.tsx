@@ -44,8 +44,10 @@ export default function Landing() {
 
       const data = await response.json();
       
-      // Refresh the auth query to update the UI
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      // Update the auth query cache with the user data for immediate UI update
+      queryClient.setQueryData(["/api/auth/user"], data.user);
+      // Also invalidate to ensure consistency
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       
       toast({
         title: "Welcome!",
