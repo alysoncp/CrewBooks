@@ -326,7 +326,6 @@ export default function VehicleMileagePage() {
   const businessMileage = logsWithDistance
     .filter((log) => log.isBusinessUse)
     .reduce((sum, log) => sum + log.distance, 0);
-  const personalMileage = totalMileage - businessMileage;
 
   // Auto-select first vehicle if available and none selected
   useEffect(() => {
@@ -531,18 +530,6 @@ export default function VehicleMileagePage() {
                     data-testid="stat-business-mileage"
                   >
                     {businessMileage.toLocaleString()} km
-                  </div>
-                </CardContent>
-              </Card>
-              <Card>
-                <CardHeader className="pb-2">
-                  <CardTitle className="text-sm font-medium text-muted-foreground">
-                    Personal Mileage
-                  </CardTitle>
-                </CardHeader>
-                <CardContent>
-                  <div className="font-mono text-2xl font-semibold" data-testid="stat-personal-mileage">
-                    {personalMileage.toLocaleString()} km
                   </div>
                 </CardContent>
               </Card>
