@@ -130,6 +130,9 @@ export default function ExpensesSettingsPage() {
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
 
+  // Home office percentage state
+  const [homeOfficePercentage, setHomeOfficePercentage] = useState<string>("");
+
   const { data: expenseList } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
   });
@@ -189,7 +192,14 @@ export default function ExpensesSettingsPage() {
     savedCustomCategories.forEach(cat => allSelected.add(cat));
     setSelectedCategories(allSelected);
     setCustomCategories(savedCustomCategories);
-  }, [savedEnabledCategories, savedCustomCategories]);
+    
+    // Initialize home office percentage from user profile
+    if (user?.homeOfficePercentage) {
+      setHomeOfficePercentage(parseFloat(user.homeOfficePercentage.toString()).toString());
+    } else {
+      setHomeOfficePercentage("");
+    }
+  }, [savedEnabledCategories, savedCustomCategories, user]);
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = useMemo(() => {
@@ -254,6 +264,64 @@ export default function ExpensesSettingsPage() {
       });
     },
   });
+
+  const updateHomeOfficePercentageMutation = useMutation({
+    mutationFn: async (percentage: number | null) => {
+      const response = await apiRequest("PATCH", "/api/user/profile", {
+        homeOfficePercentage: percentage,
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to update home office percentage");
+      }
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
+      toast({
+        title: "Home office percentage updated",
+        description: "Your home office percentage has been saved.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to update home office percentage. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleHomeOfficePercentageChange = (value: string) => {
+    setHomeOfficePercentage(value);
+  };
+
+  const handleHomeOfficePercentageBlur = () => {
+    const percentage = homeOfficePercentage.trim() === "" 
+      ? null 
+      : parseFloat(homeOfficePercentage);
+    if (percentage !== null && (isNaN(percentage) || percentage < 0 || percentage > 100)) {
+      toast({
+        title: "Invalid percentage",
+        description: "Please enter a value between 0 and 100",
+        variant: "destructive",
+      });
+      // Reset to saved value
+      if (user?.homeOfficePercentage) {
+        setHomeOfficePercentage(parseFloat(user.homeOfficePercentage.toString()).toString());
+      } else {
+        setHomeOfficePercentage("");
+      }
+      return;
+    }
+    // Only save if value changed
+    const currentPercentage = user?.homeOfficePercentage 
+      ? parseFloat(user.homeOfficePercentage.toString()) 
+      : null;
+    if (percentage !== currentPercentage) {
+      updateHomeOfficePercentageMutation.mutate(percentage);
+    }
+  };
 
   const toggleCategory = (category: string, checked: boolean) => {
     setSelectedCategories((prev) => {
@@ -516,57 +584,119 @@ export default function ExpensesSettingsPage() {
         </CardHeader>
         <CardContent>
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
-            {/* Large categories side by side */}
-            <div className="lg:col-span-3 grid grid-cols-1 md:grid-cols-2 gap-2">
-              {["home_office_expenses", "motor_vehicle_expenses"].map((category) => {
-                const isEnabled = selectedCategories.has(category);
-                const count = categoryCounts.get(category) || 0;
-                const subcategories = category === "home_office_expenses" 
-                  ? HOME_OFFICE_SUBCATEGORIES 
-                  : category === "motor_vehicle_expenses"
-                  ? VEHICLE_SUBCATEGORIES
-                  : [];
-                return (
-                  <div
-                    key={category}
-                    className="p-3 rounded-lg border"
-                  >
-                    <div className="flex items-center justify-between mb-2">
-                      <div className="flex items-center gap-3 flex-1">
-                        <Checkbox
-                          id={`category-${category}`}
-                          checked={isEnabled}
-                          onCheckedChange={(checked) => toggleCategory(category, checked as boolean)}
-                          disabled={updateEnabledCategoriesMutation.isPending}
-                        />
-                        <label
-                          htmlFor={`category-${category}`}
-                          className="font-medium cursor-pointer flex-1"
-                        >
-                          {getCategoryLabel(category)}
-                        </label>
-                        {count > 0 && (
-                          <Badge variant="secondary" className="text-xs">
-                            {count} expense{count !== 1 ? "s" : ""}
-                          </Badge>
-                        )}
-                      </div>
-                    </div>
-                    {subcategories.length > 0 && (
-                      <div className="mt-2 pl-7">
-                        <ul className="text-xs text-muted-foreground grid grid-cols-2 gap-x-2 gap-y-0.5">
-                          {subcategories.map((subcat) => (
-                            <li key={subcat.id} className="flex items-center gap-1.5">
-                              <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
-                              {subcat.label}
-                            </li>
-                          ))}
-                        </ul>
-                      </div>
-                    )}
+            {/* Large categories - each in their own row */}
+            <div className="lg:col-span-3 space-y-2">
+              {/* Home Office Expenses */}
+              <div className="p-3 rounded-lg border">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3 flex-1">
+                    <Checkbox
+                      id={`category-home_office_expenses`}
+                      checked={selectedCategories.has("home_office_expenses")}
+                      onCheckedChange={(checked) => toggleCategory("home_office_expenses", checked as boolean)}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                    />
+                    <label
+                      htmlFor={`category-home_office_expenses`}
+                      className="font-medium cursor-pointer flex-1"
+                    >
+                      {getCategoryLabel("home_office_expenses")}
+                    </label>
+                    {categoryCounts.get("home_office_expenses") ? (
+                      <Badge variant="secondary" className="text-xs">
+                        {categoryCounts.get("home_office_expenses")} expense{categoryCounts.get("home_office_expenses") !== 1 ? "s" : ""}
+                      </Badge>
+                    ) : null}
                   </div>
-                );
-              })}
+                </div>
+                {selectedCategories.has("home_office_expenses") && (
+                  <div className="mt-2 pl-7">
+                    <div className="flex items-center gap-2 mb-1">
+                      <label className="text-xs text-muted-foreground whitespace-nowrap">
+                        Enter the percentage of your home used for Business purposes:
+                      </label>
+                      <div className="relative w-24">
+                        <Input
+                          type="number"
+                          min="0"
+                          max="100"
+                          step="0.01"
+                          placeholder="0.00"
+                          value={homeOfficePercentage}
+                          onChange={(e) => {
+                            const value = e.target.value;
+                            // Allow empty string or valid number between 0-100
+                            if (value === "" || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
+                              handleHomeOfficePercentageChange(value);
+                            }
+                          }}
+                          onBlur={handleHomeOfficePercentageBlur}
+                          onKeyDown={(e) => {
+                            if (e.key === "Enter") {
+                              e.currentTarget.blur();
+                            }
+                          }}
+                          className="pr-8 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                          disabled={updateHomeOfficePercentageMutation.isPending}
+                        />
+                        <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span>
+                      </div>
+                      {updateHomeOfficePercentageMutation.isPending && (
+                        <span className="text-xs text-muted-foreground">Saving...</span>
+                      )}
+                    </div>
+                  </div>
+                )}
+                {HOME_OFFICE_SUBCATEGORIES.length > 0 && (
+                  <div className="mt-2 pl-7">
+                    <ul className="text-xs text-muted-foreground grid grid-cols-2 gap-x-2 gap-y-0.5">
+                      {HOME_OFFICE_SUBCATEGORIES.map((subcat) => (
+                        <li key={subcat.id} className="flex items-center gap-1.5">
+                          <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
+                          {subcat.label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
+              
+              {/* Motor Vehicle Expenses */}
+              <div className="p-3 rounded-lg border">
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3 flex-1">
+                    <Checkbox
+                      id={`category-motor_vehicle_expenses`}
+                      checked={selectedCategories.has("motor_vehicle_expenses")}
+                      onCheckedChange={(checked) => toggleCategory("motor_vehicle_expenses", checked as boolean)}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                    />
+                    <label
+                      htmlFor={`category-motor_vehicle_expenses`}
+                      className="font-medium cursor-pointer flex-1"
+                    >
+                      {getCategoryLabel("motor_vehicle_expenses")}
+                    </label>
+                    {categoryCounts.get("motor_vehicle_expenses") ? (
+                      <Badge variant="secondary" className="text-xs">
+                        {categoryCounts.get("motor_vehicle_expenses")} expense{categoryCounts.get("motor_vehicle_expenses") !== 1 ? "s" : ""}
+                      </Badge>
+                    ) : null}
+                  </div>
+                </div>
+                {VEHICLE_SUBCATEGORIES.length > 0 && (
+                  <div className="mt-2 pl-7">
+                    <ul className="text-xs text-muted-foreground grid grid-cols-2 gap-x-2 gap-y-0.5">
+                      {VEHICLE_SUBCATEGORIES.map((subcat) => (
+                        <li key={subcat.id} className="flex items-center gap-1.5">
+                          <span className="w-1 h-1 rounded-full bg-muted-foreground/50"></span>
+                          {subcat.label}
+                        </li>
+                      ))}
+                    </ul>
+                  </div>
+                )}
+              </div>
             </div>
             {/* Regular categories */}
             {EXPENSE_CATEGORIES.filter(

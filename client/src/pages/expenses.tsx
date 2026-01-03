@@ -750,7 +750,15 @@ export default function ExpensesPage() {
   const deductibleExpenses = filteredExpenses.reduce((sum, item) => {
     const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
     const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
-    return sum + baseCost + pstAmount;
+    let deductibleAmount = baseCost + pstAmount;
+    
+    // Apply home office percentage for home office expenses
+    if (item.category === "home_office_expenses" && userProfile?.homeOfficePercentage) {
+      const percentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+      deductibleAmount = deductibleAmount * percentage;
+    }
+    
+    return sum + deductibleAmount;
   }, 0);
   const totalGstCredits = filteredExpenses.reduce((sum, item) => {
     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
@@ -1160,27 +1168,6 @@ export default function ExpensesPage() {
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="isTaxDeductible"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                            <FormLabel className="text-base">Tax Deductible</FormLabel>
-                            <FormDescription>
-                              Mark this expense as a business deduction
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              data-testid="switch-tax-deductible"
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
                   </form>
                 </Form>
               </div>
@@ -1285,7 +1272,13 @@ export default function ExpensesPage() {
                     const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
                     const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
                     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
-                    const deductibleAmount = baseCost + pstAmount;
+                    let deductibleAmount = baseCost + pstAmount;
+                    
+                    // Apply home office percentage for home office expenses
+                    if (item.category === "home_office_expenses" && userProfile?.homeOfficePercentage) {
+                      const percentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+                      deductibleAmount = deductibleAmount * percentage;
+                    }
                     
                     return (
                       <TableRow key={item.id} data-testid={`row-expense-${item.id}`}>

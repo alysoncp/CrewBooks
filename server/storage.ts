@@ -393,7 +393,24 @@ export class DatabaseStorage implements IStorage {
     const grossIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
     const totalExpenses = expenseRecords
       .filter((e) => e.isTaxDeductible)
-      .reduce((sum, e) => sum + parseFloat(e.amount), 0);
+      .reduce((sum, e) => {
+        const baseCost = e.baseCost ? parseFloat(e.baseCost.toString()) : 0;
+        const pstAmount = e.pstAmount ? parseFloat(e.pstAmount.toString()) : 0;
+        let deductibleAmount = baseCost + pstAmount;
+        
+        // Apply home office percentage for home office expenses
+        if (e.category === "home_office_expenses" && user?.homeOfficePercentage) {
+          const percentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
+          deductibleAmount = deductibleAmount * percentage;
+        } else {
+          // For non-home-office expenses, use the total amount if baseCost/pstAmount not available
+          if (baseCost === 0 && pstAmount === 0) {
+            deductibleAmount = parseFloat(e.amount);
+          }
+        }
+        
+        return sum + deductibleAmount;
+      }, 0);
     const netIncome = Math.max(0, grossIncome - totalExpenses);
 
     const federalTax = this.calculateFederalTax(netIncome);
