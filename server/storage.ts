@@ -20,6 +20,14 @@ import {
   type InsertVehicle,
   type VehicleMileageLog,
   type InsertVehicleMileageLog,
+  type Asset,
+  type InsertAsset,
+  type AssetCcaHistory,
+  type InsertAssetCcaHistory,
+  type LeaseContract,
+  type InsertLeaseContract,
+  type LeasePayment,
+  type InsertLeasePayment,
   users,
   income,
   expenses,
@@ -29,9 +37,15 @@ import {
   questionnaireResponses,
   vehicles,
   vehicleMileageLogs,
+  assets,
+  assetCcaHistory,
+  leaseContracts,
+  leasePayments,
 } from "@shared/schema";
 import { db } from "./db";
 import { eq, desc, and, asc } from "drizzle-orm";
+import { calculateCCAByClass, calculateTotalCCAByClass, type AssetCCACalculation } from "./cca-calculator";
+import { calculateTotalLeaseExpenses } from "./lease-calculator";
 
 export interface IStorage {
   getUser(id: string): Promise<User | undefined>;
@@ -62,7 +76,7 @@ export interface IStorage {
   updatePaystub(id: string, data: Partial<Paystub>): Promise<Paystub | undefined>;
   deletePaystub(id: string): Promise<boolean>;
 
-  calculateTax(userId: string): Promise<TaxCalculation>;
+  calculateTax(userId: string, taxYear?: string): Promise<TaxCalculation>;
   calculateOptimization(userId: string, corporateIncome?: number): Promise<{
     scenarios: DividendSalaryScenario[];
     optimalScenario: DividendSalaryScenario;
@@ -92,6 +106,52 @@ export interface IStorage {
 
   updateExpenseCategory(userId: string, oldCategory: string, newCategory: string): Promise<number>;
   getProvincialBracketBreakdown(income: number, province: string): Array<{ bracket: string; rate: number; tax: number }>;
+
+  // Assets
+  getAssets(userId: string): Promise<Asset[]>;
+  getAssetById(id: string): Promise<Asset | undefined>;
+  createAsset(assetData: InsertAsset): Promise<Asset>;
+  updateAsset(id: string, assetData: Partial<InsertAsset>): Promise<Asset | undefined>;
+  deleteAsset(id: string): Promise<boolean>;
+
+  // Asset CCA History
+  getAssetCcaHistory(assetId: string, userId: string): Promise<AssetCcaHistory[]>;
+  getAssetCcaHistoryById(id: string): Promise<AssetCcaHistory | undefined>;
+  createAssetCcaHistory(historyData: InsertAssetCcaHistory): Promise<AssetCcaHistory>;
+  updateAssetCcaHistory(id: string, historyData: Partial<InsertAssetCcaHistory>): Promise<AssetCcaHistory | undefined>;
+  deleteAssetCcaHistory(id: string): Promise<boolean>;
+  calculateCCASummary(userId: string, taxYear: string): Promise<{
+    totalCCA: number;
+    ccaByClass: Map<string, number>;
+  }>;
+
+  // Lease Contracts
+  getLeaseContracts(userId: string): Promise<LeaseContract[]>;
+  getLeaseContractById(id: string): Promise<LeaseContract | undefined>;
+  createLeaseContract(contractData: InsertLeaseContract): Promise<LeaseContract>;
+  updateLeaseContract(id: string, contractData: Partial<InsertLeaseContract>): Promise<LeaseContract | undefined>;
+  deleteLeaseContract(id: string): Promise<boolean>;
+
+  // Lease Payments
+  getLeasePayments(leaseContractId: string, userId: string): Promise<LeasePayment[]>;
+  getLeasePaymentById(id: string): Promise<LeasePayment | undefined>;
+  createLeasePayment(paymentData: InsertLeasePayment): Promise<LeasePayment>;
+  updateLeasePayment(id: string, paymentData: Partial<InsertLeasePayment>): Promise<LeasePayment | undefined>;
+  deleteLeasePayment(id: string): Promise<boolean>;
+  calculateLeaseExpenseSummary(userId: string, taxYear: string): Promise<{
+    totalLeaseExpense: number;
+    totalGst: number;
+    totalPst: number;
+  }>;
+  calculateT2125Summary(userId: string, taxYear: string): Promise<{
+    taxYear: string;
+    grossRevenue: number;
+    expensesByCategory: Record<string, number>;
+    totalExpenses: number;
+    ccaDeduction: number;
+    leaseExpenseDeduction: number;
+    netIncome: number;
+  }>;
 }
 
 export class DatabaseStorage implements IStorage {
@@ -385,16 +445,49 @@ export class DatabaseStorage implements IStorage {
     return brackets[brackets.length - 1].rate;
   }
 
-  async calculateTax(userId: string): Promise<TaxCalculation> {
+  async calculateTax(userId: string, taxYear?: string): Promise<TaxCalculation> {
     const incomeRecords = await this.getIncome(userId);
     const expenseRecords = await this.getExpenses(userId);
     const user = await this.getUser(userId);
+    
+    // Use provided tax year or current year
+    const currentTaxYear = taxYear || new Date().getFullYear().toString();
 
     const grossIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
     const totalExpenses = expenseRecords
       .filter((e) => e.isTaxDeductible)
-      .reduce((sum, e) => sum + parseFloat(e.amount), 0);
-    const netIncome = Math.max(0, grossIncome - totalExpenses);
+      .reduce((sum, e) => {
+        const baseCost = e.baseCost ? parseFloat(e.baseCost.toString()) : 0;
+        const pstAmount = e.pstAmount ? parseFloat(e.pstAmount.toString()) : 0;
+        let deductibleAmount = baseCost + pstAmount;
+        
+        // Apply home office percentage for home office expenses
+        if (e.category === "home_office_expenses" && user?.homeOfficePercentage) {
+          const percentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
+          deductibleAmount = deductibleAmount * percentage;
+        } else if (e.category === "meals_entertainment") {
+          // CRA limits most meals & entertainment to 50%
+          deductibleAmount = deductibleAmount * 0.50;
+        } else {
+          // For non-home-office expenses, use the total amount if baseCost/pstAmount not available
+          if (baseCost === 0 && pstAmount === 0) {
+            deductibleAmount = parseFloat(e.amount);
+          }
+        }
+        
+        return sum + deductibleAmount;
+      }, 0);
+    
+    // Add CCA deductions
+    const ccaSummary = await this.calculateCCASummary(userId, currentTaxYear);
+    const ccaDeduction = ccaSummary.totalCCA;
+    
+    // Add lease expense deductions
+    const leaseSummary = await this.calculateLeaseExpenseSummary(userId, currentTaxYear);
+    const leaseDeduction = leaseSummary.totalLeaseExpense;
+    
+    const totalExpensesWithCCAAndLease = totalExpenses + ccaDeduction + leaseDeduction;
+    const netIncome = Math.max(0, grossIncome - totalExpensesWithCCAAndLease);
 
     const federalTax = this.calculateFederalTax(netIncome);
     const provincialTax = this.calculateProvincialTax(netIncome, user?.province || "BC");
@@ -676,7 +769,7 @@ export class DatabaseStorage implements IStorage {
     );
 
     // Use gstAmount for Input Tax Credits (GST amount calculated from expense breakdown)
-    const inputTaxCredits = expenseRecords.reduce(
+    let inputTaxCredits = expenseRecords.reduce(
       (sum, e) => {
         const gstAmount = e.gstAmount ? parseFloat(e.gstAmount.toString()) : 0;
         return sum + gstAmount;
@@ -684,17 +777,64 @@ export class DatabaseStorage implements IStorage {
       0
     );
 
+    // Add GST/HST from asset purchases (Input Tax Credits)
+    const userAssets = await this.getAssets(userId);
+    const currentYear = new Date().getFullYear().toString();
+    for (const asset of userAssets) {
+      const purchaseYear = new Date(asset.purchaseDate).getFullYear().toString();
+      // Only include GST from assets purchased in the current tax year
+      if (purchaseYear === currentYear && asset.purchaseGst) {
+        inputTaxCredits += parseFloat(asset.purchaseGst.toString());
+      }
+      
+      // Add GST/HST from asset dispositions (GST/HST collected on sale)
+      if (asset.disposalDate) {
+        const disposalYear = new Date(asset.disposalDate).getFullYear().toString();
+        if (disposalYear === currentYear && asset.disposalGst) {
+          // Note: This adds to gstHstCollected, but we'll handle it separately for clarity
+          // Actually, for now we'll include it in inputTaxCredits as a negative (which is incorrect)
+          // Let me reconsider - disposal GST should be added to gstHstCollected
+        }
+      }
+    }
+
+    // Add GST/HST from lease payments (Input Tax Credits)
+    const leaseSummary = await this.calculateLeaseExpenseSummary(userId, currentYear);
+    inputTaxCredits += leaseSummary.totalGst;
+
+    // Add GST/HST from asset dispositions to collected amount
+    let assetDisposalGst = 0;
+    for (const asset of userAssets) {
+      if (asset.disposalDate) {
+        const disposalYear = new Date(asset.disposalDate).getFullYear().toString();
+        if (disposalYear === currentYear && asset.disposalGst) {
+          assetDisposalGst += parseFloat(asset.disposalGst.toString());
+        }
+      }
+    }
+
+    const finalGstHstCollected = gstHstCollected + assetDisposalGst;
+
     const transactionsWithGstHst = 
       incomeRecords.filter((i) => i.gstHstCollected && parseFloat(i.gstHstCollected) > 0).length +
       expenseRecords.filter((e) => {
         const gstAmount = e.gstAmount ? parseFloat(e.gstAmount.toString()) : 0;
         return gstAmount > 0;
+      }).length +
+      userAssets.filter((a) => {
+        const purchaseYear = new Date(a.purchaseDate).getFullYear().toString();
+        return purchaseYear === currentYear && a.purchaseGst && parseFloat(a.purchaseGst.toString()) > 0;
+      }).length +
+      userAssets.filter((a) => {
+        if (!a.disposalDate) return false;
+        const disposalYear = new Date(a.disposalDate).getFullYear().toString();
+        return disposalYear === currentYear && a.disposalGst && parseFloat(a.disposalGst.toString()) > 0;
       }).length;
 
     return {
-      gstHstCollected,
+      gstHstCollected: finalGstHstCollected,
       inputTaxCredits,
-      netGstHstOwing: gstHstCollected - inputTaxCredits,
+      netGstHstOwing: finalGstHstCollected - inputTaxCredits,
       transactionsWithGstHst,
     };
   }
@@ -818,6 +958,48 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(vehicleMileageLogs.date), desc(vehicleMileageLogs.createdAt));
   }
 
+  async calculateVehicleBusinessUsePercentage(vehicleId: string, userId: string, taxYear: string): Promise<number> {
+    const vehicle = await this.getVehicleById(vehicleId);
+    if (!vehicle) {
+      return 100; // Default if vehicle not found
+    }
+    
+    const logs = await this.getVehicleMileageLogs(vehicleId, userId);
+    
+    // Filter logs for the tax year
+    const yearStart = `${taxYear}-01-01`;
+    const yearEnd = `${taxYear}-12-31`;
+    const yearLogs = logs.filter(log => {
+      const logDate = log.date;
+      return logDate >= yearStart && logDate <= yearEnd;
+    });
+
+    // Calculate business mileage from logs
+    let businessMileage = 0;
+    const sortedLogs = [...yearLogs].sort((a, b) => a.date.localeCompare(b.date));
+    
+    for (let i = 1; i < sortedLogs.length; i++) {
+      const prevReading = parseFloat(sortedLogs[i - 1].odometerReading.toString());
+      const currReading = parseFloat(sortedLogs[i].odometerReading.toString());
+      const distance = Math.max(0, currReading - prevReading);
+      
+      if (sortedLogs[i].isBusinessUse) {
+        businessMileage += distance;
+      }
+    }
+
+    // Get total annual mileage from vehicle record
+    const totalAnnualMileage = vehicle.totalAnnualMileage 
+      ? parseFloat(vehicle.totalAnnualMileage.toString()) 
+      : null;
+    
+    if (!totalAnnualMileage || totalAnnualMileage === 0) {
+      return 100; // Default to 100% if not entered
+    }
+
+    return (businessMileage / totalAnnualMileage) * 100;
+  }
+
   async getVehicleMileageLogById(id: string): Promise<VehicleMileageLog | undefined> {
     const [record] = await db.select().from(vehicleMileageLogs).where(eq(vehicleMileageLogs.id, id));
     return record || undefined;
@@ -853,6 +1035,256 @@ export class DatabaseStorage implements IStorage {
       .returning({ id: expenses.id });
     
     return result.length;
+  }
+
+  // Assets
+  async getAssets(userId: string): Promise<Asset[]> {
+    return await db
+      .select()
+      .from(assets)
+      .where(eq(assets.userId, userId))
+      .orderBy(desc(assets.createdAt));
+  }
+
+  async getAssetById(id: string): Promise<Asset | undefined> {
+    const [asset] = await db.select().from(assets).where(eq(assets.id, id));
+    return asset || undefined;
+  }
+
+  async createAsset(assetData: InsertAsset): Promise<Asset> {
+    const [record] = await db.insert(assets).values(assetData).returning();
+    return record;
+  }
+
+  async updateAsset(id: string, assetData: Partial<InsertAsset>): Promise<Asset | undefined> {
+    const [record] = await db
+      .update(assets)
+      .set(assetData)
+      .where(eq(assets.id, id))
+      .returning();
+    return record || undefined;
+  }
+
+  async deleteAsset(id: string): Promise<boolean> {
+    const result = await db.delete(assets).where(eq(assets.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Asset CCA History
+  async getAssetCcaHistory(assetId: string, userId: string): Promise<AssetCcaHistory[]> {
+    return await db
+      .select()
+      .from(assetCcaHistory)
+      .where(and(eq(assetCcaHistory.assetId, assetId), eq(assetCcaHistory.userId, userId)))
+      .orderBy(asc(assetCcaHistory.taxYear));
+  }
+
+  async getAssetCcaHistoryById(id: string): Promise<AssetCcaHistory | undefined> {
+    const [history] = await db.select().from(assetCcaHistory).where(eq(assetCcaHistory.id, id));
+    return history || undefined;
+  }
+
+  async createAssetCcaHistory(historyData: InsertAssetCcaHistory): Promise<AssetCcaHistory> {
+    const [record] = await db.insert(assetCcaHistory).values(historyData).returning();
+    return record;
+  }
+
+  async updateAssetCcaHistory(id: string, historyData: Partial<InsertAssetCcaHistory>): Promise<AssetCcaHistory | undefined> {
+    const [record] = await db
+      .update(assetCcaHistory)
+      .set(historyData)
+      .where(eq(assetCcaHistory.id, id))
+      .returning();
+    return record || undefined;
+  }
+
+  async deleteAssetCcaHistory(id: string): Promise<boolean> {
+    const result = await db.delete(assetCcaHistory).where(eq(assetCcaHistory.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async calculateCCASummary(userId: string, taxYear: string): Promise<{
+    totalCCA: number;
+    ccaByClass: Map<string, number>;
+  }> {
+    const userAssets = await this.getAssets(userId);
+    const assetHistoriesMap = new Map<string, AssetCcaHistory[]>();
+
+    // Get all CCA histories for user's assets
+    for (const asset of userAssets) {
+      const histories = await this.getAssetCcaHistory(asset.id, userId);
+      assetHistoriesMap.set(asset.id, histories);
+    }
+
+    const ccaByClass = calculateCCAByClass(userAssets, assetHistoriesMap, taxYear);
+    const ccaByClassTotals = new Map<string, number>();
+
+    let totalCCA = 0;
+    const ccaEntries = Array.from(ccaByClass.entries());
+    for (const [ccaClass, calculations] of ccaEntries) {
+      const classTotal = calculateTotalCCAByClass(calculations);
+      ccaByClassTotals.set(ccaClass, classTotal);
+      totalCCA += classTotal;
+    }
+
+    return {
+      totalCCA,
+      ccaByClass: ccaByClassTotals,
+    };
+  }
+
+  // Lease Contracts
+  async getLeaseContracts(userId: string): Promise<LeaseContract[]> {
+    return await db
+      .select()
+      .from(leaseContracts)
+      .where(eq(leaseContracts.userId, userId))
+      .orderBy(desc(leaseContracts.createdAt));
+  }
+
+  async getLeaseContractById(id: string): Promise<LeaseContract | undefined> {
+    const [contract] = await db.select().from(leaseContracts).where(eq(leaseContracts.id, id));
+    return contract || undefined;
+  }
+
+  async createLeaseContract(contractData: InsertLeaseContract): Promise<LeaseContract> {
+    const [record] = await db.insert(leaseContracts).values(contractData).returning();
+    return record;
+  }
+
+  async updateLeaseContract(id: string, contractData: Partial<InsertLeaseContract>): Promise<LeaseContract | undefined> {
+    const [record] = await db
+      .update(leaseContracts)
+      .set(contractData)
+      .where(eq(leaseContracts.id, id))
+      .returning();
+    return record || undefined;
+  }
+
+  async deleteLeaseContract(id: string): Promise<boolean> {
+    const result = await db.delete(leaseContracts).where(eq(leaseContracts.id, id)).returning();
+    return result.length > 0;
+  }
+
+  // Lease Payments
+  async getLeasePayments(leaseContractId: string, userId: string): Promise<LeasePayment[]> {
+    return await db
+      .select()
+      .from(leasePayments)
+      .where(and(eq(leasePayments.leaseContractId, leaseContractId), eq(leasePayments.userId, userId)))
+      .orderBy(desc(leasePayments.paymentDate));
+  }
+
+  async getLeasePaymentById(id: string): Promise<LeasePayment | undefined> {
+    const [payment] = await db.select().from(leasePayments).where(eq(leasePayments.id, id));
+    return payment || undefined;
+  }
+
+  async createLeasePayment(paymentData: InsertLeasePayment): Promise<LeasePayment> {
+    const [record] = await db.insert(leasePayments).values(paymentData).returning();
+    return record;
+  }
+
+  async updateLeasePayment(id: string, paymentData: Partial<InsertLeasePayment>): Promise<LeasePayment | undefined> {
+    const [record] = await db
+      .update(leasePayments)
+      .set(paymentData)
+      .where(eq(leasePayments.id, id))
+      .returning();
+    return record || undefined;
+  }
+
+  async deleteLeasePayment(id: string): Promise<boolean> {
+    const result = await db.delete(leasePayments).where(eq(leasePayments.id, id)).returning();
+    return result.length > 0;
+  }
+
+  async calculateLeaseExpenseSummary(userId: string, taxYear: string): Promise<{
+    totalLeaseExpense: number;
+    totalGst: number;
+    totalPst: number;
+  }> {
+    const contracts = await this.getLeaseContracts(userId);
+    const paymentsByContract = new Map<string, LeasePayment[]>();
+
+    // Get all payments for user's contracts
+    for (const contract of contracts) {
+      const payments = await this.getLeasePayments(contract.id, userId);
+      paymentsByContract.set(contract.id, payments);
+    }
+
+    const summary = calculateTotalLeaseExpenses(contracts, paymentsByContract, taxYear);
+
+    return {
+      totalLeaseExpense: summary.totalDeductible,
+      totalGst: summary.totalGst,
+      totalPst: summary.totalPst,
+    };
+  }
+
+  async calculateT2125Summary(userId: string, taxYear: string): Promise<{
+    taxYear: string;
+    grossRevenue: number;
+    expensesByCategory: Record<string, number>;
+    totalExpenses: number;
+    ccaDeduction: number;
+    leaseExpenseDeduction: number;
+    netIncome: number;
+  }> {
+    const incomeRecords = await this.getIncome(userId);
+    const expenseRecords = await this.getExpenses(userId);
+    const user = await this.getUser(userId);
+    
+    // Calculate gross revenue from income
+    const grossRevenue = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+    
+    // Aggregate expenses by category
+    const expensesByCategory: Record<string, number> = {};
+    
+    expenseRecords
+      .filter((e) => e.isTaxDeductible)
+      .forEach((e) => {
+        const baseCost = e.baseCost ? parseFloat(e.baseCost.toString()) : 0;
+        const pstAmount = e.pstAmount ? parseFloat(e.pstAmount.toString()) : 0;
+        let deductibleAmount = baseCost + pstAmount;
+        
+        // Apply home office percentage for home office expenses
+        if (e.category === "home_office_expenses" && user?.homeOfficePercentage) {
+          const percentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
+          deductibleAmount = deductibleAmount * percentage;
+        } else if (e.category === "meals_entertainment") {
+          // CRA limits most meals & entertainment to 50%
+          deductibleAmount = deductibleAmount * 0.50;
+        } else {
+          // For non-home-office expenses, use the total amount if baseCost/pstAmount not available
+          if (baseCost === 0 && pstAmount === 0) {
+            deductibleAmount = parseFloat(e.amount);
+          }
+        }
+        
+        expensesByCategory[e.category] = (expensesByCategory[e.category] || 0) + deductibleAmount;
+      });
+    
+    const totalExpenses = Object.values(expensesByCategory).reduce((sum, val) => sum + val, 0);
+    
+    // Get CCA and lease deductions
+    const ccaSummary = await this.calculateCCASummary(userId, taxYear);
+    const ccaDeduction = ccaSummary.totalCCA;
+    
+    const leaseSummary = await this.calculateLeaseExpenseSummary(userId, taxYear);
+    const leaseExpenseDeduction = leaseSummary.totalLeaseExpense;
+    
+    const netIncome = Math.max(0, grossRevenue - totalExpenses - ccaDeduction - leaseExpenseDeduction);
+    
+    return {
+      taxYear,
+      grossRevenue,
+      expensesByCategory,
+      totalExpenses,
+      ccaDeduction,
+      leaseExpenseDeduction,
+      netIncome,
+    };
   }
 
   // Get provincial bracket breakdown for display

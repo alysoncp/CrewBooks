@@ -16,6 +16,8 @@ import {
   Building2,
   Settings,
   Gauge,
+  Package,
+  Car,
 } from "lucide-react";
 import {
   Sidebar,
@@ -105,7 +107,7 @@ export function AppSidebar() {
   // Build tax menu items dynamically based on access
   const taxMenuItems = [
     ...(hasTaxTools ? [{ title: "Tax Calculator", url: "/tax-calculator", icon: Calculator }] : []),
-    ...(hasTaxTools ? [{ title: "T1 Filing", url: "/tax-filing-t1", icon: FileText }] : []),
+    ...(hasTaxTools ? [{ title: "Business Summary", url: "/tax-filing-t2125", icon: FileText }] : []),
     ...(isCorporateTier ? [{ title: "T2 Filing", url: "/tax-filing-t2", icon: Building2 }] : []),
     ...(hasOptimization ? [{ title: "Optimization", url: "/optimization", icon: TrendingUp }] : []),
     ...(hasGstNumber ? [{ title: "GST/HST", url: "/gst-hst", icon: Percent }] : []),
@@ -255,6 +257,50 @@ export function AppSidebar() {
                   <Link href="/receipts">
                     <FileImage className="h-4 w-4" />
                     <span>Receipts</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+            </SidebarMenu>
+          </SidebarGroupContent>
+        </SidebarGroup>
+
+        <SidebarGroup>
+          <SidebarGroupLabel>Assets</SidebarGroupLabel>
+          <SidebarGroupContent>
+            <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/assets"}
+                  data-testid="nav-assets"
+                >
+                  <Link href="/assets">
+                    <Package className="h-4 w-4" />
+                    <span>Assets</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/vehicles"}
+                  data-testid="nav-vehicles"
+                >
+                  <Link href="/vehicles">
+                    <Car className="h-4 w-4" />
+                    <span>Vehicles</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/leases"}
+                  data-testid="nav-leases"
+                >
+                  <Link href="/leases">
+                    <FileText className="h-4 w-4" />
+                    <span>Leases</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

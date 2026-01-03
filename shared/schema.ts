@@ -217,6 +217,7 @@ export const vehicles = pgTable("vehicles", {
   ccaClass: text("cca_class"),
   currentMileage: numeric("current_mileage", { precision: 12, scale: 2 }),
   mileageAtBeginningOfYear: numeric("mileage_at_beginning_of_year", { precision: 12, scale: 2 }),
+  totalAnnualMileage: numeric("total_annual_mileage", { precision: 12, scale: 2 }),
   mileageEstimate: boolean("mileage_estimate").default(false),
   purchasedThisYear: boolean("purchased_this_year").default(false),
   purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }),
@@ -244,6 +245,105 @@ export const vehicleMileageLogs = pgTable("vehicle_mileage_logs", {
 export const insertVehicleMileageLogSchema = createInsertSchema(vehicleMileageLogs).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertVehicleMileageLog = z.infer<typeof insertVehicleMileageLogSchema>;
 export type VehicleMileageLog = typeof vehicleMileageLogs.$inferSelect;
+
+// CCA Classes for Capital Cost Allowance
+export const CCA_CLASSES = {
+  "Class 10": { rate: 0.30, description: "Vehicles (cars, trucks, trailers) - 30%" },
+  "Class 10.1": { rate: 0.30, description: "Passenger vehicles over $36,000 - 30%" },
+  "Class 8": { rate: 0.20, description: "Furniture, fixtures, equipment - 20%" },
+  "Class 12": { rate: 1.00, description: "Tools under $500, computer software - 100%" },
+  "Class 50": { rate: 0.55, description: "Computer hardware, systems software - 55%" },
+  "Class 45": { rate: 0.45, description: "Data network infrastructure - 45%" },
+} as const;
+
+export type CCAClass = keyof typeof CCA_CLASSES;
+
+// Assets Table - Capital assets for CCA tracking
+export const assets = pgTable("assets", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  name: text("name").notNull(),
+  description: text("description"),
+  purchaseDate: date("purchase_date").notNull(),
+  purchasePrice: numeric("purchase_price", { precision: 12, scale: 2 }).notNull(),
+  purchaseGst: numeric("purchase_gst", { precision: 12, scale: 2 }),
+  purchasePst: numeric("purchase_pst", { precision: 12, scale: 2 }),
+  ccaClass: text("cca_class").notNull(),
+  businessUsePercentage: numeric("business_use_percentage", { precision: 5, scale: 2 }).default("100"),
+  applyHalfYearRule: boolean("apply_half_year_rule").default(true),
+  vehicleId: varchar("vehicle_id"), // Link to vehicle if applicable
+  isActive: boolean("is_active").default(true),
+  disposalDate: date("disposal_date"),
+  disposalProceeds: numeric("disposal_proceeds", { precision: 12, scale: 2 }),
+  disposalGst: numeric("disposal_gst", { precision: 12, scale: 2 }),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAssetSchema = createInsertSchema(assets).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertAsset = z.infer<typeof insertAssetSchema>;
+export type Asset = typeof assets.$inferSelect;
+
+// Asset CCA History Table - Track CCA claims by tax year
+export const assetCcaHistory = pgTable("asset_cca_history", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  assetId: varchar("asset_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  taxYear: text("tax_year").notNull(),
+  openingUcc: numeric("opening_ucc", { precision: 12, scale: 2 }).notNull(), // Undepreciated Capital Cost at start
+  additions: numeric("additions", { precision: 12, scale: 2 }).default("0"),
+  dispositions: numeric("dispositions", { precision: 12, scale: 2 }).default("0"),
+  ccaClaimed: numeric("cca_claimed", { precision: 12, scale: 2 }).default("0"),
+  closingUcc: numeric("closing_ucc", { precision: 12, scale: 2 }).notNull(), // UCC at end of year
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertAssetCcaHistorySchema = createInsertSchema(assetCcaHistory).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertAssetCcaHistory = z.infer<typeof insertAssetCcaHistorySchema>;
+export type AssetCcaHistory = typeof assetCcaHistory.$inferSelect;
+
+// Lease Contracts Table
+export const leaseContracts = pgTable("lease_contracts", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  userId: varchar("user_id").notNull(),
+  leaseType: text("lease_type").notNull(), // "vehicle" or "equipment"
+  name: text("name").notNull(),
+  description: text("description"),
+  lessorName: text("lessor_name"),
+  leaseStartDate: date("lease_start_date").notNull(),
+  leaseEndDate: date("lease_end_date"),
+  monthlyPayment: numeric("monthly_payment", { precision: 12, scale: 2 }).notNull(),
+  paymentFrequency: text("payment_frequency").default("monthly"), // monthly, quarterly, annual
+  businessUsePercentage: numeric("business_use_percentage", { precision: 5, scale: 2 }).default("100"),
+  vehicleId: varchar("vehicle_id"), // Link to vehicle if applicable
+  assetCategory: text("asset_category"), // For equipment leases
+  isActive: boolean("is_active").default(true),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertLeaseContractSchema = createInsertSchema(leaseContracts).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertLeaseContract = z.infer<typeof insertLeaseContractSchema>;
+export type LeaseContract = typeof leaseContracts.$inferSelect;
+
+// Lease Payments Table
+export const leasePayments = pgTable("lease_payments", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  leaseContractId: varchar("lease_contract_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  paymentDate: date("payment_date").notNull(),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  gstAmount: numeric("gst_amount", { precision: 12, scale: 2 }),
+  pstAmount: numeric("pst_amount", { precision: 12, scale: 2 }),
+  description: text("description"),
+  createdAt: timestamp("created_at").defaultNow(),
+  updatedAt: timestamp("updated_at").defaultNow(),
+});
+
+export const insertLeasePaymentSchema = createInsertSchema(leasePayments).omit({ id: true, createdAt: true, updatedAt: true });
+export type InsertLeasePayment = z.infer<typeof insertLeasePaymentSchema>;
+export type LeasePayment = typeof leasePayments.$inferSelect;
 
 // Tax Calculation Types (not stored, computed)
 export interface TaxCalculation {
@@ -276,6 +376,17 @@ export interface DividendSalaryScenario {
   totalTax: number;
   afterTaxIncome: number;
   isOptimal: boolean;
+}
+
+// T2125 Summary for self-employed business activities
+export interface T2125Summary {
+  taxYear: string;
+  grossRevenue: number;
+  expensesByCategory: Record<string, number>;
+  totalExpenses: number;
+  ccaDeduction: number;
+  leaseExpenseDeduction: number;
+  netIncome: number;
 }
 
 // Canadian Provinces

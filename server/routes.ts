@@ -1,7 +1,7 @@
 import type { Express } from "express";
 import { type Server } from "http";
 import { storage } from "./storage";
-import { insertIncomeSchema, insertExpenseSchema, insertVehicleSchema, insertVehicleMileageLogSchema } from "@shared/schema";
+import { insertIncomeSchema, insertExpenseSchema, insertVehicleSchema, insertVehicleMileageLogSchema, insertAssetSchema, insertAssetCcaHistorySchema, insertLeaseContractSchema, insertLeasePaymentSchema, type Vehicle } from "@shared/schema";
 import { z } from "zod";
 import multer from "multer";
 import path from "path";
@@ -193,6 +193,91 @@ function convertOCRToIncomeData(ocrResult: OCRResult): any {
   };
   console.log("=== END convertOCRToIncomeData ===");
   return result;
+}
+
+/**
+ * Sync vehicle data to linked asset for CCA tracking
+ * Creates, updates, or deactivates asset based on vehicle CCA status
+ */
+async function syncVehicleToAsset(vehicle: Vehicle, userId: string, taxYear?: string): Promise<void> {
+  const currentYear = taxYear || new Date().getFullYear().toString();
+  
+  // Get existing assets for this user
+  const existingAssets = await storage.getAssets(userId);
+  const existingAsset = existingAssets.find(a => a.vehicleId === vehicle.id);
+  
+  // Check if vehicle should have an asset (claims CCA and has required fields)
+  const shouldHaveAsset = vehicle.claimsCca && 
+                          vehicle.purchasePrice && 
+                          vehicle.ccaClass &&
+                          parseFloat(vehicle.purchasePrice.toString()) > 0;
+  
+  if (!shouldHaveAsset) {
+    // Vehicle no longer claims CCA or missing required fields - deactivate asset if exists
+    if (existingAsset) {
+      await storage.updateAsset(existingAsset.id, { isActive: false });
+    }
+    return;
+  }
+  
+  // At this point we know purchasePrice and ccaClass are not null due to shouldHaveAsset check
+  const purchasePrice = vehicle.purchasePrice!;
+  const ccaClass = vehicle.ccaClass!;
+  
+  // Determine purchase year
+  let purchaseYear: string;
+  if (vehicle.purchasedThisYear) {
+    purchaseYear = currentYear;
+  } else if (vehicle.year) {
+    // Use vehicle year if available (fallback)
+    purchaseYear = vehicle.year.toString();
+  } else {
+    // Default to current year if we can't determine
+    purchaseYear = currentYear;
+  }
+  const purchaseDate = `${purchaseYear}-01-01`; // Default to start of year
+  
+  // Calculate business use percentage
+  let businessUsePercentage: string;
+  if (vehicle.usedExclusivelyForBusiness) {
+    businessUsePercentage = "100";
+  } else {
+    // Try to calculate from mileage logs
+    try {
+      const calculatedPercentage = await storage.calculateVehicleBusinessUsePercentage(
+        vehicle.id,
+        userId,
+        currentYear
+      );
+      businessUsePercentage = Math.min(100, Math.max(0, calculatedPercentage)).toFixed(2);
+    } catch (error) {
+      // Fall back to default if calculation fails
+      businessUsePercentage = "0";
+    }
+  }
+  
+  // Prepare asset data
+  const assetData = {
+    name: vehicle.name || `Vehicle: ${vehicle.name}`,
+    purchaseDate,
+    purchasePrice: purchasePrice.toString(),
+    ccaClass: ccaClass,
+    businessUsePercentage,
+    applyHalfYearRule: true,
+    vehicleId: vehicle.id,
+    isActive: true,
+  };
+  
+  if (existingAsset) {
+    // Update existing asset
+    await storage.updateAsset(existingAsset.id, assetData);
+  } else {
+    // Create new asset
+    await storage.createAsset({
+      userId,
+      ...assetData,
+    });
+  }
 }
 
 export async function registerRoutes(
@@ -1267,6 +1352,24 @@ export async function registerRoutes(
     }
   });
 
+  app.get("/api/vehicles/:id/business-use-percentage", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.id);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const taxYear = req.query.taxYear || new Date().getFullYear().toString();
+      const percentage = await storage.calculateVehicleBusinessUsePercentage(req.params.id, userId, taxYear);
+      res.json({ businessUsePercentage: percentage });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to calculate business use percentage" });
+    }
+  });
+
   // POST /api/vehicles - create vehicle
   app.post("/api/vehicles", isAuthenticated, async (req: any, res) => {
     try {
@@ -1301,12 +1404,16 @@ export async function registerRoutes(
       cleanedData.purchasePrice = req.body.purchasePrice !== null && req.body.purchasePrice !== undefined ? String(req.body.purchasePrice) : null;
       cleanedData.currentMileage = req.body.currentMileage !== null && req.body.currentMileage !== undefined ? String(req.body.currentMileage) : null;
       cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
+      cleanedData.totalAnnualMileage = req.body.totalAnnualMileage !== null && req.body.totalAnnualMileage !== undefined ? String(req.body.totalAnnualMileage) : null;
       
       // Validate with schema
       const data = insertVehicleSchema.parse(cleanedData);
       
       // Try to create
       const vehicle = await storage.createVehicle(data);
+      
+      // Sync vehicle to asset for CCA tracking
+      await syncVehicleToAsset(vehicle, userId);
       
       res.status(201).json(vehicle);
     } catch (error: any) {
@@ -1349,8 +1456,13 @@ export async function registerRoutes(
       if (req.body.purchasePrice !== undefined) cleanedData.purchasePrice = req.body.purchasePrice !== null && req.body.purchasePrice !== undefined ? String(req.body.purchasePrice) : null;
       if (req.body.currentMileage !== undefined) cleanedData.currentMileage = req.body.currentMileage !== null && req.body.currentMileage !== undefined ? String(req.body.currentMileage) : null;
       if (req.body.mileageAtBeginningOfYear !== undefined) cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
+      if (req.body.totalAnnualMileage !== undefined) cleanedData.totalAnnualMileage = req.body.totalAnnualMileage !== null && req.body.totalAnnualMileage !== undefined ? String(req.body.totalAnnualMileage) : null;
       
       const updated = await storage.updateVehicle(req.params.id, cleanedData);
+      
+      // Sync vehicle to asset for CCA tracking
+      await syncVehicleToAsset(updated, userId);
+      
       res.json(updated);
     } catch (error) {
       res.status(500).json({ error: "Failed to update vehicle" });
@@ -1512,6 +1624,343 @@ export async function registerRoutes(
       res.json({ success: true });
     } catch (error) {
       res.status(500).json({ error: "Failed to delete category" });
+    }
+  });
+
+  // Assets API routes
+  app.get("/api/assets", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const assetRecords = await storage.getAssets(userId);
+      res.json(assetRecords);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get assets" });
+    }
+  });
+
+  app.post("/api/assets", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertAssetSchema.parse({ ...req.body, userId });
+      const asset = await storage.createAsset(data);
+      res.status(201).json(asset);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create asset" });
+    }
+  });
+
+  app.get("/api/assets/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const asset = await storage.getAssetById(req.params.id);
+      if (!asset) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      if (asset.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      res.json(asset);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get asset" });
+    }
+  });
+
+  app.patch("/api/assets/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const asset = await storage.getAssetById(req.params.id);
+      if (!asset) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      if (asset.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updateAsset(req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update asset" });
+    }
+  });
+
+  app.delete("/api/assets/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const asset = await storage.getAssetById(req.params.id);
+      if (!asset) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      if (asset.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const deleted = await storage.deleteAsset(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete asset" });
+    }
+  });
+
+  // Asset CCA History routes
+  app.get("/api/assets/:assetId/cca-history", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const asset = await storage.getAssetById(req.params.assetId);
+      if (!asset) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      if (asset.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const history = await storage.getAssetCcaHistory(req.params.assetId, userId);
+      res.json(history);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get CCA history" });
+    }
+  });
+
+  app.post("/api/assets/:assetId/cca-history", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const asset = await storage.getAssetById(req.params.assetId);
+      if (!asset) {
+        return res.status(404).json({ error: "Asset not found" });
+      }
+      if (asset.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const data = insertAssetCcaHistorySchema.parse({ ...req.body, assetId: req.params.assetId, userId });
+      const history = await storage.createAssetCcaHistory(data);
+      res.status(201).json(history);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create CCA history" });
+    }
+  });
+
+  // CCA Summary route
+  app.get("/api/cca-summary", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const taxYear = req.query.taxYear || new Date().getFullYear().toString();
+      const summary = await storage.calculateCCASummary(userId, taxYear);
+      // Convert Map to object for JSON serialization
+      const ccaByClassObj: Record<string, number> = {};
+      summary.ccaByClass.forEach((value, key) => {
+        ccaByClassObj[key] = value;
+      });
+      res.json({ totalCCA: summary.totalCCA, ccaByClass: ccaByClassObj });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to calculate CCA summary" });
+    }
+  });
+
+  // Lease Contracts API routes
+  app.get("/api/lease-contracts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const contracts = await storage.getLeaseContracts(userId);
+      res.json(contracts);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get lease contracts" });
+    }
+  });
+
+  app.post("/api/lease-contracts", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const data = insertLeaseContractSchema.parse({ ...req.body, userId });
+      const contract = await storage.createLeaseContract(data);
+      res.status(201).json(contract);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create lease contract" });
+    }
+  });
+
+  app.get("/api/lease-contracts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const contract = await storage.getLeaseContractById(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: "Lease contract not found" });
+      }
+      if (contract.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      res.json(contract);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get lease contract" });
+    }
+  });
+
+  app.patch("/api/lease-contracts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const contract = await storage.getLeaseContractById(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: "Lease contract not found" });
+      }
+      if (contract.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updateLeaseContract(req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: "Lease contract not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update lease contract" });
+    }
+  });
+
+  app.delete("/api/lease-contracts/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const contract = await storage.getLeaseContractById(req.params.id);
+      if (!contract) {
+        return res.status(404).json({ error: "Lease contract not found" });
+      }
+      if (contract.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const deleted = await storage.deleteLeaseContract(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Lease contract not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete lease contract" });
+    }
+  });
+
+  // Lease Payments API routes
+  app.get("/api/lease-contracts/:leaseContractId/payments", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const contract = await storage.getLeaseContractById(req.params.leaseContractId);
+      if (!contract) {
+        return res.status(404).json({ error: "Lease contract not found" });
+      }
+      if (contract.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const payments = await storage.getLeasePayments(req.params.leaseContractId, userId);
+      res.json(payments);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get lease payments" });
+    }
+  });
+
+  app.post("/api/lease-contracts/:leaseContractId/payments", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const contract = await storage.getLeaseContractById(req.params.leaseContractId);
+      if (!contract) {
+        return res.status(404).json({ error: "Lease contract not found" });
+      }
+      if (contract.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const data = insertLeasePaymentSchema.parse({ ...req.body, leaseContractId: req.params.leaseContractId, userId });
+      const payment = await storage.createLeasePayment(data);
+      res.status(201).json(payment);
+    } catch (error) {
+      if (error instanceof z.ZodError) {
+        return res.status(400).json({ error: error.errors });
+      }
+      res.status(500).json({ error: "Failed to create lease payment" });
+    }
+  });
+
+  app.get("/api/lease-payments/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const payment = await storage.getLeasePaymentById(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ error: "Lease payment not found" });
+      }
+      if (payment.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      res.json(payment);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get lease payment" });
+    }
+  });
+
+  app.patch("/api/lease-payments/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const payment = await storage.getLeasePaymentById(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ error: "Lease payment not found" });
+      }
+      if (payment.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const updated = await storage.updateLeasePayment(req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: "Lease payment not found" });
+      }
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update lease payment" });
+    }
+  });
+
+  app.delete("/api/lease-payments/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const payment = await storage.getLeasePaymentById(req.params.id);
+      if (!payment) {
+        return res.status(404).json({ error: "Lease payment not found" });
+      }
+      if (payment.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      const deleted = await storage.deleteLeasePayment(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Lease payment not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete lease payment" });
+    }
+  });
+
+  // Lease Expense Summary route
+  app.get("/api/lease-expense-summary", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const taxYear = req.query.taxYear || new Date().getFullYear().toString();
+      const summary = await storage.calculateLeaseExpenseSummary(userId, taxYear);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to calculate lease expense summary" });
+    }
+  });
+
+  // T2125 Summary route
+  app.get("/api/t2125-summary", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const taxYear = req.query.taxYear || new Date().getFullYear().toString();
+      const summary = await storage.calculateT2125Summary(userId, taxYear);
+      res.json(summary);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to calculate T2125 summary" });
     }
   });
 
