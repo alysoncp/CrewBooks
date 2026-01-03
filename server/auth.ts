@@ -76,9 +76,37 @@ export async function setupAuth(app: Express) {
         }
       } catch (dbError) {
         console.error("[LOGIN] Database error during login:", dbError);
+        const errorMessage = dbError instanceof Error ? dbError.message : String(dbError);
+        const errorStack = dbError instanceof Error ? dbError.stack : undefined;
+        console.error("[LOGIN] Error stack:", errorStack);
+        
+        // Check for specific database connection errors
+        if (errorMessage.includes("connection") || errorMessage.includes("ECONNREFUSED") || errorMessage.includes("timeout")) {
+          return res.status(500).json({ 
+            message: "Database connection failed. Please check your DATABASE_URL and ensure the database server is running.",
+            details: errorMessage
+          });
+        }
+        
+        // Check for authentication errors
+        if (errorMessage.includes("password authentication failed") || errorMessage.includes("login") || errorMessage.toLowerCase().includes("authentication")) {
+          return res.status(500).json({ 
+            message: "Database authentication failed. Please check your DATABASE_URL credentials (username and password).",
+            details: errorMessage
+          });
+        }
+        
+        // Check for database not found errors
+        if (errorMessage.includes("database") && (errorMessage.includes("does not exist") || errorMessage.includes("not found"))) {
+          return res.status(500).json({ 
+            message: "Database not found. Please check that the database name in your DATABASE_URL is correct.",
+            details: errorMessage
+          });
+        }
+        
         return res.status(500).json({ 
           message: "Database error during login",
-          details: dbError instanceof Error ? dbError.message : String(dbError)
+          details: errorMessage
         });
       }
 
