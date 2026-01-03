@@ -437,6 +437,10 @@ export const paystubs = pgTable("paystubs", {
   uploadedAt: timestamp("uploaded_at").defaultNow(),
   linkedIncomeId: varchar("linked_income_id"),
   notes: text("notes"),
+  ocrJobId: varchar("ocr_job_id"), // Track Veryfi document ID
+  ocrStatus: text("ocr_status"), // 'processing', 'completed', 'failed'
+  ocrResult: jsonb("ocr_result"), // Store parsed OCR data
+  ocrProcessedAt: timestamp("ocr_processed_at"), // When OCR completed
 });
 
 export const insertPaystubSchema = createInsertSchema(paystubs).omit({ id: true, uploadedAt: true });

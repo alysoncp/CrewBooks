@@ -1,11 +1,13 @@
 import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Upload, Trash2, Image, X, ZoomIn, FileText } from "lucide-react";
+import { Upload, Trash2, Image, X, ZoomIn, FileText, Scan } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import {
   Dialog,
   DialogContent,
@@ -29,13 +31,16 @@ import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { formatDate } from "@/lib/format";
 import type { Paystub } from "@shared/schema";
+import { useLocation } from "wouter";
 
 export default function PaystubsPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
   const [notes, setNotes] = useState("");
+  const [scanWithOCR, setScanWithOCR] = useState(false);
   const { toast } = useToast();
+  const [, setLocation] = useLocation();
 
   const { data: paystubs, isLoading } = useQuery<Paystub[]>({
     queryKey: ["/api/paystubs"],
@@ -48,6 +53,7 @@ export default function PaystubsPage() {
         formData.append("files", file);
       });
       formData.append("notes", notes);
+      formData.append("scanWithOCR", scanWithOCR.toString());
       
       const response = await fetch("/api/paystubs/upload", {
         method: "POST",
@@ -60,11 +66,50 @@ export default function PaystubsPage() {
       
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
+      
+      // Always redirect to income page to create income from paystub (when OCR enabled)
+      if (scanWithOCR && data && Array.isArray(data) && data.length > 0) {
+        const firstPaystub = data[0];
+        
+        if (firstPaystub.id) {
+          // Close dialog and clear state
+          setIsDialogOpen(false);
+          setPreviewFiles([]);
+          setNotes("");
+          setScanWithOCR(false);
+          
+          // Redirect to income page with paystubId to open income dialog
+          setLocation(`/income?paystubId=${firstPaystub.id}`);
+          
+          // Show appropriate toast based on OCR status
+          if (firstPaystub.incomeData && firstPaystub.ocrStatus === "completed") {
+            toast({
+              title: "Paystub scanned",
+              description: "Review and confirm the extracted income data.",
+            });
+          } else if (firstPaystub.ocrError) {
+            toast({
+              title: "OCR processing failed",
+              description: "You can still create the income entry manually.",
+              variant: "default",
+            });
+          } else {
+            toast({
+              title: "Paystub uploaded",
+              description: "Create an income entry for this paystub.",
+            });
+          }
+          return;
+        }
+      }
+      
+      // Fallback: just close dialog if something went wrong
       setIsDialogOpen(false);
       setPreviewFiles([]);
       setNotes("");
+      setScanWithOCR(false);
       toast({
         title: "Paystubs uploaded",
         description: "Your paystubs have been saved successfully.",
@@ -216,6 +261,24 @@ export default function PaystubsPage() {
                   onChange={(e) => setNotes(e.target.value)}
                   data-testid="input-paystub-notes"
                 />
+              </div>
+
+              <div className="flex items-center space-x-2 rounded-lg border p-4">
+                <Switch
+                  id="scan-ocr-paystub"
+                  checked={scanWithOCR}
+                  onCheckedChange={setScanWithOCR}
+                  data-testid="switch-scan-ocr-paystub"
+                />
+                <Label htmlFor="scan-ocr-paystub" className="cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Scan className="h-4 w-4" />
+                    <span>Scan with OCR</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Automatically extract paystub details using Veryfi OCR
+                  </p>
+                </Label>
               </div>
             </div>
             <DialogFooter>

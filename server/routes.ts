@@ -9,6 +9,7 @@ import fs from "fs";
 import { setupAuth, isAuthenticated } from "./auth";
 import { eq, desc, asc } from "drizzle-orm";
 import { processReceiptOCR, type OCRResult } from "./veryfi-ocr";
+import { normalizePaystubOCR, normalizedPaystubToIncomeData, classifyDocument } from "./paystub-normalizer";
 
 // Logging function to avoid circular dependency (disabled for production)
 function logRoute(message: string, source = "routes") {
@@ -160,6 +161,38 @@ function convertOCRToExpenseData(ocrResult: OCRResult): any {
     description: ocrResult.lineItems?.map(item => item.description).join(", ") || "",
     isTaxDeductible: true,
   };
+}
+
+/**
+ * Convert OCR result to income data format for paystubs
+ * Uses rule-based normalization with issuer-specific parsers
+ */
+function convertOCRToIncomeData(ocrResult: OCRResult): any {
+  console.log("=== INSIDE convertOCRToIncomeData ===");
+  // Use the raw OCR response for normalization
+  const rawOCRData = ocrResult.rawResponse || ocrResult;
+  console.log("rawOCRData type:", typeof rawOCRData);
+  console.log("rawOCRData keys:", Object.keys(rawOCRData || {}).slice(0, 20));
+  
+  console.log("About to call normalizePaystubOCR...");
+  // Normalize using issuer-specific parsers
+  const { normalized, validation } = normalizePaystubOCR(rawOCRData);
+  console.log("normalizePaystubOCR returned");
+  console.log("Normalized keys:", Object.keys(normalized || {}));
+  
+  console.log("About to call normalizedPaystubToIncomeData...");
+  // Convert normalized paystub to income data format
+  const incomeData = normalizedPaystubToIncomeData(normalized);
+  console.log("normalizedPaystubToIncomeData returned");
+  
+  // Include validation info for frontend
+  const result = {
+    ...incomeData,
+    validationErrors: validation.errors,
+    issuer: normalized.issuer,
+  };
+  console.log("=== END convertOCRToIncomeData ===");
+  return result;
 }
 
 export async function registerRoutes(
@@ -470,8 +503,8 @@ export async function registerRoutes(
             logRoute(`File path: ${filePath}`, "ocr");
             logRoute(`File exists: ${fs.existsSync(filePath)}`, "ocr");
             try {
-              // Process OCR
-              const ocrResult = await processReceiptOCR(filePath);
+              // Process OCR - specify "expense" category for receipts
+              const ocrResult = await processReceiptOCR(filePath, "expense");
               // Log summary only (detailed logs are in veryfi-ocr.ts)
               if (ocrResult.status === "completed") {
                 logRoute(`OCR completed for receipt ${receipt.id}: $${ocrResult.amount} at ${ocrResult.vendor}`, "ocr");
@@ -659,6 +692,359 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete receipt" });
+    }
+  });
+
+  app.get("/api/paystubs", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const paystubRecords = await storage.getPaystubs(userId);
+      res.json(paystubRecords);
+    } catch (error: any) {
+      console.error("Error getting paystubs:", error);
+      res.status(500).json({ error: "Failed to get paystubs", details: error?.message });
+    }
+  });
+
+  app.post("/api/paystubs/upload", isAuthenticated, upload.array("files", 10), async (req: any, res) => {
+    try {
+      logRoute("=== PAYSTUB UPLOAD REQUEST ===", "paystubs");
+      logRoute(`Request body keys: ${Object.keys(req.body).join(", ")}`, "paystubs");
+      logRoute(`Request body scanWithOCR: ${req.body.scanWithOCR}`, "paystubs");
+      logRoute(`Files count: ${req.files?.length || 0}`, "paystubs");
+      
+      const userId = getUserId(req);
+      const user = await storage.getUser(userId);
+      
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      
+      const files = req.files as Express.Multer.File[];
+      const notes = req.body.notes || "";
+      
+      // Parse scanWithOCR - it comes as a string "true" or "false" from FormData
+      const scanWithOCRRaw = req.body.scanWithOCR;
+      const scanWithOCR = scanWithOCRRaw === "true" || scanWithOCRRaw === true || scanWithOCRRaw === "1";
+      
+      logRoute(`Parsed scanWithOCR: ${scanWithOCR} (raw: ${scanWithOCRRaw}, type: ${typeof scanWithOCRRaw})`, "paystubs");
+
+      // Process paystubs with optional OCR
+      const paystubRecords = await Promise.all(
+        files.map(async (file) => {
+          const filePath = path.join(process.cwd(), "uploads", file.filename);
+          
+          // Create paystub record
+          const paystub = await storage.createPaystub({
+            userId,
+            imageUrl: `/uploads/${file.filename}`,
+            notes,
+            ocrStatus: scanWithOCR ? "processing" : null,
+          });
+
+          // If OCR is requested, process it synchronously
+          if (scanWithOCR) {
+            logRoute(`=== PROCESSING OCR FOR PAYSTUB ${paystub.id} ===`, "ocr");
+            logRoute(`File path: ${filePath}`, "ocr");
+            logRoute(`File exists: ${fs.existsSync(filePath)}`, "ocr");
+            try {
+              // Process OCR - specify "invoice" category for paystubs (Veryfi often classifies paystubs as invoices)
+              // This helps Veryfi process the document correctly instead of misclassifying as "Bank Charges & Fees"
+              const ocrResult = await processReceiptOCR(filePath, "invoice");
+              
+              if (ocrResult.status === "completed") {
+                logRoute(`OCR completed for paystub ${paystub.id}`, "ocr");
+                // Log raw OCR data for debugging
+                console.log("=== RAW VERYFI OCR DATA ===");
+                console.log(JSON.stringify(ocrResult.rawResponse, null, 2));
+              } else {
+                logRoute(`OCR ${ocrResult.status} for paystub ${paystub.id}`, "ocr");
+              }
+              
+              // Store OCR results
+              await storage.updatePaystub(paystub.id, {
+                ocrJobId: ocrResult.documentId,
+                ocrStatus: ocrResult.status,
+                ocrResult: ocrResult.rawResponse || ocrResult,
+                ocrProcessedAt: ocrResult.status === "completed" ? new Date() : null,
+              });
+
+              // If OCR completed successfully, return income data for review
+              if (ocrResult.status === "completed") {
+                // Classify document type
+                const documentType = classifyDocument(ocrResult.rawResponse || ocrResult);
+                console.log("Document type:", documentType);
+                
+                // Normalize and convert to income data using rule-based normalization
+                const incomeData = convertOCRToIncomeData(ocrResult);
+                console.log("=== NORMALIZED INCOME DATA ===");
+                console.log(JSON.stringify(incomeData, null, 2));
+                
+                return {
+                  ...paystub,
+                  ocrStatus: ocrResult.status,
+                  incomeData: incomeData,
+                  confidence: incomeData.confidence || ocrResult.confidence,
+                  documentType: documentType,
+                  needsReview: incomeData.needsReview || false,
+                };
+              } else {
+                // OCR failed
+                return {
+                  ...paystub,
+                  ocrStatus: ocrResult.status,
+                  ocrError: ocrResult.rawResponse?.error || "OCR processing failed",
+                };
+              }
+            } catch (error: any) {
+              logRoute(`Failed to process OCR for paystub ${paystub.id}: ${error.message}`, "ocr");
+              await storage.updatePaystub(paystub.id, {
+                ocrStatus: "failed",
+                ocrResult: { error: error.message || "Unknown error" },
+              });
+              
+              return {
+                ...paystub,
+                ocrStatus: "failed",
+                ocrError: error.message || "Unknown error",
+              };
+            }
+          } else {
+            logRoute(`OCR not requested for paystub ${paystub.id}`, "paystubs");
+          }
+
+          return paystub;
+        })
+      );
+
+      res.status(201).json(paystubRecords);
+    } catch (error: any) {
+      console.error("Error uploading paystubs:", error);
+      res.status(500).json({ error: "Failed to upload paystubs", details: error?.message });
+    }
+  });
+
+  app.get("/api/paystubs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const paystub = await storage.getPaystubById(req.params.id);
+      
+      if (!paystub) {
+        return res.status(404).json({ error: "Paystub not found" });
+      }
+      
+      if (paystub.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      res.json(paystub);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get paystub" });
+    }
+  });
+
+  app.get("/api/paystubs/:id/ocr-to-income", isAuthenticated, async (req: any, res) => {
+    try {
+      console.log("=== OCR TO INCOME ENDPOINT CALLED ===");
+      console.log("Paystub ID:", req.params.id);
+      const userId = getUserId(req);
+      console.log("User ID:", userId);
+      const paystub = await storage.getPaystubById(req.params.id);
+      
+      if (!paystub) {
+        console.log("Paystub not found");
+        return res.status(404).json({ error: "Paystub not found" });
+      }
+      
+      console.log("Paystub found. OCR Status:", paystub.ocrStatus);
+      console.log("Has OCR Result:", !!paystub.ocrResult);
+      
+      if (paystub.userId !== userId) {
+        console.log("Access denied - user mismatch");
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      if (!paystub.ocrResult) {
+        console.log("OCR result missing");
+        return res.status(400).json({ error: "OCR has not been processed for this paystub" });
+      }
+
+      if (paystub.ocrStatus !== "completed") {
+        console.log("OCR still processing, status:", paystub.ocrStatus);
+        return res.status(400).json({ 
+          error: "OCR is still processing",
+          status: paystub.ocrStatus,
+        });
+      }
+
+      const ocrData = paystub.ocrResult as any;
+      
+      // Debug: Log raw OCR data structure
+      console.log("=== RAW OCR DATA FROM DATABASE ===");
+      console.log("Top-level keys:", Object.keys(ocrData));
+      console.log("Key fields summary:", {
+        total: ocrData.total,
+        subtotal: ocrData.subtotal,
+        gross_pay: ocrData.gross_pay,
+        net_pay: ocrData.net_pay,
+        date: ocrData.date,
+        vendor: ocrData.vendor?.name,
+        line_items_count: ocrData.line_items?.length,
+        tax: ocrData.tax,
+        tax_lines_count: ocrData.tax_lines?.length,
+      });
+      if (ocrData.line_items && ocrData.line_items.length > 0) {
+        console.log("First 5 line items:", ocrData.line_items.slice(0, 5).map((li: any) => ({
+          description: li.description,
+          amount: li.amount,
+          total: li.total,
+        })));
+      }
+      // Full JSON for detailed inspection (commented out to reduce noise, uncomment if needed)
+      // console.log(JSON.stringify(ocrData, null, 2));
+      
+      const ocrResult: OCRResult = {
+        amount: ocrData.total || ocrData.amount || ocrData.net_pay || ocrData.gross_pay,
+        date: ocrData.date || ocrData.pay_period_end || ocrData.pay_period_start,
+        vendor: ocrData.vendor?.name || ocrData.merchant_name || ocrData.vendor,
+        tax: ocrData.tax || ocrData.total_tax,
+        lineItems: ocrData.line_items,
+        confidence: ocrData.confidence_score || ocrData.confidence || 0,
+        status: "completed",
+        documentId: paystub.ocrJobId || undefined,
+        rawResponse: ocrData, // Keep raw OCR data for normalization
+      };
+
+      // Convert OCR to income data using rule-based normalization
+      console.log("=== ABOUT TO CALL convertOCRToIncomeData ===");
+      console.log("ocrResult structure:", {
+        amount: ocrResult.amount,
+        date: ocrResult.date,
+        vendor: ocrResult.vendor,
+        hasRawResponse: !!ocrResult.rawResponse,
+      });
+      let incomeData;
+      try {
+        console.log("Calling convertOCRToIncomeData now...");
+        incomeData = convertOCRToIncomeData(ocrResult);
+        console.log("=== convertOCRToIncomeData RETURNED ===");
+        console.log("Income data keys:", Object.keys(incomeData || {}));
+      } catch (err: any) {
+        console.error("=== ERROR IN convertOCRToIncomeData ===");
+        console.error("Error:", err);
+        console.error("Error message:", err?.message);
+        console.error("Error stack:", err?.stack);
+        throw err;
+      }
+      
+      // Debug: Log normalized data
+      console.log("=== NORMALIZED INCOME DATA ===");
+      try {
+        console.log(JSON.stringify(incomeData, null, 2));
+      } catch (err) {
+        console.log("Could not stringify incomeData (may have circular refs)");
+        console.log("IncomeData keys:", Object.keys(incomeData || {}));
+      }
+
+      const response = {
+        incomeData,
+        confidence: incomeData.confidence || ocrResult.confidence,
+        needsReview: incomeData.needsReview || false,
+        issuer: incomeData.issuer,
+        validationErrors: incomeData.validationErrors || [],
+        // Include limited raw OCR data for debugging (avoid sending full object which might be huge)
+        rawOCRData: ocrData ? {
+          total: ocrData.total,
+          date: ocrData.date,
+          vendor: ocrData.vendor?.name,
+          net_pay: ocrData.net_pay,
+          gross_pay: ocrData.gross_pay,
+          line_items_count: ocrData.line_items?.length,
+        } : null,
+      };
+      
+      console.log("=== OCR TO INCOME API RESPONSE ===");
+      try {
+        console.log(JSON.stringify(response, null, 2));
+      } catch (err) {
+        console.log("Could not stringify response (may have circular refs)");
+      }
+      
+      console.log("About to send response");
+      res.json(response);
+      console.log("Response sent successfully");
+    } catch (error: any) {
+      console.error("=== ERROR IN OCR TO INCOME ===");
+      console.error("Error:", error);
+      console.error("Error message:", error?.message);
+      console.error("Error stack:", error?.stack);
+      if (!res.headersSent) {
+        res.status(500).json({ error: "Failed to convert OCR to income data", details: error?.message });
+      } else {
+        console.error("Response headers already sent, cannot send error response");
+      }
+    }
+  });
+
+  app.patch("/api/paystubs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const paystub = await storage.getPaystubById(req.params.id);
+      
+      if (!paystub) {
+        return res.status(404).json({ error: "Paystub not found" });
+      }
+      
+      if (paystub.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      // Only allow updating linkedIncomeId
+      if (req.body.linkedIncomeId !== undefined) {
+        // Validate that the income exists and belongs to the user (if not null)
+        if (req.body.linkedIncomeId !== null) {
+          const userIncome = await storage.getIncome(userId);
+          const incomeExists = userIncome.some(i => i.id === req.body.linkedIncomeId);
+          if (!incomeExists) {
+            return res.status(400).json({ error: "Income not found or access denied" });
+          }
+        }
+        
+        // Update only the linkedIncomeId field
+        const updated = await storage.updatePaystub(req.params.id, { 
+          linkedIncomeId: req.body.linkedIncomeId 
+        });
+        if (!updated) {
+          return res.status(404).json({ error: "Paystub not found" });
+        }
+        
+        return res.json(updated);
+      }
+      
+      // If no valid fields to update, return error
+      return res.status(400).json({ error: "No valid fields to update" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update paystub" });
+    }
+  });
+
+  app.delete("/api/paystubs/:id", isAuthenticated, async (req, res) => {
+    try {
+      const paystub = await storage.getPaystubById(req.params.id);
+      if (paystub?.imageUrl) {
+        const filePath = path.join(process.cwd(), paystub.imageUrl);
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      }
+
+      const deleted = await storage.deletePaystub(req.params.id);
+      if (!deleted) {
+        return res.status(404).json({ error: "Paystub not found" });
+      }
+      res.status(204).send();
+    } catch (error) {
+      res.status(500).json({ error: "Failed to delete paystub" });
     }
   });
 
