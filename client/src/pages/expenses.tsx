@@ -281,14 +281,6 @@ export default function ExpensesPage() {
   const pstAmountValue = form.watch("pstAmount");
   const gstIncluded = form.watch("gstIncluded");
   const pstIncluded = form.watch("pstIncluded");
-  const expenseType = form.watch("expenseType");
-  
-  // Automatically set isTaxDeductible based on expenseType
-  // Business and mixed expenses are deductible (business portion of mixed is deductible)
-  useEffect(() => {
-    const isDeductible = expenseType === "business" || expenseType === "mixed";
-    form.setValue("isTaxDeductible", isDeductible, { shouldValidate: false });
-  }, [expenseType, form]);
 
   // Effect to calculate total when baseCost changes
   useEffect(() => {
@@ -448,7 +440,7 @@ export default function ExpensesPage() {
               category: data.expenseData.category || "",
               vendor: data.expenseData.vendor || "",
               description: data.expenseData.description || "",
-              isTaxDeductible: (data.expenseData.expenseType || "business") === "business" || (data.expenseData.expenseType || "business") === "mixed",
+              isTaxDeductible: data.expenseData.isTaxDeductible !== false,
               expenseType: data.expenseData.expenseType || "business",
               businessPercentage: data.expenseData.businessPercentage ? data.expenseData.businessPercentage.toString() : "",
             });
@@ -466,7 +458,7 @@ export default function ExpensesPage() {
               category: "",
               vendor: "",
               description: "",
-              isTaxDeductible: true, // Business expenses are deductible by default
+              isTaxDeductible: true,
               expenseType: "business",
               businessPercentage: "",
             });
@@ -501,8 +493,9 @@ export default function ExpensesPage() {
     }
   }, [location, form, toast]);
 
-  // Watch category separately to make it reactive
+  // Watch category and expenseType separately to make them reactive
   const selectedCategory = form.watch("category");
+  const expenseType = form.watch("expenseType");
 
   // Fetch vehicles for the expense form dropdown
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
@@ -537,12 +530,6 @@ export default function ExpensesPage() {
         amount = baseCost + gstAmount + pstAmount;
       }
 
-      // Automatically determine if expense is tax deductible:
-      // - Business expenses are always deductible
-      // - Mixed expenses have a business portion that is deductible
-      // - Personal expenses are not deductible
-      const isTaxDeductible = data.expenseType === "business" || data.expenseType === "mixed";
-      
       const payload: any = {
         amount: amount.toString(),
         baseCost: baseCost.toString(),
@@ -555,7 +542,7 @@ export default function ExpensesPage() {
         vehicleId: data.vehicleId,
         vendor: data.vendor,
         description: data.description,
-        isTaxDeductible: isTaxDeductible,
+        isTaxDeductible: data.isTaxDeductible,
         expenseType: data.expenseType,
         businessPercentage: data.expenseType === "mixed" && data.businessPercentage ? data.businessPercentage : undefined,
       };
@@ -620,12 +607,6 @@ export default function ExpensesPage() {
         amount = baseCost + gstAmount + pstAmount;
       }
 
-      // Automatically determine if expense is tax deductible:
-      // - Business expenses are always deductible
-      // - Mixed expenses have a business portion that is deductible
-      // - Personal expenses are not deductible
-      const isTaxDeductible = data.expenseType === "business" || data.expenseType === "mixed";
-      
       const payload: any = {
         amount: amount.toString(),
         baseCost: baseCost.toString(),
@@ -638,7 +619,7 @@ export default function ExpensesPage() {
         vehicleId: data.vehicleId,
         vendor: data.vendor,
         description: data.description,
-        isTaxDeductible: isTaxDeductible,
+        isTaxDeductible: data.isTaxDeductible,
         expenseType: data.expenseType,
         businessPercentage: data.expenseType === "mixed" && data.businessPercentage ? data.businessPercentage : undefined,
       };
@@ -736,7 +717,7 @@ export default function ExpensesPage() {
         vehicleId: expense.vehicleId || "",
         vendor: expense.vendor || "",
         description: expense.description || "",
-        isTaxDeductible: ((expense as any).expenseType || "business") === "business" || ((expense as any).expenseType || "business") === "mixed",
+        isTaxDeductible: expense.isTaxDeductible ?? true,
         expenseType: (expense as any).expenseType || "business",
         businessPercentage: (expense as any).businessPercentage ? (expense as any).businessPercentage.toString() : "",
       });
@@ -757,7 +738,7 @@ export default function ExpensesPage() {
         vehicleId: expense.vehicleId || "",
         vendor: expense.vendor || "",
         description: expense.description || "",
-        isTaxDeductible: ((expense as any).expenseType || "business") === "business" || ((expense as any).expenseType || "business") === "mixed",
+        isTaxDeductible: expense.isTaxDeductible ?? true,
         expenseType: (expense as any).expenseType || "business",
         businessPercentage: (expense as any).businessPercentage ? (expense as any).businessPercentage.toString() : "",
       });
@@ -818,33 +799,9 @@ export default function ExpensesPage() {
 
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount), 0);
   const deductibleExpenses = filteredExpenses.reduce((sum, item) => {
-    // Get expense type and business percentage (stored as additional fields)
-    const expenseType = (item as any).expenseType || "business";
-    const businessPercentage = (item as any).businessPercentage ? parseFloat((item as any).businessPercentage.toString()) : null;
-    
-    // Calculate deductible amount based on expense type
-    // Deductible amount = total amount minus GST (GST is claimed separately)
-    let deductibleAmount = 0;
-    const totalAmount = parseFloat(item.amount);
-    const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
-    const amountExcludingGst = totalAmount - gstAmount;
-    
-    if (expenseType === "business") {
-      // Business expenses: 100% of amount excluding GST is deductible
-      deductibleAmount = amountExcludingGst;
-    } else if (expenseType === "mixed" && businessPercentage !== null && !isNaN(businessPercentage)) {
-      // Mixed expenses: only business percentage of amount excluding GST is deductible
-      deductibleAmount = amountExcludingGst * (businessPercentage / 100);
-    } else if (expenseType === "personal") {
-      // Personal expenses: 0% deductible
-      deductibleAmount = 0;
-    } else {
-      // Fallback: if expenseType is missing, check isTaxDeductible flag
-      // This handles legacy expenses that might not have expenseType
-      deductibleAmount = item.isTaxDeductible ? amountExcludingGst : 0;
-    }
-    
-    return sum + deductibleAmount;
+    const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
+    const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
+    return sum + baseCost + pstAmount;
   }, 0);
   const totalGstCredits = filteredExpenses.reduce((sum, item) => {
     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
@@ -1316,6 +1273,27 @@ export default function ExpensesPage() {
                         </FormItem>
                       )}
                     />
+                    <FormField
+                      control={form.control}
+                      name="isTaxDeductible"
+                      render={({ field }) => (
+                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                          <div className="space-y-0.5">
+                            <FormLabel className="text-base">Tax Deductible</FormLabel>
+                            <FormDescription>
+                              Mark this expense as a business deduction
+                            </FormDescription>
+                          </div>
+                          <FormControl>
+                            <Switch
+                              checked={field.value}
+                              onCheckedChange={field.onChange}
+                              data-testid="switch-tax-deductible"
+                            />
+                          </FormControl>
+                        </FormItem>
+                      )}
+                    />
                   </form>
                 </Form>
               </div>
@@ -1420,28 +1398,7 @@ export default function ExpensesPage() {
                     const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
                     const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
                     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
-                    
-                    // Calculate deductible amount based on expense type
-                    // Deductible amount = total amount minus GST (GST is claimed separately)
-                    const expenseType = (item as any).expenseType || "business";
-                    const businessPercentage = (item as any).businessPercentage ? parseFloat((item as any).businessPercentage.toString()) : null;
-                    const totalAmount = parseFloat(item.amount);
-                    const amountExcludingGst = totalAmount - gstAmount;
-                    
-                    let deductibleAmount = 0;
-                    if (expenseType === "business") {
-                      // Business expenses: 100% of amount excluding GST is deductible
-                      deductibleAmount = amountExcludingGst;
-                    } else if (expenseType === "mixed" && businessPercentage !== null && !isNaN(businessPercentage)) {
-                      // Mixed expenses: only business percentage of amount excluding GST is deductible
-                      deductibleAmount = amountExcludingGst * (businessPercentage / 100);
-                    } else if (expenseType === "personal") {
-                      // Personal expenses: 0% deductible
-                      deductibleAmount = 0;
-                    } else {
-                      // Fallback: if expenseType is missing, check isTaxDeductible flag
-                      deductibleAmount = item.isTaxDeductible ? amountExcludingGst : 0;
-                    }
+                    const deductibleAmount = baseCost + pstAmount;
                     
                     return (
                       <TableRow key={item.id} data-testid={`row-expense-${item.id}`}>
