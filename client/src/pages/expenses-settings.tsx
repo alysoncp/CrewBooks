@@ -54,7 +54,7 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle } from "@shared/schema";
+import { EXPENSE_CATEGORIES, PERSONAL_EXPENSE_CATEGORIES, type Expense, type User, type Vehicle } from "@shared/schema";
 import { getCategoryLabel } from "@/lib/format";
 
 // Define vehicle subcategories
@@ -120,6 +120,9 @@ export default function ExpensesSettingsPage() {
   // Local state to track selected categories (before saving)
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
 
+  // Personal expense categories state
+  const [selectedPersonalCategories, setSelectedPersonalCategories] = useState<Set<string>>(new Set());
+
   // Custom categories state
   const [customCategories, setCustomCategories] = useState<Set<string>>(new Set());
   const [newCustomCategory, setNewCustomCategory] = useState("");
@@ -173,6 +176,15 @@ export default function ExpensesSettingsPage() {
     return new Set(EXPENSE_CATEGORIES);
   }, [user]);
 
+  // Get enabled personal expense categories from user profile (default to all if not set)
+  const savedEnabledPersonalCategories = useMemo(() => {
+    if (user?.enabledPersonalExpenseCategories) {
+      return new Set(user.enabledPersonalExpenseCategories as string[]);
+    }
+    // Default: all personal categories enabled
+    return new Set(PERSONAL_EXPENSE_CATEGORIES);
+  }, [user]);
+
   // Extract custom categories (those not in EXPENSE_CATEGORIES)
   const savedCustomCategories = useMemo(() => {
     if (user?.enabledExpenseCategories) {
@@ -189,7 +201,8 @@ export default function ExpensesSettingsPage() {
     savedCustomCategories.forEach(cat => allSelected.add(cat));
     setSelectedCategories(allSelected);
     setCustomCategories(savedCustomCategories);
-  }, [savedEnabledCategories, savedCustomCategories]);
+    setSelectedPersonalCategories(savedEnabledPersonalCategories);
+  }, [savedEnabledCategories, savedCustomCategories, savedEnabledPersonalCategories]);
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = useMemo(() => {
@@ -225,13 +238,30 @@ export default function ExpensesSettingsPage() {
         return true;
       }
     }
+    // Check personal expense categories
+    if (selectedPersonalCategories.size !== savedEnabledPersonalCategories.size) {
+      return true;
+    }
+    const personalArray = Array.from(selectedPersonalCategories);
+    const savedPersonalArray = Array.from(savedEnabledPersonalCategories);
+    for (const category of personalArray) {
+      if (!savedEnabledPersonalCategories.has(category)) {
+        return true;
+      }
+    }
+    for (const category of savedPersonalArray) {
+      if (!selectedPersonalCategories.has(category)) {
+        return true;
+      }
+    }
     return false;
-  }, [selectedCategories, savedEnabledCategories, customCategories, savedCustomCategories]);
+  }, [selectedCategories, savedEnabledCategories, customCategories, savedCustomCategories, selectedPersonalCategories, savedEnabledPersonalCategories]);
 
   const updateEnabledCategoriesMutation = useMutation({
-    mutationFn: async (categories: string[]) => {
+    mutationFn: async ({ businessCategories, personalCategories }: { businessCategories: string[], personalCategories: string[] }) => {
       const response = await apiRequest("PATCH", "/api/user/profile", {
-        enabledExpenseCategories: categories,
+        enabledExpenseCategories: businessCategories,
+        enabledPersonalExpenseCategories: personalCategories,
       });
       if (!response.ok) {
         const errorData = await response.json();
@@ -239,7 +269,10 @@ export default function ExpensesSettingsPage() {
       }
       return response.json();
     },
-    onSuccess: () => {
+    onSuccess: (updatedUser) => {
+      // Update the query cache with the returned data for immediate UI update
+      queryClient.setQueryData(["/api/user/profile"], updatedUser);
+      // Also invalidate to ensure consistency
       queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
       toast({
         title: "Categories updated",
@@ -267,10 +300,23 @@ export default function ExpensesSettingsPage() {
     });
   };
 
+  const togglePersonalCategory = (category: string, checked: boolean) => {
+    setSelectedPersonalCategories((prev) => {
+      const updated = new Set(prev);
+      if (checked) {
+        updated.add(category);
+      } else {
+        updated.delete(category);
+      }
+      return updated;
+    });
+  };
+
   const handleSave = () => {
     // Combine predefined and custom categories
-    const allCategories = [...Array.from(selectedCategories), ...Array.from(customCategories)];
-    updateEnabledCategoriesMutation.mutate(allCategories);
+    const allBusinessCategories = [...Array.from(selectedCategories), ...Array.from(customCategories)];
+    const allPersonalCategories = Array.from(selectedPersonalCategories);
+    updateEnabledCategoriesMutation.mutate({ businessCategories: allBusinessCategories, personalCategories: allPersonalCategories });
   };
 
   const handleAddCustomCategory = () => {
@@ -509,7 +555,7 @@ export default function ExpensesSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Expense Categories</CardTitle>
+          <CardTitle>Business Expense Categories</CardTitle>
           <CardDescription>
             Select which type of business expenses you have
           </CardDescription>
@@ -735,6 +781,49 @@ export default function ExpensesSettingsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Personal Expense Categories</CardTitle>
+          <CardDescription>
+            Select which personal expense categories you want to track (CRA deductible/credit-generating expenses)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {PERSONAL_EXPENSE_CATEGORIES.map((category) => {
+              const isEnabled = selectedPersonalCategories.has(category);
+              const count = categoryCounts.get(category) || 0;
+              return (
+                <div
+                  key={category}
+                  className="flex items-center justify-between p-3 rounded-lg border"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    <Checkbox
+                      id={`personal-category-${category}`}
+                      checked={isEnabled}
+                      onCheckedChange={(checked) => togglePersonalCategory(category, checked as boolean)}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                    />
+                    <label
+                      htmlFor={`personal-category-${category}`}
+                      className="font-medium cursor-pointer flex-1"
+                    >
+                      {getCategoryLabel(category)}
+                    </label>
+                    {count > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {count} expense{count !== 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+          </div>
           <div className="mt-6 flex justify-end">
             <Button
               onClick={handleSave}

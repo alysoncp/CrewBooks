@@ -209,9 +209,16 @@ export async function registerRoutes(
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
+      console.log("[AUTH] Fetching user:", userId);
       const user = await storage.getUser(userId);
+      if (!user) {
+        console.log("[AUTH] User not found:", userId);
+        return res.status(404).json({ message: "User not found" });
+      }
+      console.log("[AUTH] User found:", user.email);
       res.json(user);
     } catch (error) {
+      console.error("[AUTH] Error fetching user:", error);
       res.status(500).json({ message: "Failed to fetch user" });
     }
   });
@@ -261,13 +268,28 @@ export async function registerRoutes(
         profileData.hasHomeOffice = Boolean(profileData.hasHomeOffice);
       }
       
+      // Ensure enabledPersonalExpenseCategories is properly formatted as an array
+      if (profileData.enabledPersonalExpenseCategories !== undefined) {
+        profileData.enabledPersonalExpenseCategories = Array.isArray(profileData.enabledPersonalExpenseCategories) 
+          ? profileData.enabledPersonalExpenseCategories 
+          : [];
+      }
+      
+      // Ensure enabledExpenseCategories is properly formatted as an array
+      if (profileData.enabledExpenseCategories !== undefined) {
+        profileData.enabledExpenseCategories = Array.isArray(profileData.enabledExpenseCategories) 
+          ? profileData.enabledExpenseCategories 
+          : [];
+      }
+      
       const updated = await storage.updateUser(userId, profileData);
       if (!updated) {
         return res.status(404).json({ error: "User not found" });
       }
       res.json(updated);
     } catch (error) {
-      res.status(500).json({ error: "Failed to update profile" });
+      console.error("Error updating user profile:", error);
+      res.status(500).json({ error: "Failed to update profile", details: error instanceof Error ? error.message : String(error) });
     }
   });
 

@@ -58,7 +58,7 @@ import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
+import { EXPENSE_CATEGORIES, PERSONAL_EXPENSE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaxYear } from "@/components/tax-year-provider";
 import React from "react";
@@ -129,6 +129,11 @@ const expenseFormSchema = z.object({
   vendor: z.string().optional(),
   description: z.string().optional(),
   isTaxDeductible: z.boolean().default(true),
+  expenseType: z.enum(["business", "personal", "mixed"]).default("business"),
+  businessPercentage: z.string().optional().refine((val) => {
+    // This will be validated in the refine below
+    return true;
+  }),
 }).refine((data) => {
   if (data.category === 'motor_vehicle_expenses' && !data.vehicleId) {
     return false;
@@ -145,6 +150,19 @@ const expenseFormSchema = z.object({
 }, {
   message: "Please enter either base cost or total amount",
   path: ["baseCost"],
+}).refine((data) => {
+  // If expenseType is "mixed", businessPercentage must be provided and between 0-100
+  if (data.expenseType === "mixed") {
+    if (!data.businessPercentage || data.businessPercentage.trim() === "") {
+      return false;
+    }
+    const percentage = parseFloat(data.businessPercentage);
+    return !isNaN(percentage) && percentage >= 0 && percentage <= 100;
+  }
+  return true;
+}, {
+  message: "Business percentage must be between 0 and 100",
+  path: ["businessPercentage"],
 });
 
 type ExpenseFormData = z.input<typeof expenseFormSchema>;
@@ -207,6 +225,15 @@ export default function ExpensesPage() {
     return [];
   }, [userProfile]);
 
+  // Get enabled personal expense categories from user profile
+  const enabledPersonalCategories = useMemo(() => {
+    if (userProfile?.enabledPersonalExpenseCategories) {
+      return new Set(userProfile.enabledPersonalExpenseCategories as string[]);
+    }
+    // Default: all personal categories enabled
+    return new Set(PERSONAL_EXPENSE_CATEGORIES);
+  }, [userProfile]);
+
   // Filter categories to only show enabled ones, and include custom categories
   // Deduplicate to prevent React key warnings
   const availableCategories = useMemo(() => {
@@ -216,6 +243,11 @@ export default function ExpensesPage() {
     // Use Set to ensure uniqueness, then convert back to array
     return Array.from(new Set([...predefined, ...custom]));
   }, [enabledCategories, customCategories]);
+
+  // Get available personal expense categories
+  const availablePersonalCategories = useMemo(() => {
+    return PERSONAL_EXPENSE_CATEGORIES.filter((category) => enabledPersonalCategories.has(category));
+  }, [enabledPersonalCategories]);
 
   // Move form definition BEFORE the useEffect that uses it
   const form = useForm<ExpenseFormData>({
@@ -234,6 +266,8 @@ export default function ExpensesPage() {
       vendor: "",
       description: "",
       isTaxDeductible: true,
+      expenseType: "business",
+      businessPercentage: "",
     },
   });
 
@@ -247,6 +281,14 @@ export default function ExpensesPage() {
   const pstAmountValue = form.watch("pstAmount");
   const gstIncluded = form.watch("gstIncluded");
   const pstIncluded = form.watch("pstIncluded");
+  const expenseType = form.watch("expenseType");
+  
+  // Automatically set isTaxDeductible based on expenseType
+  // Business and mixed expenses are deductible (business portion of mixed is deductible)
+  useEffect(() => {
+    const isDeductible = expenseType === "business" || expenseType === "mixed";
+    form.setValue("isTaxDeductible", isDeductible, { shouldValidate: false });
+  }, [expenseType, form]);
 
   // Effect to calculate total when baseCost changes
   useEffect(() => {
@@ -406,7 +448,9 @@ export default function ExpensesPage() {
               category: data.expenseData.category || "",
               vendor: data.expenseData.vendor || "",
               description: data.expenseData.description || "",
-              isTaxDeductible: data.expenseData.isTaxDeductible !== false,
+              isTaxDeductible: (data.expenseData.expenseType || "business") === "business" || (data.expenseData.expenseType || "business") === "mixed",
+              expenseType: data.expenseData.expenseType || "business",
+              businessPercentage: data.expenseData.businessPercentage ? data.expenseData.businessPercentage.toString() : "",
             });
           } else {
             // No OCR data available - reset to blank form
@@ -422,7 +466,9 @@ export default function ExpensesPage() {
               category: "",
               vendor: "",
               description: "",
-              isTaxDeductible: true,
+              isTaxDeductible: true, // Business expenses are deductible by default
+              expenseType: "business",
+              businessPercentage: "",
             });
           }
           
@@ -446,6 +492,8 @@ export default function ExpensesPage() {
             vendor: "",
             description: "",
             isTaxDeductible: true,
+            expenseType: "business",
+            businessPercentage: "",
           });
           // Open dialog so user can create expense manually
           setTimeout(() => setIsDialogOpen(true), 0);
@@ -489,6 +537,12 @@ export default function ExpensesPage() {
         amount = baseCost + gstAmount + pstAmount;
       }
 
+      // Automatically determine if expense is tax deductible:
+      // - Business expenses are always deductible
+      // - Mixed expenses have a business portion that is deductible
+      // - Personal expenses are not deductible
+      const isTaxDeductible = data.expenseType === "business" || data.expenseType === "mixed";
+      
       const payload: any = {
         amount: amount.toString(),
         baseCost: baseCost.toString(),
@@ -501,7 +555,9 @@ export default function ExpensesPage() {
         vehicleId: data.vehicleId,
         vendor: data.vendor,
         description: data.description,
-        isTaxDeductible: data.isTaxDeductible,
+        isTaxDeductible: isTaxDeductible,
+        expenseType: data.expenseType,
+        businessPercentage: data.expenseType === "mixed" && data.businessPercentage ? data.businessPercentage : undefined,
       };
       
       // Link receipt if creating from receipt
@@ -564,6 +620,12 @@ export default function ExpensesPage() {
         amount = baseCost + gstAmount + pstAmount;
       }
 
+      // Automatically determine if expense is tax deductible:
+      // - Business expenses are always deductible
+      // - Mixed expenses have a business portion that is deductible
+      // - Personal expenses are not deductible
+      const isTaxDeductible = data.expenseType === "business" || data.expenseType === "mixed";
+      
       const payload: any = {
         amount: amount.toString(),
         baseCost: baseCost.toString(),
@@ -576,7 +638,9 @@ export default function ExpensesPage() {
         vehicleId: data.vehicleId,
         vendor: data.vendor,
         description: data.description,
-        isTaxDeductible: data.isTaxDeductible,
+        isTaxDeductible: isTaxDeductible,
+        expenseType: data.expenseType,
+        businessPercentage: data.expenseType === "mixed" && data.businessPercentage ? data.businessPercentage : undefined,
       };
       return apiRequest("PATCH", `/api/expenses/${id}`, payload);
     },
@@ -672,7 +736,9 @@ export default function ExpensesPage() {
         vehicleId: expense.vehicleId || "",
         vendor: expense.vendor || "",
         description: expense.description || "",
-        isTaxDeductible: expense.isTaxDeductible ?? true,
+        isTaxDeductible: ((expense as any).expenseType || "business") === "business" || ((expense as any).expenseType || "business") === "mixed",
+        expenseType: (expense as any).expenseType || "business",
+        businessPercentage: (expense as any).businessPercentage ? (expense as any).businessPercentage.toString() : "",
       });
       setLastEditedField("baseCost");
     } else {
@@ -691,7 +757,9 @@ export default function ExpensesPage() {
         vehicleId: expense.vehicleId || "",
         vendor: expense.vendor || "",
         description: expense.description || "",
-        isTaxDeductible: expense.isTaxDeductible ?? true,
+        isTaxDeductible: ((expense as any).expenseType || "business") === "business" || ((expense as any).expenseType || "business") === "mixed",
+        expenseType: (expense as any).expenseType || "business",
+        businessPercentage: (expense as any).businessPercentage ? (expense as any).businessPercentage.toString() : "",
       });
       setLastEditedField("total");
     }
@@ -722,6 +790,8 @@ export default function ExpensesPage() {
           vendor: "",
           description: "",
           isTaxDeductible: true,
+          expenseType: "business",
+          businessPercentage: "",
         });
         setLastEditedField(null);
       }
@@ -748,9 +818,33 @@ export default function ExpensesPage() {
 
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount), 0);
   const deductibleExpenses = filteredExpenses.reduce((sum, item) => {
-    const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
-    const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
-    return sum + baseCost + pstAmount;
+    // Get expense type and business percentage (stored as additional fields)
+    const expenseType = (item as any).expenseType || "business";
+    const businessPercentage = (item as any).businessPercentage ? parseFloat((item as any).businessPercentage.toString()) : null;
+    
+    // Calculate deductible amount based on expense type
+    // Deductible amount = total amount minus GST (GST is claimed separately)
+    let deductibleAmount = 0;
+    const totalAmount = parseFloat(item.amount);
+    const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
+    const amountExcludingGst = totalAmount - gstAmount;
+    
+    if (expenseType === "business") {
+      // Business expenses: 100% of amount excluding GST is deductible
+      deductibleAmount = amountExcludingGst;
+    } else if (expenseType === "mixed" && businessPercentage !== null && !isNaN(businessPercentage)) {
+      // Mixed expenses: only business percentage of amount excluding GST is deductible
+      deductibleAmount = amountExcludingGst * (businessPercentage / 100);
+    } else if (expenseType === "personal") {
+      // Personal expenses: 0% deductible
+      deductibleAmount = 0;
+    } else {
+      // Fallback: if expenseType is missing, check isTaxDeductible flag
+      // This handles legacy expenses that might not have expenseType
+      deductibleAmount = item.isTaxDeductible ? amountExcludingGst : 0;
+    }
+    
+    return sum + deductibleAmount;
   }, 0);
   const totalGstCredits = filteredExpenses.reduce((sum, item) => {
     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
@@ -779,8 +873,8 @@ export default function ExpensesPage() {
                 Add Expense
               </Button>
             </DialogTrigger>
-            <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
-              <DialogHeader>
+            <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col !overflow-hidden">
+              <DialogHeader className="flex-shrink-0">
                 <DialogTitle>
                   {editingExpense 
                     ? "Edit Expense" 
@@ -797,7 +891,7 @@ export default function ExpensesPage() {
                 </DialogDescription>
               </DialogHeader>
               {receiptImageUrl && (
-                <div className="mb-4 rounded-lg border p-2">
+                <div className="mb-4 rounded-lg border p-2 flex-shrink-0">
                   <img
                     src={receiptImageUrl}
                     alt="Receipt"
@@ -805,7 +899,7 @@ export default function ExpensesPage() {
                   />
                 </div>
               )}
-              <div className="overflow-y-auto flex-1 pr-2">
+              <div className="overflow-y-auto flex-1 min-h-0 pr-2">
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                     <div className="space-y-4 rounded-lg border p-4">
@@ -1016,6 +1110,60 @@ export default function ExpensesPage() {
                     />
                     <FormField
                       control={form.control}
+                      name="expenseType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Expense Type</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select expense type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="business">Business</SelectItem>
+                              <SelectItem value="personal">Personal</SelectItem>
+                              <SelectItem value="mixed">Mixed (Business & Personal)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Select whether this expense is for business, personal use, or a mix of both
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    {expenseType === "mixed" && (
+                      <FormField
+                        control={form.control}
+                        name="businessPercentage"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Business Percentage</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  max="100"
+                                  placeholder="0.00"
+                                  className="pr-7 font-mono"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+                              </div>
+                            </FormControl>
+                            <FormDescription>
+                              What percentage of this expense is for business use? (0-100%)
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+                    <FormField
+                      control={form.control}
                       name="category"
                       render={({ field }) => (
                         <FormItem>
@@ -1030,11 +1178,19 @@ export default function ExpensesPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {availableCategories.map((category) => (
-                                <SelectItem key={category} value={category}>
-                                  {getCategoryLabel(category)}
-                                </SelectItem>
-                              ))}
+                              {expenseType === "personal" ? (
+                                availablePersonalCategories.map((category) => (
+                                  <SelectItem key={category} value={category}>
+                                    {getCategoryLabel(category)}
+                                  </SelectItem>
+                                ))
+                              ) : (
+                                availableCategories.map((category) => (
+                                  <SelectItem key={category} value={category}>
+                                    {getCategoryLabel(category)}
+                                  </SelectItem>
+                                ))
+                              )}
                             </SelectContent>
                           </Select>
                           <FormMessage />
@@ -1160,27 +1316,6 @@ export default function ExpensesPage() {
                         </FormItem>
                       )}
                     />
-                    <FormField
-                      control={form.control}
-                      name="isTaxDeductible"
-                      render={({ field }) => (
-                        <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                          <div className="space-y-0.5">
-                            <FormLabel className="text-base">Tax Deductible</FormLabel>
-                            <FormDescription>
-                              Mark this expense as a business deduction
-                            </FormDescription>
-                          </div>
-                          <FormControl>
-                            <Switch
-                              checked={field.value}
-                              onCheckedChange={field.onChange}
-                              data-testid="switch-tax-deductible"
-                            />
-                          </FormControl>
-                        </FormItem>
-                      )}
-                    />
                   </form>
                 </Form>
               </div>
@@ -1285,7 +1420,28 @@ export default function ExpensesPage() {
                     const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
                     const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
                     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
-                    const deductibleAmount = baseCost + pstAmount;
+                    
+                    // Calculate deductible amount based on expense type
+                    // Deductible amount = total amount minus GST (GST is claimed separately)
+                    const expenseType = (item as any).expenseType || "business";
+                    const businessPercentage = (item as any).businessPercentage ? parseFloat((item as any).businessPercentage.toString()) : null;
+                    const totalAmount = parseFloat(item.amount);
+                    const amountExcludingGst = totalAmount - gstAmount;
+                    
+                    let deductibleAmount = 0;
+                    if (expenseType === "business") {
+                      // Business expenses: 100% of amount excluding GST is deductible
+                      deductibleAmount = amountExcludingGst;
+                    } else if (expenseType === "mixed" && businessPercentage !== null && !isNaN(businessPercentage)) {
+                      // Mixed expenses: only business percentage of amount excluding GST is deductible
+                      deductibleAmount = amountExcludingGst * (businessPercentage / 100);
+                    } else if (expenseType === "personal") {
+                      // Personal expenses: 0% deductible
+                      deductibleAmount = 0;
+                    } else {
+                      // Fallback: if expenseType is missing, check isTaxDeductible flag
+                      deductibleAmount = item.isTaxDeductible ? amountExcludingGst : 0;
+                    }
                     
                     return (
                       <TableRow key={item.id} data-testid={`row-expense-${item.id}`}>
