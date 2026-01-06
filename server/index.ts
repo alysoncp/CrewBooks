@@ -3,7 +3,7 @@ import * as dotenv from "dotenv";
 dotenv.config();
 
 // Now import everything else
-import express, { type Request, Response, NextFunction } from "express";
+import express, { NextFunction, type Request, Response } from "express";
 import { createServer } from "http";
 import path from "path";
 
@@ -85,7 +85,10 @@ app.use((req, res, next) => {
   }
 
   const port = parseInt(process.env.PORT || "5000", 10);
-  httpServer.listen(port, "localhost", () => {
+  // Listen on 0.0.0.0 to accept connections from other devices on the network
+  httpServer.listen(port, "0.0.0.0", () => {
     log(`serving on port ${port}`);
+    console.log(`Backend server running on http://localhost:${port}`);
+    console.log(`Accessible from network at http://192.168.1.80:${port}`);
   });
 })();

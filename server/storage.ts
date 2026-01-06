@@ -56,6 +56,7 @@ export interface IStorage {
   getIncome(userId: string): Promise<Income[]>;
   getIncomeById(id: string): Promise<Income | undefined>;
   createIncome(income: InsertIncome): Promise<Income>;
+  updateIncome(id: string, data: Partial<InsertIncome>): Promise<Income | undefined>;
   deleteIncome(id: string): Promise<boolean>;
 
   getExpenses(userId: string): Promise<Expense[]>;
@@ -211,6 +212,15 @@ export class DatabaseStorage implements IStorage {
       .values(incomeData)
       .returning();
     return record;
+  }
+
+  async updateIncome(id: string, data: Partial<InsertIncome>): Promise<Income | undefined> {
+    const [record] = await db
+      .update(income)
+      .set(data)
+      .where(eq(income.id, id))
+      .returning();
+    return record || undefined;
   }
 
   async deleteIncome(id: string): Promise<boolean> {

@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Trash2, Camera, FileText, Search, Filter } from "lucide-react";
+import { Plus, Trash2, Camera, FileText, Search, Filter, DollarSign, Receipt, TrendingUp, Pencil } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -131,6 +131,7 @@ const ACCOUNTING_OFFICES = [
 
 export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [customAccountingOffice, setCustomAccountingOffice] = useState("");
   const [paystubIdForIncome, setPaystubIdForIncome] = useState<string | null>(null);
@@ -201,6 +202,7 @@ export default function IncomePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
       form.reset();
+      setEditingIncome(null);
       setCustomAccountingOffice(""); // Reset custom value
       const hadPaystub = !!paystubIdForIncome;
       setPaystubIdForIncome(null);
@@ -214,6 +216,47 @@ export default function IncomePage() {
       toast({
         title: "Error",
         description: "Failed to add income. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const updateMutation = useMutation({
+    mutationFn: async (data: IncomeFormData) => {
+      if (!editingIncome) throw new Error("No income selected for editing");
+      
+      const payload: any = {
+        ...data,
+        amount: data.amount.toString(),
+        accountingOffice: data.accountingOffice || null,
+        gstHstCollected: data.gstHstCollected?.toString() || null,
+        dues: data.dues?.toString() || null,
+        retirement: data.retirement?.toString() || null,
+        labour: data.labour?.toString() || null,
+        buyout: data.buyout?.toString() || null,
+        pension: data.pension?.toString() || null,
+        insurance: data.insurance?.toString() || null,
+      };
+      
+      const response = await apiRequest("PATCH", `/api/income/${editingIncome.id}`, payload);
+      return await response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setIsDialogOpen(false);
+      form.reset();
+      setEditingIncome(null);
+      setCustomAccountingOffice("");
+      toast({
+        title: "Income updated",
+        description: "Your income has been updated successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to update income. Please try again.",
         variant: "destructive",
       });
     },
@@ -247,10 +290,45 @@ export default function IncomePage() {
       ? customValue.trim()
       : data.accountingOffice;
     
-    createMutation.mutate({
+    const formData = {
       ...data,
       accountingOffice: accountingOfficeValue || data.accountingOffice,
+    };
+    
+    if (editingIncome) {
+      updateMutation.mutate(formData);
+    } else {
+      createMutation.mutate(formData);
+    }
+  };
+
+  const handleEdit = (income: Income) => {
+    setEditingIncome(income);
+    setCustomAccountingOffice("");
+    
+    // Pre-fill form with income data
+    form.reset({
+      amount: income.amount.toString(),
+      date: income.date,
+      incomeType: income.incomeType,
+      productionName: income.productionName || "",
+      accountingOffice: income.accountingOffice || "",
+      gstHstCollected: income.gstHstCollected ? income.gstHstCollected.toString() : "",
+      dues: "",
+      retirement: "",
+      labour: "",
+      buyout: "",
+      pension: "",
+      insurance: "",
     });
+    
+    // Handle custom accounting office
+    if (income.accountingOffice && !ACCOUNTING_OFFICES.find(o => o.value === income.accountingOffice)) {
+      setCustomAccountingOffice(income.accountingOffice);
+      form.setValue("accountingOffice", "other");
+    }
+    
+    setIsDialogOpen(true);
   };
 
   // Check for paystubId in URL params
@@ -402,7 +480,12 @@ export default function IncomePage() {
     });
   }, [incomeList, taxYear, searchQuery]);
 
-  const totalIncome = filteredIncome.reduce((sum, item) => sum + parseFloat(item.amount), 0);
+  const totalNetIncome = filteredIncome.reduce((sum, item) => sum + parseFloat(item.amount), 0);
+  const totalGstCollected = filteredIncome.reduce((sum, item) => {
+    const gst = item.gstHstCollected ? parseFloat(item.gstHstCollected.toString()) : 0;
+    return sum + gst;
+  }, 0);
+  const totalGrossIncome = totalNetIncome + totalGstCollected;
 
   return (
     <div className="space-y-6">
@@ -411,9 +494,26 @@ export default function IncomePage() {
           <h1 className="text-2xl font-semibold" data-testid="text-income-title">Income</h1>
           <p className="text-muted-foreground">Track your earnings from productions and gigs</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
+        <Dialog 
+          open={isDialogOpen} 
+          onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) {
+              setEditingIncome(null);
+              form.reset();
+              setCustomAccountingOffice("");
+            }
+          }}
+        >
           <DialogTrigger asChild>
-            <Button data-testid="button-add-income">
+            <Button 
+              data-testid="button-add-income"
+              onClick={() => {
+                setEditingIncome(null);
+                form.reset();
+                setCustomAccountingOffice("");
+              }}
+            >
               <Plus className="mr-2 h-4 w-4" />
               Add Income
             </Button>
@@ -421,7 +521,7 @@ export default function IncomePage() {
           <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col overflow-hidden">
             <DialogHeader>
               <DialogTitle>
-                {paystubIdForIncome ? "Create Income from Paystub" : "Add Income"}
+                {editingIncome ? "Edit Income" : paystubIdForIncome ? "Create Income from Paystub" : "Add Income"}
               </DialogTitle>
               {paystubIdForIncome && (
                 <p className="text-sm text-muted-foreground mt-2">
@@ -738,12 +838,69 @@ export default function IncomePage() {
               </Form>
             </div>
             <DialogFooter className="mt-4">
-              <Button type="submit" disabled={createMutation.isPending} data-testid="button-submit-income" onClick={form.handleSubmit(onSubmit)}>
-                {createMutation.isPending ? "Saving..." : "Save Income"}
+              <Button 
+                type="submit" 
+                disabled={createMutation.isPending || updateMutation.isPending} 
+                data-testid="button-submit-income" 
+                onClick={form.handleSubmit(onSubmit)}
+              >
+                {(createMutation.isPending || updateMutation.isPending) ? "Saving..." : editingIncome ? "Update Income" : "Save Income"}
               </Button>
             </DialogFooter>
           </DialogContent>
         </Dialog>
+      </div>
+
+      {/* Summary Widgets */}
+      <div className="grid gap-4 md:grid-cols-3">
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Gross Income</CardTitle>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+              <TrendingUp className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono text-2xl font-semibold" data-testid="widget-gross-income">
+                {formatCurrency(totalGrossIncome)}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">Net Income</CardTitle>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+              <DollarSign className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono text-2xl font-semibold" data-testid="widget-net-income">
+                {formatCurrency(totalNetIncome)}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
+          </CardContent>
+        </Card>
+        <Card>
+          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+            <CardTitle className="text-sm font-medium text-muted-foreground">GST/HST Collected</CardTitle>
+            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+              <Receipt className="h-4 w-4 text-muted-foreground" />
+            </div>
+          </CardHeader>
+          <CardContent>
+            <div className="flex items-baseline gap-2">
+              <span className="font-mono text-2xl font-semibold" data-testid="widget-total-gst">
+                {formatCurrency(totalGstCollected)}
+              </span>
+            </div>
+            <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
+          </CardContent>
+        </Card>
       </div>
 
       <Card>
@@ -752,7 +909,7 @@ export default function IncomePage() {
             <div>
               <CardTitle>Income History</CardTitle>
               <CardDescription>
-                Total for {taxYear}: <span className="font-mono font-semibold">{formatCurrency(totalIncome)}</span>
+                Total for {taxYear}: <span className="font-mono font-semibold">{formatCurrency(totalNetIncome)}</span>
               </CardDescription>
             </div>
             <div className="flex gap-2">
@@ -795,7 +952,7 @@ export default function IncomePage() {
                     <TableHead>Type</TableHead>
                     <TableHead>Production</TableHead>
                     <TableHead className="text-right">Amount</TableHead>
-                    <TableHead className="w-12"></TableHead>
+                    <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
@@ -818,34 +975,44 @@ export default function IncomePage() {
                         {formatCurrency(item.amount)}
                       </TableCell>
                       <TableCell>
-                        <AlertDialog>
-                          <AlertDialogTrigger asChild>
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              data-testid={`button-delete-income-${item.id}`}
-                            >
-                              <Trash2 className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          </AlertDialogTrigger>
-                          <AlertDialogContent>
-                            <AlertDialogHeader>
-                              <AlertDialogTitle>Delete income entry?</AlertDialogTitle>
-                              <AlertDialogDescription>
-                                This will permanently remove this income record. This action cannot be undone.
-                              </AlertDialogDescription>
-                            </AlertDialogHeader>
-                            <AlertDialogFooter>
-                              <AlertDialogCancel>Cancel</AlertDialogCancel>
-                              <AlertDialogAction
-                                onClick={() => deleteMutation.mutate(item.id)}
-                                className="bg-destructive text-destructive-foreground"
+                        <div className="flex items-center gap-1">
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => handleEdit(item)}
+                            data-testid={`button-edit-income-${item.id}`}
+                          >
+                            <Pencil className="h-4 w-4 text-muted-foreground" />
+                          </Button>
+                          <AlertDialog>
+                            <AlertDialogTrigger asChild>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                data-testid={`button-delete-income-${item.id}`}
                               >
-                                Delete
-                              </AlertDialogAction>
-                            </AlertDialogFooter>
-                          </AlertDialogContent>
-                        </AlertDialog>
+                                <Trash2 className="h-4 w-4 text-muted-foreground" />
+                              </Button>
+                            </AlertDialogTrigger>
+                            <AlertDialogContent>
+                              <AlertDialogHeader>
+                                <AlertDialogTitle>Delete income entry?</AlertDialogTitle>
+                                <AlertDialogDescription>
+                                  This will permanently remove this income record. This action cannot be undone.
+                                </AlertDialogDescription>
+                              </AlertDialogHeader>
+                              <AlertDialogFooter>
+                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogAction
+                                  onClick={() => deleteMutation.mutate(item.id)}
+                                  className="bg-destructive text-destructive-foreground"
+                                >
+                                  Delete
+                                </AlertDialogAction>
+                              </AlertDialogFooter>
+                            </AlertDialogContent>
+                          </AlertDialog>
+                        </div>
                       </TableCell>
                     </TableRow>
                   ))}

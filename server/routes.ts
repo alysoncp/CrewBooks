@@ -416,6 +416,30 @@ export async function registerRoutes(
     }
   });
 
+  app.patch("/api/income/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const incomeRecord = await storage.getIncomeById(req.params.id);
+      
+      if (!incomeRecord) {
+        return res.status(404).json({ error: "Income not found" });
+      }
+      
+      if (incomeRecord.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const updated = await storage.updateIncome(req.params.id, req.body);
+      if (!updated) {
+        return res.status(404).json({ error: "Income not found" });
+      }
+      
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update income" });
+    }
+  });
+
   app.delete("/api/income/:id", isAuthenticated, async (req, res) => {
     try {
       const deleted = await storage.deleteIncome(req.params.id);
