@@ -131,3 +131,13 @@ export function getIncomeTypeLabel(type: string): string {
   };
   return labels[type] || type;
 }
+
+export function getIncomeCategoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    film_tv: 'Film/TV Income',
+    regular_employment: 'Regular Employment Income',
+    other_self_employment: 'Other Self-Employment',
+    other: 'Other',
+  };
+  return labels[category] || category;
+}

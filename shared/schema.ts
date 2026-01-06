@@ -142,6 +142,16 @@ export const insertUserSchema = createInsertSchema(users).pick({
 
 export type InsertUser = z.infer<typeof insertUserSchema>;
 
+// Income Categories
+export const INCOME_CATEGORIES = {
+  FILM_TV: "film_tv",
+  REGULAR_EMPLOYMENT: "regular_employment",
+  OTHER_SELF_EMPLOYMENT: "other_self_employment",
+  OTHER: "other",
+} as const;
+
+export type IncomeCategory = typeof INCOME_CATEGORIES[keyof typeof INCOME_CATEGORIES];
+
 // Income Table
 export const income = pgTable("income", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -150,11 +160,18 @@ export const income = pgTable("income", {
   amount: numeric("amount", { precision: 12, scale: 2 }).notNull(), // Net pay
   date: date("date").notNull(),
   incomeType: text("income_type").notNull(),
-  productionName: text("production_name"),
-  accountingOffice: text("accounting_office"),
+  incomeCategory: text("income_category").default("film_tv"), // film_tv, regular_employment, other_self_employment, other
+  productionName: text("production_name"), // For Film/TV
+  accountingOffice: text("accounting_office"), // For Film/TV
+  employerName: text("employer_name"), // For Regular Employment
+  businessName: text("business_name"), // For Other Self-Employment
   description: text("description"),
   paystubImageUrl: text("paystub_image_url"),
   gstHstCollected: numeric("gst_hst_collected", { precision: 12, scale: 2 }),
+  // Deductions for Regular Employment
+  cppContribution: numeric("cpp_contribution", { precision: 12, scale: 2 }),
+  eiContribution: numeric("ei_contribution", { precision: 12, scale: 2 }),
+  incomeTaxDeduction: numeric("income_tax_deduction", { precision: 12, scale: 2 }),
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true });

@@ -29,11 +29,20 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { formatDate } from "@/lib/format";
-import type { Paystub } from "@shared/schema";
+import { formatDate, getIncomeCategoryLabel } from "@/lib/format";
+import { INCOME_CATEGORIES, type Paystub } from "@shared/schema";
 import { useLocation } from "wouter";
 
+const INCOME_CATEGORY_OPTIONS = [
+  { value: INCOME_CATEGORIES.FILM_TV, label: "Film/TV Income" },
+  { value: INCOME_CATEGORIES.REGULAR_EMPLOYMENT, label: "Regular Employment Income" },
+  { value: INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT, label: "Other Self-Employment" },
+  { value: INCOME_CATEGORIES.OTHER, label: "Other" },
+];
+
 export default function PaystubsPage() {
+  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
@@ -80,8 +89,9 @@ export default function PaystubsPage() {
           setNotes("");
           setScanWithOCR(false);
           
-          // Redirect to income page with paystubId to open income dialog
-          setLocation(`/income?paystubId=${firstPaystub.id}`);
+          // Redirect to income page with paystubId and category to open income dialog
+          const categoryParam = selectedCategory ? `&category=${selectedCategory}` : "";
+          setLocation(`/income?paystubId=${firstPaystub.id}${categoryParam}`);
           
           // Show appropriate toast based on OCR status
           if (firstPaystub.incomeData && firstPaystub.ocrStatus === "completed") {
@@ -107,6 +117,8 @@ export default function PaystubsPage() {
       
       // Fallback: just close dialog if something went wrong
       setIsDialogOpen(false);
+      setIsCategoryDialogOpen(false);
+      setSelectedCategory(null);
       setPreviewFiles([]);
       setNotes("");
       setScanWithOCR(false);
@@ -194,6 +206,20 @@ export default function PaystubsPage() {
     uploadMutation.mutate(previewFiles.map((p) => p.file));
   };
 
+  const handleCategorySelect = (category: string) => {
+    setSelectedCategory(category);
+    setIsCategoryDialogOpen(false);
+    setIsDialogOpen(true);
+  };
+
+  const handleUploadClick = () => {
+    setSelectedCategory(null);
+    setPreviewFiles([]);
+    setNotes("");
+    setScanWithOCR(false);
+    setIsCategoryDialogOpen(true);
+  };
+
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files).filter((f) =>
@@ -217,16 +243,69 @@ export default function PaystubsPage() {
           <h1 className="text-2xl font-semibold" data-testid="text-paystubs-title">Paystubs</h1>
           <p className="text-muted-foreground">Upload and manage your paystub photos</p>
         </div>
-        <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-          <DialogTrigger asChild>
-            <Button data-testid="button-upload-paystub">
-              <Upload className="mr-2 h-4 w-4" />
-              Upload Paystubs
-            </Button>
-          </DialogTrigger>
+        
+        {/* Category Selection Dialog */}
+        <Dialog 
+          open={isCategoryDialogOpen} 
+          onOpenChange={(open) => {
+            setIsCategoryDialogOpen(open);
+            if (!open) {
+              setSelectedCategory(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Income Type</DialogTitle>
+              <p className="text-sm text-muted-foreground mt-2">
+                Choose the type of income this paystub represents
+              </p>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              {INCOME_CATEGORY_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  variant="outline"
+                  className="w-full justify-start h-auto py-4 px-4"
+                  onClick={() => handleCategorySelect(option.value)}
+                >
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">{option.label}</span>
+                  </div>
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Upload Paystubs Button */}
+        <Button 
+          data-testid="button-upload-paystub"
+          onClick={handleUploadClick}
+        >
+          <Upload className="mr-2 h-4 w-4" />
+          Upload Paystubs
+        </Button>
+
+        {/* Upload Dialog */}
+        <Dialog 
+          open={isDialogOpen} 
+          onOpenChange={(open) => {
+            setIsDialogOpen(open);
+            if (!open) {
+              setSelectedCategory(null);
+              setIsCategoryDialogOpen(false);
+            }
+          }}
+        >
           <DialogContent className="sm:max-w-xl">
             <DialogHeader>
               <DialogTitle>Upload Paystubs</DialogTitle>
+              {selectedCategory && (
+                <p className="text-sm text-muted-foreground mt-2">
+                  Income Type: <span className="font-medium">{getIncomeCategoryLabel(selectedCategory)}</span>
+                </p>
+              )}
             </DialogHeader>
             <div className="space-y-4">
               <div
