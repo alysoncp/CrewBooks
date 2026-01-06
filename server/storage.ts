@@ -311,6 +311,21 @@ export class DatabaseStorage implements IStorage {
     return record || undefined;
   }
 
+  async getPaystubsByLinkedIncome(incomeId: string): Promise<Paystub[]> {
+    return await db
+      .select()
+      .from(paystubs)
+      .where(eq(paystubs.linkedIncomeId, incomeId));
+  }
+
+  async getIncomeByPaystub(paystubId: string): Promise<Income | undefined> {
+    const paystub = await this.getPaystubById(paystubId);
+    if (!paystub?.linkedIncomeId) {
+      return undefined;
+    }
+    return await this.getIncomeById(paystub.linkedIncomeId);
+  }
+
   async createPaystub(paystubData: InsertPaystub): Promise<Paystub> {
     const [record] = await db
       .insert(paystubs)

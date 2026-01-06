@@ -395,13 +395,74 @@ function parseEntertainmentPartners(data: any): NormalizedPaystub {
     });
   }
   
+  // Extract gross and net pay from ocr_text FIRST (most reliable for Entertainment Partners)
+  let grossPay: number | null = null;
+  let netPay: number | null = null;
+  
+  if (data.ocr_text) {
+    const ocrText = data.ocr_text;
+    
+    // Extract GROSS PAY from ocr_text (format: "GROSS PAY\t1234.56\t5678.90" or "Gross Pay\t1234.56" - first number is current period)
+    const grossPayMatch = ocrText.match(/\bGROSS\s+PAY\b[\t\s]+(\d+\.?\d*)/i);
+    if (grossPayMatch && grossPayMatch[1]) {
+      grossPay = extractNumeric(grossPayMatch[1]);
+      if (shouldLog && grossPay) console.log(`  → Extracted GROSS PAY from ocr_text: ${grossPay}`);
+    } else {
+      // Try "Gross Pay" (mixed case)
+      const grossPayMatch2 = ocrText.match(/\bGross\s+Pay\b[\t\s]+(\d+\.?\d*)/i);
+      if (grossPayMatch2 && grossPayMatch2[1]) {
+        grossPay = extractNumeric(grossPayMatch2[1]);
+        if (shouldLog && grossPay) console.log(`  → Extracted Gross Pay from ocr_text: ${grossPay}`);
+      } else {
+        // Try just "Gross"
+        const grossMatch = ocrText.match(/\bGross\b[\t\s]+(\d+\.?\d*)/i);
+        if (grossMatch && grossMatch[1]) {
+          grossPay = extractNumeric(grossMatch[1]);
+          if (shouldLog && grossPay) console.log(`  → Extracted Gross from ocr_text: ${grossPay}`);
+        }
+      }
+    }
+    
+    // Extract NET PAY from ocr_text (format: "NET PAY\t987.65\t4321.09" or "Net Pay\t987.65" - first number is current period)
+    const netPayMatch = ocrText.match(/\bNET\s+PAY\b[\t\s]+(\d+\.?\d*)/i);
+    if (netPayMatch && netPayMatch[1]) {
+      netPay = extractNumeric(netPayMatch[1]);
+      if (shouldLog && netPay) console.log(`  → Extracted NET PAY from ocr_text: ${netPay}`);
+    } else {
+      // Try "Net Pay" (mixed case)
+      const netPayMatch2 = ocrText.match(/\bNet\s+Pay\b[\t\s]+(\d+\.?\d*)/i);
+      if (netPayMatch2 && netPayMatch2[1]) {
+        netPay = extractNumeric(netPayMatch2[1]);
+        if (shouldLog && netPay) console.log(`  → Extracted Net Pay from ocr_text: ${netPay}`);
+      } else {
+        // Try just "Net"
+        const netMatch = ocrText.match(/\bNet\b[\t\s]+(\d+\.?\d*)/i);
+        if (netMatch && netMatch[1]) {
+          netPay = extractNumeric(netMatch[1]);
+          if (shouldLog && netPay) console.log(`  → Extracted Net from ocr_text: ${netPay}`);
+        }
+      }
+    }
+  }
+  
+  // Fallback to structured fields if ocr_text extraction failed
+  // Note: total field in raw OCR data often contains gross pay
+  if (!grossPay) {
+    grossPay = extractNumeric(data.gross_pay || data.gross || data.total);
+    if (shouldLog && grossPay) console.log(`  → Extracted Gross Pay from structured fields (gross_pay/gross/total): ${grossPay}`);
+  }
+  if (!netPay) {
+    // For net pay, prefer net_pay or net, but if total exists and subtotal exists, subtotal is likely net
+    netPay = extractNumeric(data.net_pay || data.net || (data.subtotal ? data.subtotal : data.total));
+    if (shouldLog && netPay) console.log(`  → Extracted Net Pay from structured fields: ${netPay}`);
+  }
+  
   const normalized: NormalizedPaystub = {
     issuer: "ENTERTAINMENT_PARTNERS",
     payPeriodStart: extractDate(data.pay_period_start || data.period_start || data.service_start_date),
     payPeriodEnd: extractDate(data.pay_period_end || data.period_end || data.service_end_date || data.date),
-    // Veryfi often uses subtotal for net pay and may not have gross_pay directly
-    grossPay: extractNumeric(data.gross_pay || data.gross),
-    netPay: extractNumeric(data.net_pay || data.net || data.subtotal || (data.total && data.subtotal ? data.subtotal : data.total)),
+    grossPay,
+    netPay,
     taxes: {},
     deductions: {},
     employerName: data.vendor?.name || data.merchant_name || null,
@@ -738,7 +799,8 @@ export function normalizedPaystubToIncomeData(
   
   // Use net pay as the amount (what the performer actually receives)
   const amount = normalized.netPay || normalized.grossPay || 0;
-  if (shouldLog) console.log("Calculated amount:", amount);
+  if (shouldLog) console.log("Calculated amount (net pay):", amount);
+  if (shouldLog) console.log("Gross pay:", normalized.grossPay);
   
   // Use pay period end date as the income date (when payment was received)
   const date = normalized.payPeriodEnd || normalized.payPeriodStart || new Date().toISOString().split("T")[0];
@@ -778,7 +840,8 @@ export function normalizedPaystubToIncomeData(
   const needsReview = normalized.confidence < 0.7;
 
   const result = {
-    amount: amount.toString(),
+    amount: amount.toString(), // Net pay
+    grossPay: normalized.grossPay ? normalized.grossPay.toString() : undefined,
     date,
     incomeType: defaultIncomeType,
     productionName: normalized.employerName || undefined,

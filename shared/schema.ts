@@ -146,7 +146,8 @@ export type InsertUser = z.infer<typeof insertUserSchema>;
 export const income = pgTable("income", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
   userId: varchar("user_id").notNull(),
-  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(),
+  grossPay: numeric("gross_pay", { precision: 12, scale: 2 }),
+  amount: numeric("amount", { precision: 12, scale: 2 }).notNull(), // Net pay
   date: date("date").notNull(),
   incomeType: text("income_type").notNull(),
   productionName: text("production_name"),

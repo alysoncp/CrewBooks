@@ -440,8 +440,56 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/income/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/income/:id/linked-paystubs", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
+      const incomeRecord = await storage.getIncomeById(req.params.id);
+      
+      if (!incomeRecord) {
+        return res.status(404).json({ error: "Income not found" });
+      }
+      
+      if (incomeRecord.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const linkedPaystubs = await storage.getPaystubsByLinkedIncome(req.params.id);
+      res.json(linkedPaystubs);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get linked paystubs" });
+    }
+  });
+
+  app.delete("/api/income/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const incomeRecord = await storage.getIncomeById(req.params.id);
+      
+      if (!incomeRecord) {
+        return res.status(404).json({ error: "Income not found" });
+      }
+      
+      if (incomeRecord.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Check if there are linked paystubs
+      const linkedPaystubs = await storage.getPaystubsByLinkedIncome(req.params.id);
+      const deleteLinkedPaystubs = req.query.deleteLinkedPaystubs === "true";
+      
+      if (deleteLinkedPaystubs) {
+        // Delete linked paystubs
+        for (const paystub of linkedPaystubs) {
+          if (paystub.imageUrl) {
+            const filePath = path.join(process.cwd(), paystub.imageUrl);
+            if (fs.existsSync(filePath)) {
+              fs.unlinkSync(filePath);
+            }
+          }
+          await storage.deletePaystub(paystub.id);
+        }
+      }
+      
       const deleted = await storage.deleteIncome(req.params.id);
       if (!deleted) {
         return res.status(404).json({ error: "Income not found" });
@@ -1115,10 +1163,48 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/paystubs/:id", isAuthenticated, async (req, res) => {
+  app.get("/api/paystubs/:id/linked-income", isAuthenticated, async (req: any, res) => {
     try {
+      const userId = getUserId(req);
       const paystub = await storage.getPaystubById(req.params.id);
-      if (paystub?.imageUrl) {
+      
+      if (!paystub) {
+        return res.status(404).json({ error: "Paystub not found" });
+      }
+      
+      if (paystub.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      const linkedIncome = await storage.getIncomeByPaystub(req.params.id);
+      res.json(linkedIncome || null);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get linked income" });
+    }
+  });
+
+  app.delete("/api/paystubs/:id", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const paystub = await storage.getPaystubById(req.params.id);
+      
+      if (!paystub) {
+        return res.status(404).json({ error: "Paystub not found" });
+      }
+      
+      if (paystub.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+      
+      // Check if there is linked income
+      const linkedIncome = await storage.getIncomeByPaystub(req.params.id);
+      const deleteLinkedIncome = req.query.deleteLinkedIncome === "true";
+      
+      if (deleteLinkedIncome && linkedIncome) {
+        await storage.deleteIncome(linkedIncome.id);
+      }
+      
+      if (paystub.imageUrl) {
         const filePath = path.join(process.cwd(), paystub.imageUrl);
         if (fs.existsSync(filePath)) {
           fs.unlinkSync(filePath);

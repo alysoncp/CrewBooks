@@ -60,6 +60,13 @@ import { useAuth } from "@/hooks/useAuth";
 import { useTaxYear } from "@/components/tax-year-provider";
 
 const incomeFormSchema = z.object({
+  grossPay: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Gross pay must be a valid number",
+  }).transform((v) => v ? parseFloat(v) : undefined),
   amount: z.string().min(1, "Amount is required").refine((val) => {
     const num = parseFloat(val);
     return !isNaN(num) && isFinite(num) && num >= 0;
@@ -149,6 +156,7 @@ export default function IncomePage() {
     resolver: zodResolver(incomeFormSchema),
     mode: "onBlur", // Validate on blur for immediate feedback
     defaultValues: {
+      grossPay: "",
       amount: "",
       date: getTodayLocalDateString(),
       incomeType: "",
@@ -168,6 +176,7 @@ export default function IncomePage() {
     mutationFn: async (data: IncomeFormData) => {
       const payload: any = {
         ...data,
+        grossPay: data.grossPay?.toString() || null,
         amount: data.amount.toString(),
         accountingOffice: data.accountingOffice || null,
         gstHstCollected: data.gstHstCollected?.toString() || null,
@@ -227,6 +236,7 @@ export default function IncomePage() {
       
       const payload: any = {
         ...data,
+        grossPay: data.grossPay?.toString() || null,
         amount: data.amount.toString(),
         accountingOffice: data.accountingOffice || null,
         gstHstCollected: data.gstHstCollected?.toString() || null,
@@ -262,13 +272,39 @@ export default function IncomePage() {
     },
   });
 
+  const [deletingIncomeId, setDeletingIncomeId] = useState<string | null>(null);
+  const [linkedPaystubs, setLinkedPaystubs] = useState<any[]>([]);
+  const [deleteLinkedPaystubs, setDeleteLinkedPaystubs] = useState(false);
+
+  const { data: linkedPaystubsData } = useQuery({
+    queryKey: ["/api/income", deletingIncomeId, "linked-paystubs"],
+    queryFn: async () => {
+      if (!deletingIncomeId) return [];
+      const response = await fetch(`/api/income/${deletingIncomeId}/linked-paystubs`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+    enabled: !!deletingIncomeId,
+  });
+
+  useEffect(() => {
+    if (linkedPaystubsData) {
+      setLinkedPaystubs(linkedPaystubsData);
+    }
+  }, [linkedPaystubsData]);
+
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/income/${id}`);
+    mutationFn: async ({ id, deleteLinked }: { id: string; deleteLinked: boolean }) => {
+      const url = `/api/income/${id}${deleteLinked ? "?deleteLinkedPaystubs=true" : ""}`;
+      return apiRequest("DELETE", url);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setDeletingIncomeId(null);
+      setLinkedPaystubs([]);
+      setDeleteLinkedPaystubs(false);
       toast({
         title: "Income deleted",
         description: "The income entry has been removed.",
@@ -308,6 +344,7 @@ export default function IncomePage() {
     
     // Pre-fill form with income data
     form.reset({
+      grossPay: income.grossPay ? income.grossPay.toString() : "",
       amount: income.amount.toString(),
       date: income.date,
       incomeType: income.incomeType,
@@ -414,7 +451,9 @@ export default function IncomePage() {
             
             // Pre-fill form with OCR data
             const ocrAmount = data.incomeData.amount ? parseFloat(data.incomeData.amount.toString()) : 0;
+            const ocrGrossPay = data.incomeData.grossPay ? parseFloat(data.incomeData.grossPay.toString()) : 0;
             console.log("Setting form values:", {
+              grossPay: ocrGrossPay,
               amount: ocrAmount,
               date: data.incomeData.date,
               incomeType: data.incomeData.incomeType,
@@ -422,6 +461,7 @@ export default function IncomePage() {
               accountingOffice: data.incomeData.accountingOffice,
             });
             form.reset({
+              grossPay: ocrGrossPay > 0 ? ocrGrossPay.toString() : "",
               amount: ocrAmount > 0 ? ocrAmount.toString() : "",
               date: data.incomeData.date || getTodayLocalDateString(),
               incomeType: data.incomeData.incomeType || "",
@@ -541,6 +581,30 @@ export default function IncomePage() {
             <div className="overflow-y-auto flex-1 pr-2">
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="grossPay"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Gross Pay (Optional)</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-gross-pay"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name="amount"
@@ -951,7 +1015,8 @@ export default function IncomePage() {
                     <TableHead>Date</TableHead>
                     <TableHead>Type</TableHead>
                     <TableHead>Production</TableHead>
-                    <TableHead className="text-right">Amount</TableHead>
+                    <TableHead className="text-right">Gross Pay</TableHead>
+                    <TableHead className="text-right">Net Pay</TableHead>
                     <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -970,6 +1035,9 @@ export default function IncomePage() {
                         <div>
                           <p className="font-medium">{item.productionName || "—"}</p>
                         </div>
+                      </TableCell>
+                      <TableCell className="text-right font-mono text-muted-foreground">
+                        {item.grossPay ? formatCurrency(item.grossPay) : "—"}
                       </TableCell>
                       <TableCell className="text-right font-mono font-medium text-green-600 dark:text-green-400">
                         {formatCurrency(item.amount)}
@@ -990,6 +1058,7 @@ export default function IncomePage() {
                                 variant="ghost"
                                 size="icon"
                                 data-testid={`button-delete-income-${item.id}`}
+                                onClick={() => setDeletingIncomeId(item.id)}
                               >
                                 <Trash2 className="h-4 w-4 text-muted-foreground" />
                               </Button>
@@ -999,12 +1068,37 @@ export default function IncomePage() {
                                 <AlertDialogTitle>Delete income entry?</AlertDialogTitle>
                                 <AlertDialogDescription>
                                   This will permanently remove this income record. This action cannot be undone.
+                                  {linkedPaystubs.length > 0 && (
+                                    <div className="mt-4 space-y-2">
+                                      <p className="text-sm font-medium">
+                                        This income entry is linked to {linkedPaystubs.length} paystub{linkedPaystubs.length > 1 ? "s" : ""}.
+                                      </p>
+                                      <div className="flex items-center space-x-2">
+                                        <input
+                                          type="checkbox"
+                                          id="delete-linked-paystubs"
+                                          checked={deleteLinkedPaystubs}
+                                          onChange={(e) => setDeleteLinkedPaystubs(e.target.checked)}
+                                          className="h-4 w-4 rounded border-gray-300"
+                                        />
+                                        <label htmlFor="delete-linked-paystubs" className="text-sm">
+                                          Also delete linked paystub{linkedPaystubs.length > 1 ? "s" : ""}
+                                        </label>
+                                      </div>
+                                    </div>
+                                  )}
                                 </AlertDialogDescription>
                               </AlertDialogHeader>
                               <AlertDialogFooter>
-                                <AlertDialogCancel>Cancel</AlertDialogCancel>
+                                <AlertDialogCancel onClick={() => {
+                                  setDeletingIncomeId(null);
+                                  setDeleteLinkedPaystubs(false);
+                                }}>Cancel</AlertDialogCancel>
                                 <AlertDialogAction
-                                  onClick={() => deleteMutation.mutate(item.id)}
+                                  onClick={() => deleteMutation.mutate({ 
+                                    id: item.id, 
+                                    deleteLinked: deleteLinkedPaystubs 
+                                  })}
                                   className="bg-destructive text-destructive-foreground"
                                 >
                                   Delete

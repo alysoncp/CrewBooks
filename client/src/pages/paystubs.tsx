@@ -1,4 +1,4 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { Upload, Trash2, Image, X, ZoomIn, FileText, Scan } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -124,12 +124,39 @@ export default function PaystubsPage() {
     },
   });
 
+  const [deletingPaystubId, setDeletingPaystubId] = useState<string | null>(null);
+  const [linkedIncome, setLinkedIncome] = useState<any | null>(null);
+  const [deleteLinkedIncome, setDeleteLinkedIncome] = useState(false);
+
+  const { data: linkedIncomeData } = useQuery({
+    queryKey: ["/api/paystubs", deletingPaystubId, "linked-income"],
+    queryFn: async () => {
+      if (!deletingPaystubId) return null;
+      const response = await fetch(`/api/paystubs/${deletingPaystubId}/linked-income`);
+      if (!response.ok) return null;
+      return response.json();
+    },
+    enabled: !!deletingPaystubId,
+  });
+
+  useEffect(() => {
+    if (linkedIncomeData !== undefined) {
+      setLinkedIncome(linkedIncomeData);
+    }
+  }, [linkedIncomeData]);
+
   const deleteMutation = useMutation({
-    mutationFn: async (id: string) => {
-      return apiRequest("DELETE", `/api/paystubs/${id}`);
+    mutationFn: async ({ id, deleteLinked }: { id: string; deleteLinked: boolean }) => {
+      const url = `/api/paystubs/${id}${deleteLinked ? "?deleteLinkedIncome=true" : ""}`;
+      return apiRequest("DELETE", url);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      setDeletingPaystubId(null);
+      setLinkedIncome(null);
+      setDeleteLinkedIncome(false);
       toast({
         title: "Paystub deleted",
         description: "The paystub has been removed.",
@@ -344,6 +371,7 @@ export default function PaystubsPage() {
                           variant="destructive"
                           size="icon"
                           data-testid={`button-delete-paystub-${paystub.id}`}
+                          onClick={() => setDeletingPaystubId(paystub.id)}
                         >
                           <Trash2 className="h-4 w-4" />
                         </Button>
@@ -353,12 +381,37 @@ export default function PaystubsPage() {
                           <AlertDialogTitle>Delete paystub?</AlertDialogTitle>
                           <AlertDialogDescription>
                             This will permanently remove this paystub image. This action cannot be undone.
+                            {linkedIncome && (
+                              <div className="mt-4 space-y-2">
+                                <p className="text-sm font-medium">
+                                  This paystub is linked to an income entry.
+                                </p>
+                                <div className="flex items-center space-x-2">
+                                  <input
+                                    type="checkbox"
+                                    id={`delete-linked-income-${paystub.id}`}
+                                    checked={deleteLinkedIncome}
+                                    onChange={(e) => setDeleteLinkedIncome(e.target.checked)}
+                                    className="h-4 w-4 rounded border-gray-300"
+                                  />
+                                  <label htmlFor={`delete-linked-income-${paystub.id}`} className="text-sm">
+                                    Also delete linked income entry
+                                  </label>
+                                </div>
+                              </div>
+                            )}
                           </AlertDialogDescription>
                         </AlertDialogHeader>
                         <AlertDialogFooter>
-                          <AlertDialogCancel>Cancel</AlertDialogCancel>
+                          <AlertDialogCancel onClick={() => {
+                            setDeletingPaystubId(null);
+                            setDeleteLinkedIncome(false);
+                          }}>Cancel</AlertDialogCancel>
                           <AlertDialogAction
-                            onClick={() => deleteMutation.mutate(paystub.id)}
+                            onClick={() => deleteMutation.mutate({ 
+                              id: paystub.id, 
+                              deleteLinked: deleteLinkedIncome 
+                            })}
                             className="bg-destructive text-destructive-foreground"
                           >
                             Delete
