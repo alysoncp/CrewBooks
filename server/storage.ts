@@ -43,7 +43,7 @@ import {
   leasePayments,
 } from "@shared/schema";
 import { db } from "./db";
-import { eq, desc, and, asc } from "drizzle-orm";
+import { eq, desc, and, asc, gte, lte } from "drizzle-orm";
 import { calculateCCAByClass, calculateTotalCCAByClass, type AssetCCACalculation } from "./cca-calculator";
 import { calculateTotalLeaseExpenses } from "./lease-calculator";
 
@@ -78,7 +78,7 @@ export interface IStorage {
   deletePaystub(id: string): Promise<boolean>;
 
   calculateTax(userId: string, taxYear?: string): Promise<TaxCalculation>;
-  calculateOptimization(userId: string, corporateIncome?: number): Promise<{
+  calculateOptimization(userId: string, corporateIncome?: number, taxYear?: string): Promise<{
     scenarios: DividendSalaryScenario[];
     optimalScenario: DividendSalaryScenario;
   }>;
@@ -471,14 +471,37 @@ export class DatabaseStorage implements IStorage {
   }
 
   async calculateTax(userId: string, taxYear?: string): Promise<TaxCalculation> {
-    const incomeRecords = await this.getIncome(userId);
-    const expenseRecords = await this.getExpenses(userId);
     const user = await this.getUser(userId);
     
     // Use provided tax year or current year
     const currentTaxYear = taxYear || new Date().getFullYear().toString();
+    const yearNum = parseInt(currentTaxYear, 10);
+    const yearStart = `${yearNum}-01-01`;
+    const yearEnd = `${yearNum}-12-31`;
 
-    const grossIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
+    // Filter income by tax year
+    const allIncomeRecords = await this.getIncome(userId);
+    const incomeRecords = allIncomeRecords.filter((i) => {
+      const incomeDate = new Date(i.date);
+      const startDate = new Date(yearStart);
+      const endDate = new Date(yearEnd);
+      return incomeDate >= startDate && incomeDate <= endDate;
+    });
+
+    // Filter expenses by tax year
+    const allExpenseRecords = await this.getExpenses(userId);
+    const expenseRecords = allExpenseRecords.filter((e) => {
+      const expenseDate = new Date(e.date);
+      const startDate = new Date(yearStart);
+      const endDate = new Date(yearEnd);
+      return expenseDate >= startDate && expenseDate <= endDate;
+    });
+
+    // Calculate gross income (use grossPay if available, otherwise use amount/net pay as fallback)
+    const grossIncome = incomeRecords.reduce((sum, i) => {
+      const gross = i.grossPay ? parseFloat(i.grossPay) : parseFloat(i.amount);
+      return sum + gross;
+    }, 0);
     const totalExpenses = expenseRecords
       .filter((e) => e.isTaxDeductible)
       .reduce((sum, e) => {
@@ -516,7 +539,7 @@ export class DatabaseStorage implements IStorage {
 
     const federalTax = this.calculateFederalTax(netIncome);
     const provincialTax = this.calculateProvincialTax(netIncome, user?.province || "BC");
-    const cppContribution = this.calculateCPP(netIncome);
+    const cppContribution = this.calculateCPP(netIncome, currentTaxYear);
     const totalIncomeTax = federalTax + provincialTax;
     const totalOwed = totalIncomeTax + cppContribution;
     const effectiveTaxRate = netIncome > 0 ? (totalOwed / netIncome) * 100 : 0;
@@ -696,25 +719,63 @@ export class DatabaseStorage implements IStorage {
     return Math.max(0, tax - basicCredit);
   }
 
-  private calculateCPP(income: number): number {
-    const maxPensionableEarnings = 68500;
-    const basicExemption = 3500;
-    const rate = 0.119;
+  /**
+   * Get CPP parameters (max pensionable earnings and rates) by tax year
+   */
+  private getCPPParameters(taxYear: string | number): {
+    maxPensionableEarnings: number;
+    basicExemption: number;
+    selfEmployedRate: number;
+  } {
+    const year = typeof taxYear === 'string' ? parseInt(taxYear, 10) : taxYear;
+    
+    // CPP parameters by tax year
+    // Source: Canada Revenue Agency - Year's Maximum Pensionable Earnings
+    const cppParamsByYear: Record<number, { maxPensionableEarnings: number; basicExemption: number; selfEmployedRate: number }> = {
+      2020: { maxPensionableEarnings: 58700, basicExemption: 3500, selfEmployedRate: 0.1095 }, // 10.95%
+      2021: { maxPensionableEarnings: 61600, basicExemption: 3500, selfEmployedRate: 0.1095 }, // 10.95%
+      2022: { maxPensionableEarnings: 64900, basicExemption: 3500, selfEmployedRate: 0.1115 }, // 11.15%
+      2023: { maxPensionableEarnings: 66600, basicExemption: 3500, selfEmployedRate: 0.1140 }, // 11.40%
+      2024: { maxPensionableEarnings: 68500, basicExemption: 3500, selfEmployedRate: 0.1190 }, // 11.90%
+      2025: { maxPensionableEarnings: 71300, basicExemption: 3500, selfEmployedRate: 0.1190 }, // 11.90%
+      2026: { maxPensionableEarnings: 74600, basicExemption: 3500, selfEmployedRate: 0.1190 }, // 11.90% (estimated)
+    };
+    
+    // Use year-specific params if available, otherwise use most recent
+    const params = cppParamsByYear[year] || cppParamsByYear[2026];
+    return params;
+  }
+
+  private calculateCPP(income: number, taxYear: string | number = new Date().getFullYear(), cppAlreadyPaid: number = 0): number {
+    const { maxPensionableEarnings, basicExemption, selfEmployedRate } = this.getCPPParameters(taxYear);
+    
+    // Maximum CPP contribution for self-employed individuals
+    const maxContributoryEarnings = maxPensionableEarnings - basicExemption;
+    const maxCPPContribution = maxContributoryEarnings * selfEmployedRate;
 
     const pensionableEarnings = Math.min(income, maxPensionableEarnings);
     const contributionBase = Math.max(0, pensionableEarnings - basicExemption);
-    return contributionBase * rate;
+    const calculatedCPP = contributionBase * selfEmployedRate;
+    
+    // Apply annual cap: total CPP (already paid + calculated) cannot exceed maximum
+    const totalCPP = cppAlreadyPaid + calculatedCPP;
+    const cappedCPP = Math.min(totalCPP, maxCPPContribution);
+    
+    // Return only the additional CPP needed (could be negative if already over cap)
+    return Math.max(0, cappedCPP - cppAlreadyPaid);
   }
 
   async calculateOptimization(
     userId: string,
-    corporateIncome: number = 100000
+    corporateIncome: number = 100000,
+    taxYear?: string
   ): Promise<{
     scenarios: DividendSalaryScenario[];
     optimalScenario: DividendSalaryScenario;
   }> {
     const scenarios: DividendSalaryScenario[] = [];
     const splits = [0, 10, 20, 30, 40, 50, 60, 70, 80, 90, 100];
+    const currentTaxYear = taxYear || new Date().getFullYear().toString();
 
     for (const salaryPercent of splits) {
       const salaryAmount = (corporateIncome * salaryPercent) / 100;
@@ -728,7 +789,7 @@ export class DatabaseStorage implements IStorage {
       const personalTaxOnDividend = this.calculateDividendTax(afterCorpTaxDividend);
       const personalTax = personalTaxOnSalary + personalTaxOnDividend;
 
-      const cppContribution = this.calculateCPP(salaryAmount);
+      const cppContribution = this.calculateCPP(salaryAmount, currentTaxYear);
 
       const totalTax = corporateTax + personalTax + cppContribution;
       const afterTaxIncome = corporateIncome - totalTax;

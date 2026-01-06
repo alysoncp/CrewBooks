@@ -1226,16 +1226,19 @@ export async function registerRoutes(
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
       
-      // Tax calculator requires Personal or Corporate tier
+      // Tax estimator requires Personal or Corporate tier
       const isBasicTier = user?.subscriptionTier === "basic";
       if (isBasicTier) {
         return res.status(403).json({ 
-          error: "Tax calculator requires a paid subscription. Upgrade to Personal or Corporate tier to access this feature.",
+          error: "Tax estimator requires a paid subscription. Upgrade to Personal or Corporate tier to access this feature.",
           locked: true
         });
       }
       
-      const calculation = await storage.calculateTax(userId);
+      // Get tax year from query parameter, default to current year
+      const taxYear = req.query.taxYear || new Date().getFullYear().toString();
+      
+      const calculation = await storage.calculateTax(userId, taxYear);
       
       // Get user's net income for bracket breakdown
       const incomeRecords = await storage.getIncome(userId);
@@ -1285,9 +1288,13 @@ export async function registerRoutes(
       const incomeRecords = await storage.getIncome(userId);
       const corporateIncome = incomeRecords.reduce((sum, i) => sum + parseFloat(i.amount), 0);
 
+      // Get tax year from query parameter, default to current year
+      const taxYear = req.query.taxYear || new Date().getFullYear().toString();
+
       const { scenarios, optimalScenario } = await storage.calculateOptimization(
         userId,
-        corporateIncome
+        corporateIncome,
+        taxYear
       );
 
       res.json({

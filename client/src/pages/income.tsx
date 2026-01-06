@@ -53,20 +53,23 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, getIncomeTypeLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
+import { formatCurrency, formatDate, getIncomeTypeLabel, getIncomeCategoryLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { INCOME_TYPES, type Income, type User, type Paystub } from "@shared/schema";
+import { INCOME_TYPES, INCOME_CATEGORIES, type Income, type User, type Paystub } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaxYear } from "@/components/tax-year-provider";
 
+const optionalNumberField = z.string().optional().refine((val) => {
+  if (!val || val.trim() === "") return true;
+  const num = parseFloat(val);
+  return !isNaN(num) && isFinite(num) && num >= 0;
+}, {
+  message: "Must be a valid number",
+}).transform((v) => v ? parseFloat(v) : undefined);
+
 const incomeFormSchema = z.object({
-  grossPay: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Gross pay must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
+  incomeCategory: z.string().min(1, "Income category is required"),
+  grossPay: optionalNumberField,
   amount: z.string().min(1, "Amount is required").refine((val) => {
     const num = parseFloat(val);
     return !isNaN(num) && isFinite(num) && num >= 0;
@@ -75,57 +78,25 @@ const incomeFormSchema = z.object({
   }).transform((v) => parseFloat(v)),
   date: z.string().min(1, "Date is required"),
   incomeType: z.string().min(1, "Income type is required"),
+  // Film/TV fields
   productionName: z.string().optional(),
   accountingOffice: z.string().optional(),
-  gstHstCollected: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "GST/HST collected must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
-  dues: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Dues must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
-  retirement: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Retirement must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
-  labour: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Labour must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
-  buyout: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Buyout must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
-  pension: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Pension must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
-  insurance: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Insurance must be a valid number",
-  }).transform((v) => v ? parseFloat(v) : undefined),
+  // Regular Employment fields
+  employerName: z.string().optional(),
+  cppContribution: optionalNumberField,
+  eiContribution: optionalNumberField,
+  incomeTaxDeduction: optionalNumberField,
+  // Other Self-Employment fields
+  businessName: z.string().optional(),
+  // Common fields
+  description: z.string().optional(),
+  gstHstCollected: optionalNumberField,
+  dues: optionalNumberField,
+  retirement: optionalNumberField,
+  labour: optionalNumberField,
+  buyout: optionalNumberField,
+  pension: optionalNumberField,
+  insurance: optionalNumberField,
 });
 
 type IncomeFormData = z.input<typeof incomeFormSchema>;
@@ -136,7 +107,16 @@ const ACCOUNTING_OFFICES = [
   { value: "other", label: "Other" },
 ] as const;
 
+const INCOME_CATEGORY_OPTIONS = [
+  { value: INCOME_CATEGORIES.FILM_TV, label: "Film/TV Income" },
+  { value: INCOME_CATEGORIES.REGULAR_EMPLOYMENT, label: "Regular Employment Income" },
+  { value: INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT, label: "Other Self-Employment" },
+  { value: INCOME_CATEGORIES.OTHER, label: "Other" },
+];
+
 export default function IncomePage() {
+  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -156,12 +136,19 @@ export default function IncomePage() {
     resolver: zodResolver(incomeFormSchema),
     mode: "onBlur", // Validate on blur for immediate feedback
     defaultValues: {
+      incomeCategory: "",
       grossPay: "",
       amount: "",
       date: getTodayLocalDateString(),
       incomeType: "",
       productionName: "",
       accountingOffice: "",
+      employerName: "",
+      businessName: "",
+      description: "",
+      cppContribution: "",
+      eiContribution: "",
+      incomeTaxDeduction: "",
       gstHstCollected: "",
       dues: "",
       retirement: "",
@@ -179,6 +166,12 @@ export default function IncomePage() {
         grossPay: data.grossPay?.toString() || null,
         amount: data.amount.toString(),
         accountingOffice: data.accountingOffice || null,
+        employerName: data.employerName || null,
+        businessName: data.businessName || null,
+        description: data.description || null,
+        cppContribution: data.cppContribution?.toString() || null,
+        eiContribution: data.eiContribution?.toString() || null,
+        incomeTaxDeduction: data.incomeTaxDeduction?.toString() || null,
         gstHstCollected: data.gstHstCollected?.toString() || null,
         dues: data.dues?.toString() || null,
         retirement: data.retirement?.toString() || null,
@@ -210,6 +203,8 @@ export default function IncomePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
+      setIsCategoryDialogOpen(false);
+      setSelectedCategory(null);
       form.reset();
       setEditingIncome(null);
       setCustomAccountingOffice(""); // Reset custom value
@@ -239,6 +234,12 @@ export default function IncomePage() {
         grossPay: data.grossPay?.toString() || null,
         amount: data.amount.toString(),
         accountingOffice: data.accountingOffice || null,
+        employerName: data.employerName || null,
+        businessName: data.businessName || null,
+        description: data.description || null,
+        cppContribution: data.cppContribution?.toString() || null,
+        eiContribution: data.eiContribution?.toString() || null,
+        incomeTaxDeduction: data.incomeTaxDeduction?.toString() || null,
         gstHstCollected: data.gstHstCollected?.toString() || null,
         dues: data.dues?.toString() || null,
         retirement: data.retirement?.toString() || null,
@@ -255,6 +256,8 @@ export default function IncomePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
+      setIsCategoryDialogOpen(false);
+      setSelectedCategory(null);
       form.reset();
       setEditingIncome(null);
       setCustomAccountingOffice("");
@@ -340,16 +343,24 @@ export default function IncomePage() {
 
   const handleEdit = (income: Income) => {
     setEditingIncome(income);
+    setSelectedCategory(income.incomeCategory || INCOME_CATEGORIES.FILM_TV);
     setCustomAccountingOffice("");
     
     // Pre-fill form with income data
     form.reset({
+      incomeCategory: income.incomeCategory || INCOME_CATEGORIES.FILM_TV,
       grossPay: income.grossPay ? income.grossPay.toString() : "",
       amount: income.amount.toString(),
       date: income.date,
       incomeType: income.incomeType,
       productionName: income.productionName || "",
       accountingOffice: income.accountingOffice || "",
+      employerName: income.employerName || "",
+      businessName: income.businessName || "",
+      description: income.description || "",
+      cppContribution: income.cppContribution ? income.cppContribution.toString() : "",
+      eiContribution: income.eiContribution ? income.eiContribution.toString() : "",
+      incomeTaxDeduction: income.incomeTaxDeduction ? income.incomeTaxDeduction.toString() : "",
       gstHstCollected: income.gstHstCollected ? income.gstHstCollected.toString() : "",
       dues: "",
       retirement: "",
@@ -368,15 +379,36 @@ export default function IncomePage() {
     setIsDialogOpen(true);
   };
 
-  // Check for paystubId in URL params
+  const handleCategorySelect = (category: string) => {
+    setSelectedCategory(category);
+    form.setValue("incomeCategory", category);
+    setIsCategoryDialogOpen(false);
+    setIsDialogOpen(true);
+  };
+
+  const handleAddIncomeClick = () => {
+    setEditingIncome(null);
+    form.reset();
+    setCustomAccountingOffice("");
+    setSelectedCategory(null);
+    setIsCategoryDialogOpen(true);
+  };
+
+  // Check for paystubId and category in URL params
   useEffect(() => {
     console.log("=== INCOME PAGE useEffect RUNNING ===");
     const params = new URLSearchParams(window.location.search);
     const paystubId = params.get("paystubId");
+    const category = params.get("category");
     console.log("=== PAYSTUB ID FROM URL ===", paystubId);
+    console.log("=== CATEGORY FROM URL ===", category);
     console.log("Current URL:", window.location.href);
     if (paystubId) {
       setPaystubIdForIncome(paystubId);
+      // If category is provided, set it
+      if (category) {
+        setSelectedCategory(category);
+      }
       // Fetch paystub data to get image URL
       console.log("Fetching paystub data for:", paystubId);
       fetch(`/api/paystubs/${paystubId}`)
@@ -427,8 +459,19 @@ export default function IncomePage() {
           console.log("Validation Errors:", data?.validationErrors);
           console.log("Raw OCR Data:", data?.rawOCRData);
           
-          // Clear URL param
+          // Use category from URL if available
+          const urlCategory = params.get("category");
+          const categoryToUse = urlCategory || data?.incomeData?.incomeCategory || INCOME_CATEGORIES.FILM_TV;
+          
+          // Clear URL params
           window.history.replaceState({}, "", "/income");
+          
+          // Set category from URL if provided, otherwise use data or default
+          if (!data?.incomeData?.incomeCategory) {
+            data.incomeData = data.incomeData || {};
+            const urlCategory = params.get("category");
+            data.incomeData.incomeCategory = urlCategory || INCOME_CATEGORIES.FILM_TV;
+          }
           
           if (data && !data.error && data.incomeData) {
             // Warn if confidence is low
@@ -460,13 +503,22 @@ export default function IncomePage() {
               productionName: data.incomeData.productionName,
               accountingOffice: data.incomeData.accountingOffice,
             });
+            const category = categoryToUse;
+            setSelectedCategory(category);
             form.reset({
+              incomeCategory: category,
               grossPay: ocrGrossPay > 0 ? ocrGrossPay.toString() : "",
               amount: ocrAmount > 0 ? ocrAmount.toString() : "",
               date: data.incomeData.date || getTodayLocalDateString(),
               incomeType: data.incomeData.incomeType || "",
               productionName: data.incomeData.productionName || "",
               accountingOffice: data.incomeData.accountingOffice || "",
+              employerName: data.incomeData.employerName || "",
+              businessName: data.incomeData.businessName || "",
+              description: data.incomeData.description || "",
+              cppContribution: data.incomeData.cppContribution || "",
+              eiContribution: data.incomeData.eiContribution || "",
+              incomeTaxDeduction: data.incomeData.incomeTaxDeduction || "",
               gstHstCollected: data.incomeData.gstHstCollected || "",
               dues: data.incomeData.dues || "",
               retirement: data.incomeData.retirement || "",
@@ -490,6 +542,14 @@ export default function IncomePage() {
                 variant: "default",
               });
             }
+            // If no OCR data, prompt for category selection
+            if (!paystubIdForIncome) {
+              setIsCategoryDialogOpen(true);
+              return;
+            }
+            // If paystub exists but no OCR data, default to Film/TV
+            setSelectedCategory(INCOME_CATEGORIES.FILM_TV);
+            form.setValue("incomeCategory", INCOME_CATEGORIES.FILM_TV);
           }
           
           // Open dialog
@@ -497,8 +557,15 @@ export default function IncomePage() {
         })
         .catch((err) => {
           console.error("Error fetching OCR data:", err);
-          // If fetching OCR data fails, just open the dialog anyway
-          setIsDialogOpen(true);
+          // If fetching OCR data fails, prompt for category selection
+          if (!paystubIdForIncome) {
+            setIsCategoryDialogOpen(true);
+          } else {
+            // If paystub exists but fetch failed, default to Film/TV
+            setSelectedCategory(INCOME_CATEGORIES.FILM_TV);
+            form.setValue("incomeCategory", INCOME_CATEGORIES.FILM_TV);
+            setIsDialogOpen(true);
+          }
         });
     }
   }, [form, toast]);
@@ -514,18 +581,48 @@ export default function IncomePage() {
       const searchLower = searchQuery.toLowerCase();
       return (
         item.productionName?.toLowerCase().includes(searchLower) ||
+        item.employerName?.toLowerCase().includes(searchLower) ||
+        item.businessName?.toLowerCase().includes(searchLower) ||
         item.accountingOffice?.toLowerCase().includes(searchLower) ||
-        getIncomeTypeLabel(item.incomeType).toLowerCase().includes(searchLower)
+        getIncomeTypeLabel(item.incomeType).toLowerCase().includes(searchLower) ||
+        getIncomeCategoryLabel(item.incomeCategory || INCOME_CATEGORIES.FILM_TV).toLowerCase().includes(searchLower)
       );
     });
   }, [incomeList, taxYear, searchQuery]);
+
+  // Calculate totals by category
+  const incomeByCategory = useMemo(() => {
+    const categories: Record<string, { net: number; gross: number; gst: number }> = {};
+    
+    filteredIncome.forEach((item) => {
+      const category = item.incomeCategory || INCOME_CATEGORIES.FILM_TV;
+      if (!categories[category]) {
+        categories[category] = { net: 0, gross: 0, gst: 0 };
+      }
+      
+      const net = parseFloat(item.amount);
+      const gst = item.gstHstCollected ? parseFloat(item.gstHstCollected.toString()) : 0;
+      const gross = item.grossPay ? parseFloat(item.grossPay.toString()) : net + gst;
+      
+      categories[category].net += net;
+      categories[category].gross += gross;
+      categories[category].gst += gst;
+    });
+    
+    return categories;
+  }, [filteredIncome]);
 
   const totalNetIncome = filteredIncome.reduce((sum, item) => sum + parseFloat(item.amount), 0);
   const totalGstCollected = filteredIncome.reduce((sum, item) => {
     const gst = item.gstHstCollected ? parseFloat(item.gstHstCollected.toString()) : 0;
     return sum + gst;
   }, 0);
-  const totalGrossIncome = totalNetIncome + totalGstCollected;
+  const totalGrossIncome = filteredIncome.reduce((sum, item) => {
+    const net = parseFloat(item.amount);
+    const gst = item.gstHstCollected ? parseFloat(item.gstHstCollected.toString()) : 0;
+    const gross = item.grossPay ? parseFloat(item.grossPay.toString()) : net + gst;
+    return sum + gross;
+  }, 0);
 
   return (
     <div className="space-y-6">
@@ -534,30 +631,62 @@ export default function IncomePage() {
           <h1 className="text-2xl font-semibold" data-testid="text-income-title">Income</h1>
           <p className="text-muted-foreground">Track your earnings from productions and gigs</p>
         </div>
+        {/* Category Selection Dialog */}
+        <Dialog 
+          open={isCategoryDialogOpen && !editingIncome} 
+          onOpenChange={(open) => {
+            setIsCategoryDialogOpen(open);
+            if (!open && !editingIncome) {
+              setSelectedCategory(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Select Income Type</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              {INCOME_CATEGORY_OPTIONS.map((option) => (
+                <Button
+                  key={option.value}
+                  variant="outline"
+                  className="w-full justify-start h-auto py-4 px-4"
+                  onClick={() => handleCategorySelect(option.value)}
+                >
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">{option.label}</span>
+                  </div>
+                </Button>
+              ))}
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Add Income Button - separate from dialogs */}
+        <Button 
+          data-testid="button-add-income"
+          onClick={handleAddIncomeClick}
+        >
+          <Plus className="mr-2 h-4 w-4" />
+          Add Income
+        </Button>
+
+        {/* Main Income Dialog */}
         <Dialog 
           open={isDialogOpen} 
           onOpenChange={(open) => {
             setIsDialogOpen(open);
             if (!open) {
+              if (!editingIncome) {
+                setSelectedCategory(null);
+                setIsCategoryDialogOpen(false);
+              }
               setEditingIncome(null);
               form.reset();
               setCustomAccountingOffice("");
             }
           }}
         >
-          <DialogTrigger asChild>
-            <Button 
-              data-testid="button-add-income"
-              onClick={() => {
-                setEditingIncome(null);
-                form.reset();
-                setCustomAccountingOffice("");
-              }}
-            >
-              <Plus className="mr-2 h-4 w-4" />
-              Add Income
-            </Button>
-          </DialogTrigger>
           <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col overflow-hidden">
             <DialogHeader>
               <DialogTitle>
@@ -581,9 +710,40 @@ export default function IncomePage() {
             <div className="overflow-y-auto flex-1 pr-2">
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  {/* Hidden category field */}
                   <FormField
                     control={form.control}
-                    name="grossPay"
+                    name="incomeCategory"
+                    render={({ field }) => <input type="hidden" {...field} />}
+                  />
+                  {(editingIncome || selectedCategory) && (
+                    <>
+                      {/* Category display for editing */}
+                      {editingIncome && (
+                        <div className="mb-2">
+                          <p className="text-sm text-muted-foreground">
+                            Category: <span className="font-medium">{getIncomeCategoryLabel(form.watch("incomeCategory") || INCOME_CATEGORIES.FILM_TV)}</span>
+                          </p>
+                        </div>
+                      )}
+                      
+                      {/* Common Fields */}
+                      <FormField
+                        control={form.control}
+                        name="date"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Date</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="date" data-testid="input-income-date" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="grossPay"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Gross Pay (Optional)</FormLabel>
@@ -605,299 +765,460 @@ export default function IncomePage() {
                       </FormItem>
                     )}
                   />
-                  <FormField
-                    control={form.control}
-                    name="amount"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Net Pay</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-amount"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Period Ending</FormLabel>
-                        <FormControl>
-                          <Input {...field} type="date" data-testid="input-income-date" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="incomeType"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Income Type</FormLabel>
-                        <Select onValueChange={field.onChange} defaultValue={field.value}>
-                          <FormControl>
-                            <SelectTrigger data-testid="select-income-type">
-                              <SelectValue placeholder="Select type" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {INCOME_TYPES.map((type) => (
-                              <SelectItem key={type} value={type}>
-                                {getIncomeTypeLabel(type)}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="productionName"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Show</FormLabel>
-                        <FormControl>
-                          <Input
-                            {...field}
-                            placeholder="e.g., The Crown Season 6"
-                            data-testid="input-income-production"
+                      <FormField
+                        control={form.control}
+                        name="amount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT ? "Net Pay" : "Net Income"}</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-income-amount"
+                                />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Film/TV Income Fields */}
+                      {(form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV || !form.watch("incomeCategory")) && (
+                        <>
+                          <FormField
+                            control={form.control}
+                            name="incomeType"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Income Type</FormLabel>
+                                <Select onValueChange={field.onChange} defaultValue={field.value}>
+                                  <FormControl>
+                                    <SelectTrigger data-testid="select-income-type">
+                                      <SelectValue placeholder="Select type" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {INCOME_TYPES.map((type) => (
+                                      <SelectItem key={type} value={type}>
+                                        {getIncomeTypeLabel(type)}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
                           />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="accountingOffice"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Issuer</FormLabel>
-                        <Select 
-                          onValueChange={(value) => {
-                            field.onChange(value);
-                            if (value !== "other") {
-                              setCustomAccountingOffice("");
-                            }
-                          }} 
-                          value={field.value}
-                        >
-                          <FormControl>
-                            <SelectTrigger data-testid="select-accounting-office">
-                              <SelectValue placeholder="Select issuer" />
-                            </SelectTrigger>
-                          </FormControl>
-                          <SelectContent>
-                            {ACCOUNTING_OFFICES.map((office) => (
-                              <SelectItem key={office.value} value={office.value}>
-                                {office.label}
-                              </SelectItem>
-                            ))}
-                          </SelectContent>
-                        </Select>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  {form.watch("accountingOffice") === "other" && (
-                    <FormItem>
-                      <FormLabel>Custom Accounting Office</FormLabel>
-                      <FormControl>
-                        <Input
-                          value={customAccountingOffice}
-                          onChange={(e) => setCustomAccountingOffice(e.target.value)}
-                          placeholder="Enter accounting office name"
-                          data-testid="input-custom-accounting-office"
-                        />
-                      </FormControl>
-                    </FormItem>
-                  )}
-                  {hasGstNumber && (
-                    <FormField
-                      control={form.control}
-                      name="gstHstCollected"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>GST/HST Collected</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                              <Input
-                                {...field}
-                                type="number"
-                                step="0.01"
-                                min="0"
-                                placeholder="0.00"
-                                className="pl-7 font-mono"
-                                data-testid="input-income-gst-hst"
-                              />
-                            </div>
-                          </FormControl>
-                          <FormMessage />
-                        </FormItem>
+                          <FormField
+                            control={form.control}
+                            name="productionName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Show</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder="e.g., The Crown Season 6"
+                                    data-testid="input-income-production"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="accountingOffice"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Issuer</FormLabel>
+                                <Select 
+                                  onValueChange={(value) => {
+                                    field.onChange(value);
+                                    if (value !== "other") {
+                                      setCustomAccountingOffice("");
+                                    }
+                                  }} 
+                                  value={field.value}
+                                >
+                                  <FormControl>
+                                    <SelectTrigger data-testid="select-accounting-office">
+                                      <SelectValue placeholder="Select issuer" />
+                                    </SelectTrigger>
+                                  </FormControl>
+                                  <SelectContent>
+                                    {ACCOUNTING_OFFICES.map((office) => (
+                                      <SelectItem key={office.value} value={office.value}>
+                                        {office.label}
+                                      </SelectItem>
+                                    ))}
+                                  </SelectContent>
+                                </Select>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          {form.watch("accountingOffice") === "other" && (
+                            <FormItem>
+                              <FormLabel>Custom Accounting Office</FormLabel>
+                              <FormControl>
+                                <Input
+                                  value={customAccountingOffice}
+                                  onChange={(e) => setCustomAccountingOffice(e.target.value)}
+                                  placeholder="Enter accounting office name"
+                                  data-testid="input-custom-accounting-office"
+                                />
+                              </FormControl>
+                            </FormItem>
+                          )}
+                        </>
                       )}
-                    />
+
+                      {/* Regular Employment Income Fields */}
+                      {form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT && (
+                        <>
+                          <FormField
+                            control={form.control}
+                            name="employerName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Employer Name</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder="e.g., ABC Company Ltd."
+                                    data-testid="input-employer-name"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="cppContribution"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>CPP Contribution (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-cpp-contribution"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="eiContribution"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>EI Contribution (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-ei-contribution"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="incomeTaxDeduction"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Income Tax Deduction (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-tax-deduction"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </>
+                      )}
+
+                      {/* Other Self-Employment Income Fields */}
+                      {form.watch("incomeCategory") === INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT && (
+                        <>
+                          <FormField
+                            control={form.control}
+                            name="businessName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Business Name</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder="e.g., Consulting Services"
+                                    data-testid="input-business-name"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="description"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Description (Optional)</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    {...field}
+                                    placeholder="Describe the income source"
+                                    data-testid="input-description"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </>
+                      )}
+
+                      {/* Other Income Fields */}
+                      {form.watch("incomeCategory") === INCOME_CATEGORIES.OTHER && (
+                        <>
+                          <FormField
+                            control={form.control}
+                            name="description"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Description</FormLabel>
+                                <FormControl>
+                                  <Textarea
+                                    {...field}
+                                    placeholder="Describe the income source"
+                                    data-testid="input-description"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </>
+                      )}
+
+                      {/* GST/HST Collected - Show for Film/TV and Other Self-Employment */}
+                      {hasGstNumber && (form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV || form.watch("incomeCategory") === INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT || !form.watch("incomeCategory")) && (
+                        <FormField
+                          control={form.control}
+                          name="gstHstCollected"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormLabel>GST/HST Collected</FormLabel>
+                              <FormControl>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                  <Input
+                                    {...field}
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="0.00"
+                                    className="pl-7 font-mono"
+                                    data-testid="input-income-gst-hst"
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      )}
+
+                      {/* Film/TV Specific Deductions */}
+                      {(form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV || !form.watch("incomeCategory")) && (
+                        <>
+                          <FormField
+                            control={form.control}
+                            name="dues"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Dues (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-dues"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="retirement"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Retirement (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-retirement"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="labour"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Labour (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-labour"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="buyout"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Buyout (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-buyout"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="pension"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Pension (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-pension"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                          <FormField
+                            control={form.control}
+                            name="insurance"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Insurance (Optional)</FormLabel>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-insurance"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
+                        </>
+                      )}
+                    </>
                   )}
-                  <FormField
-                    control={form.control}
-                    name="dues"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Dues</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-dues"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="retirement"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Retirement</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-retirement"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="labour"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Labour</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-labour"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="buyout"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Buyout</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-buyout"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="pension"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Pension</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-pension"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="insurance"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Insurance</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-insurance"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
                 </form>
               </Form>
             </div>
@@ -916,55 +1237,107 @@ export default function IncomePage() {
       </div>
 
       {/* Summary Widgets */}
-      <div className="grid gap-4 md:grid-cols-3">
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Gross Income</CardTitle>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-              <TrendingUp className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-semibold" data-testid="widget-gross-income">
-                {formatCurrency(totalGrossIncome)}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">Net Income</CardTitle>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-              <DollarSign className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-semibold" data-testid="widget-net-income">
-                {formatCurrency(totalNetIncome)}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
-          </CardContent>
-        </Card>
-        <Card>
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">GST/HST Collected</CardTitle>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-              <Receipt className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            <div className="flex items-baseline gap-2">
-              <span className="font-mono text-2xl font-semibold" data-testid="widget-total-gst">
-                {formatCurrency(totalGstCollected)}
-              </span>
-            </div>
-            <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
-          </CardContent>
-        </Card>
+      <div className="grid gap-4 md:grid-cols-2 lg:grid-cols-4">
+        {/* Film/TV Income Widget */}
+        {incomeByCategory[INCOME_CATEGORIES.FILM_TV] && incomeByCategory[INCOME_CATEGORIES.FILM_TV].net > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Film/TV Income</CardTitle>
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                <TrendingUp className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-2xl font-semibold">
+                    {formatCurrency(incomeByCategory[INCOME_CATEGORIES.FILM_TV].net)}
+                  </span>
+                </div>
+                {incomeByCategory[INCOME_CATEGORIES.FILM_TV].gst > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    GST/HST: {formatCurrency(incomeByCategory[INCOME_CATEGORIES.FILM_TV].gst)}
+                  </p>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
+            </CardContent>
+          </Card>
+        )}
+        
+        {/* Regular Employment Income Widget */}
+        {incomeByCategory[INCOME_CATEGORIES.REGULAR_EMPLOYMENT] && incomeByCategory[INCOME_CATEGORIES.REGULAR_EMPLOYMENT].net > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Employment Income</CardTitle>
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex items-baseline gap-2">
+                <span className="font-mono text-2xl font-semibold">
+                  {formatCurrency(incomeByCategory[INCOME_CATEGORIES.REGULAR_EMPLOYMENT].net)}
+                </span>
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Other Self-Employment Income Widget */}
+        {incomeByCategory[INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT] && incomeByCategory[INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT].net > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Self-Employment</CardTitle>
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                <Receipt className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-2xl font-semibold">
+                    {formatCurrency(incomeByCategory[INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT].net)}
+                  </span>
+                </div>
+                {incomeByCategory[INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT].gst > 0 && (
+                  <p className="text-xs text-muted-foreground">
+                    GST/HST: {formatCurrency(incomeByCategory[INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT].gst)}
+                  </p>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
+            </CardContent>
+          </Card>
+        )}
+
+        {/* Total Income Widget */}
+        {totalNetIncome > 0 && (
+          <Card>
+            <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
+              <CardTitle className="text-sm font-medium text-muted-foreground">Total Income</CardTitle>
+              <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
+                <DollarSign className="h-4 w-4 text-muted-foreground" />
+              </div>
+            </CardHeader>
+            <CardContent>
+              <div className="flex flex-col gap-1">
+                <div className="flex items-baseline gap-2">
+                  <span className="font-mono text-2xl font-semibold" data-testid="widget-net-income">
+                    {formatCurrency(totalNetIncome)}
+                  </span>
+                </div>
+                {totalGrossIncome > totalNetIncome && (
+                  <p className="text-xs text-muted-foreground">
+                    Gross: {formatCurrency(totalGrossIncome)}
+                  </p>
+                )}
+              </div>
+              <p className="mt-1 text-sm text-muted-foreground">For {taxYear} tax year</p>
+            </CardContent>
+          </Card>
+        )}
       </div>
 
       <Card>
@@ -1013,35 +1386,50 @@ export default function IncomePage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Production</TableHead>
-                    <TableHead className="text-right">Gross Pay</TableHead>
-                    <TableHead className="text-right">Net Pay</TableHead>
+                    <TableHead>Category</TableHead>
+                    <TableHead>Details</TableHead>
+                    <TableHead className="text-right">Gross</TableHead>
+                    <TableHead className="text-right">Net</TableHead>
                     <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
                 <TableBody>
-                  {filteredIncome.map((item) => (
-                    <TableRow key={item.id} data-testid={`row-income-${item.id}`}>
-                      <TableCell className="text-muted-foreground">
-                        {formatDate(item.date)}
-                      </TableCell>
-                      <TableCell>
-                        <Badge variant="secondary" className="text-xs">
-                          {getIncomeTypeLabel(item.incomeType)}
-                        </Badge>
-                      </TableCell>
-                      <TableCell>
-                        <div>
-                          <p className="font-medium">{item.productionName || "—"}</p>
-                        </div>
-                      </TableCell>
-                      <TableCell className="text-right font-mono text-muted-foreground">
-                        {item.grossPay ? formatCurrency(item.grossPay) : "—"}
-                      </TableCell>
-                      <TableCell className="text-right font-mono font-medium text-green-600 dark:text-green-400">
-                        {formatCurrency(item.amount)}
-                      </TableCell>
+                  {filteredIncome.map((item) => {
+                    const category = item.incomeCategory || INCOME_CATEGORIES.FILM_TV;
+                    const detailName = category === INCOME_CATEGORIES.FILM_TV 
+                      ? item.productionName 
+                      : category === INCOME_CATEGORIES.REGULAR_EMPLOYMENT 
+                      ? item.employerName 
+                      : category === INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT 
+                      ? item.businessName 
+                      : null;
+                    
+                    return (
+                      <TableRow key={item.id} data-testid={`row-income-${item.id}`}>
+                        <TableCell className="text-muted-foreground">
+                          {formatDate(item.date)}
+                        </TableCell>
+                        <TableCell>
+                          <Badge variant="secondary" className="text-xs">
+                            {getIncomeCategoryLabel(category)}
+                          </Badge>
+                          {category === INCOME_CATEGORIES.FILM_TV && (
+                            <Badge variant="outline" className="text-xs ml-1">
+                              {getIncomeTypeLabel(item.incomeType)}
+                            </Badge>
+                          )}
+                        </TableCell>
+                        <TableCell>
+                          <div>
+                            <p className="font-medium">{detailName || item.description || "—"}</p>
+                          </div>
+                        </TableCell>
+                        <TableCell className="text-right font-mono text-muted-foreground">
+                          {item.grossPay ? formatCurrency(item.grossPay) : "—"}
+                        </TableCell>
+                        <TableCell className="text-right font-mono font-medium text-green-600 dark:text-green-400">
+                          {formatCurrency(item.amount)}
+                        </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
                           <Button
@@ -1109,7 +1497,8 @@ export default function IncomePage() {
                         </div>
                       </TableCell>
                     </TableRow>
-                  ))}
+                    );
+                  })}
                 </TableBody>
               </Table>
             </div>
