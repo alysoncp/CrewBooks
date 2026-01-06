@@ -228,7 +228,7 @@ export default function PricingPage() {
                   <td className="py-3 text-center"><Check className="mx-auto h-4 w-4 text-green-600" /></td>
                 </tr>
                 <tr>
-                  <td className="py-3">Personal Tax Calculator</td>
+                  <td className="py-3">Personal Tax Estimator</td>
                   <td className="py-3 text-center text-muted-foreground">-</td>
                   <td className="py-3 text-center"><Check className="mx-auto h-4 w-4 text-green-600" /></td>
                   <td className="py-3 text-center"><Check className="mx-auto h-4 w-4 text-green-600" /></td>

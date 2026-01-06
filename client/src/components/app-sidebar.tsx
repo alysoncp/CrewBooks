@@ -106,7 +106,7 @@ export function AppSidebar() {
 
   // Build tax menu items dynamically based on access
   const taxMenuItems = [
-    ...(hasTaxTools ? [{ title: "Tax Calculator", url: "/tax-calculator", icon: Calculator }] : []),
+    ...(hasTaxTools ? [{ title: "Tax Estimator", url: "/tax-calculator", icon: Calculator }] : []),
     ...(hasTaxTools ? [{ title: "Business Summary", url: "/tax-filing-t2125", icon: FileText }] : []),
     ...(isCorporateTier ? [{ title: "T2 Filing", url: "/tax-filing-t2", icon: Building2 }] : []),
     ...(hasOptimization ? [{ title: "Optimization", url: "/optimization", icon: TrendingUp }] : []),
