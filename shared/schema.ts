@@ -61,6 +61,52 @@ export const EXPENSE_CATEGORIES = [
 
 export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
 
+// Expense Types
+export const EXPENSE_TYPES = {
+  PERSONAL: "personal",
+  BUSINESS: "business",
+  MIXED: "mixed",
+} as const;
+
+export type ExpenseType = typeof EXPENSE_TYPES[keyof typeof EXPENSE_TYPES];
+
+// Personal Expense Categories (Canadian Tax Deductible)
+export const PERSONAL_EXPENSE_CATEGORIES = [
+  "child_care_expenses",
+  "medical_expenses",
+  "charitable_donations",
+  "moving_expenses",
+  "student_loan_interest",
+  "rrsp_contributions",
+  "disability_supports",
+  "employment_expenses",
+  "legal_fees",
+  "investment_counsel_fees",
+] as const;
+
+export type PersonalExpenseCategory = typeof PERSONAL_EXPENSE_CATEGORIES[number];
+
+// General Expense Categories (Non-deductible personal expenses)
+export const GENERAL_EXPENSE_CATEGORIES = [
+  "rent",
+  "internet",
+  "utilities",
+  "phone",
+  "grocery",
+  "subscriptions",
+  "entertainment",
+  "dining_out",
+  "clothing",
+  "transportation",
+  "insurance_personal",
+  "health_fitness",
+  "education",
+  "gifts",
+  "household_supplies",
+] as const;
+
+export type GeneralExpenseCategory = typeof GENERAL_EXPENSE_CATEGORIES[number];
+
 // Income Types for Film/TV Industry
 export const INCOME_TYPES = [
   "union_production",
@@ -109,6 +155,8 @@ export const users = pgTable("users", {
   hasHomeOffice: boolean("has_home_office").default(false),
   homeOfficePercentage: numeric("home_office_percentage", { precision: 5, scale: 2 }),
   enabledExpenseCategories: jsonb("enabled_expense_categories").$type<string[]>(),
+  enabledPersonalExpenseCategories: jsonb("enabled_personal_expense_categories").$type<string[]>(),
+  enabledGeneralExpenseCategories: jsonb("enabled_general_expense_categories").$type<string[]>(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -195,6 +243,8 @@ export const expenses = pgTable("expenses", {
   baseCost: numeric("base_cost", { precision: 12, scale: 2 }),
   gstAmount: numeric("gst_amount", { precision: 12, scale: 2 }),
   pstAmount: numeric("pst_amount", { precision: 12, scale: 2 }),
+  expenseType: text("expense_type").default("business"), // personal, business, mixed
+  businessUsePercentage: numeric("business_use_percentage", { precision: 5, scale: 2 }), // For mixed expenses (0-100)
 });
 
 export const insertExpenseSchema = createInsertSchema(expenses).omit({ id: true });

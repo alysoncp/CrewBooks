@@ -54,8 +54,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Expense, type User } from "@shared/schema";
-import { getCategoryLabel } from "@/lib/format";
+import { EXPENSE_CATEGORIES, PERSONAL_EXPENSE_CATEGORIES, GENERAL_EXPENSE_CATEGORIES, type Expense, type User } from "@shared/schema";
+import { getCategoryLabel, getPersonalExpenseCategoryLabel, getGeneralExpenseCategoryLabel } from "@/lib/format";
 import { useTaxYear } from "@/components/tax-year-provider";
 
 // Define home office subcategories
@@ -74,10 +74,20 @@ export default function ExpensesSettingsPage() {
   
   // Local state to track selected categories (before saving)
   const [selectedCategories, setSelectedCategories] = useState<Set<string>>(new Set());
+  
+  // Local state to track selected personal categories (before saving)
+  const [selectedPersonalCategories, setSelectedPersonalCategories] = useState<Set<string>>(new Set());
+  
+  // Local state to track selected general categories (before saving)
+  const [selectedGeneralCategories, setSelectedGeneralCategories] = useState<Set<string>>(new Set());
 
   // Custom categories state
   const [customCategories, setCustomCategories] = useState<Set<string>>(new Set());
+  const [customPersonalCategories, setCustomPersonalCategories] = useState<Set<string>>(new Set());
+  const [customGeneralCategories, setCustomGeneralCategories] = useState<Set<string>>(new Set());
   const [newCustomCategory, setNewCustomCategory] = useState("");
+  const [newCustomPersonalCategory, setNewCustomPersonalCategory] = useState("");
+  const [newCustomGeneralCategory, setNewCustomGeneralCategory] = useState("");
   const [editingCategory, setEditingCategory] = useState<string | null>(null);
   const [editingCategoryName, setEditingCategoryName] = useState("");
 
@@ -111,6 +121,42 @@ export default function ExpensesSettingsPage() {
     return new Set<string>();
   }, [user]);
 
+  // Get enabled personal categories from user profile (default to all if not set)
+  const savedEnabledPersonalCategories = useMemo(() => {
+    if (user?.enabledPersonalExpenseCategories) {
+      return new Set(user.enabledPersonalExpenseCategories as string[]);
+    }
+    // Default: all personal categories enabled
+    return new Set(PERSONAL_EXPENSE_CATEGORIES);
+  }, [user]);
+
+  // Extract custom personal categories
+  const savedCustomPersonalCategories = useMemo(() => {
+    if (user?.enabledPersonalExpenseCategories) {
+      const allCategories = user.enabledPersonalExpenseCategories as string[];
+      return new Set(allCategories.filter(cat => !PERSONAL_EXPENSE_CATEGORIES.includes(cat as any)));
+    }
+    return new Set<string>();
+  }, [user]);
+
+  // Get enabled general categories from user profile (default to all if not set)
+  const savedEnabledGeneralCategories = useMemo(() => {
+    if (user?.enabledGeneralExpenseCategories) {
+      return new Set(user.enabledGeneralExpenseCategories as string[]);
+    }
+    // Default: all general categories enabled
+    return new Set(GENERAL_EXPENSE_CATEGORIES);
+  }, [user]);
+
+  // Extract custom general categories
+  const savedCustomGeneralCategories = useMemo(() => {
+    if (user?.enabledGeneralExpenseCategories) {
+      const allCategories = user.enabledGeneralExpenseCategories as string[];
+      return new Set(allCategories.filter(cat => !GENERAL_EXPENSE_CATEGORIES.includes(cat as any)));
+    }
+    return new Set<string>();
+  }, [user]);
+
   // Initialize local state from saved preferences
   useEffect(() => {
     // Combine saved enabled categories with all custom categories (custom categories are always enabled)
@@ -119,17 +165,29 @@ export default function ExpensesSettingsPage() {
     setSelectedCategories(allSelected);
     setCustomCategories(savedCustomCategories);
     
+    // Initialize personal categories
+    const allSelectedPersonal = new Set(savedEnabledPersonalCategories);
+    savedCustomPersonalCategories.forEach(cat => allSelectedPersonal.add(cat));
+    setSelectedPersonalCategories(allSelectedPersonal);
+    setCustomPersonalCategories(savedCustomPersonalCategories);
+    
+    // Initialize general categories
+    const allSelectedGeneral = new Set(savedEnabledGeneralCategories);
+    savedCustomGeneralCategories.forEach(cat => allSelectedGeneral.add(cat));
+    setSelectedGeneralCategories(allSelectedGeneral);
+    setCustomGeneralCategories(savedCustomGeneralCategories);
+    
     // Initialize home office percentage from user profile
     if (user?.homeOfficePercentage) {
       setHomeOfficePercentage(parseFloat(user.homeOfficePercentage.toString()).toString());
     } else {
       setHomeOfficePercentage("");
     }
-  }, [savedEnabledCategories, savedCustomCategories, user]);
+  }, [savedEnabledCategories, savedCustomCategories, savedEnabledPersonalCategories, savedCustomPersonalCategories, user]);
 
   // Check if there are unsaved changes
   const hasUnsavedChanges = useMemo(() => {
-    // Check predefined categories
+    // Check business categories
     if (selectedCategories.size !== savedEnabledCategories.size) {
       return true;
     }
@@ -145,7 +203,7 @@ export default function ExpensesSettingsPage() {
         return true;
       }
     }
-    // Check custom categories
+    // Check custom business categories
     if (customCategories.size !== savedCustomCategories.size) {
       return true;
     }
@@ -161,13 +219,79 @@ export default function ExpensesSettingsPage() {
         return true;
       }
     }
+    // Check personal categories
+    if (selectedPersonalCategories.size !== savedEnabledPersonalCategories.size) {
+      return true;
+    }
+    const selectedPersonalArray = Array.from(selectedPersonalCategories);
+    const savedPersonalArray = Array.from(savedEnabledPersonalCategories);
+    for (const category of selectedPersonalArray) {
+      if (!savedEnabledPersonalCategories.has(category)) {
+        return true;
+      }
+    }
+    for (const category of savedPersonalArray) {
+      if (!selectedPersonalCategories.has(category)) {
+        return true;
+      }
+    }
+    // Check custom personal categories
+    if (customPersonalCategories.size !== savedCustomPersonalCategories.size) {
+      return true;
+    }
+    const customPersonalArray = Array.from(customPersonalCategories);
+    const savedCustomPersonalArray = Array.from(savedCustomPersonalCategories);
+    for (const category of customPersonalArray) {
+      if (!savedCustomPersonalCategories.has(category)) {
+        return true;
+      }
+    }
+    for (const category of savedCustomPersonalArray) {
+      if (!customPersonalCategories.has(category)) {
+        return true;
+      }
+    }
+    // Check general categories
+    if (selectedGeneralCategories.size !== savedEnabledGeneralCategories.size) {
+      return true;
+    }
+    const selectedGeneralArray = Array.from(selectedGeneralCategories);
+    const savedGeneralArray = Array.from(savedEnabledGeneralCategories);
+    for (const category of selectedGeneralArray) {
+      if (!savedEnabledGeneralCategories.has(category)) {
+        return true;
+      }
+    }
+    for (const category of savedGeneralArray) {
+      if (!selectedGeneralCategories.has(category)) {
+        return true;
+      }
+    }
+    // Check custom general categories
+    if (customGeneralCategories.size !== savedCustomGeneralCategories.size) {
+      return true;
+    }
+    const customGeneralArray = Array.from(customGeneralCategories);
+    const savedCustomGeneralArray = Array.from(savedCustomGeneralCategories);
+    for (const category of customGeneralArray) {
+      if (!savedCustomGeneralCategories.has(category)) {
+        return true;
+      }
+    }
+    for (const category of savedCustomGeneralArray) {
+      if (!customGeneralCategories.has(category)) {
+        return true;
+      }
+    }
     return false;
-  }, [selectedCategories, savedEnabledCategories, customCategories, savedCustomCategories]);
+  }, [selectedCategories, savedEnabledCategories, customCategories, savedCustomCategories, selectedPersonalCategories, savedEnabledPersonalCategories, customPersonalCategories, savedCustomPersonalCategories, selectedGeneralCategories, savedEnabledGeneralCategories, customGeneralCategories, savedCustomGeneralCategories]);
 
   const updateEnabledCategoriesMutation = useMutation({
-    mutationFn: async (categories: string[]) => {
+    mutationFn: async ({ businessCategories, personalCategories, generalCategories }: { businessCategories: string[]; personalCategories: string[]; generalCategories: string[] }) => {
       const response = await apiRequest("PATCH", "/api/user/profile", {
-        enabledExpenseCategories: categories,
+        enabledExpenseCategories: businessCategories,
+        enabledPersonalExpenseCategories: personalCategories,
+        enabledGeneralExpenseCategories: generalCategories,
       });
       if (!response.ok) {
         const errorData = await response.json();
@@ -254,6 +378,30 @@ export default function ExpensesSettingsPage() {
       const updated = new Set(prev);
       if (checked) {
         updated.add(category);
+        // If home office expenses is selected, automatically check rent, internet, and utilities
+        if (category === "home_office_expenses") {
+          setSelectedGeneralCategories((prevGeneral) => {
+            const updatedGeneral = new Set(prevGeneral);
+            updatedGeneral.add("rent");
+            updatedGeneral.add("internet");
+            updatedGeneral.add("utilities");
+            return updatedGeneral;
+          });
+        }
+      } else {
+        updated.delete(category);
+        // If home office expenses is deselected, allow rent, internet, and utilities to be unchecked
+        // But don't automatically uncheck them - let the user decide
+      }
+      return updated;
+    });
+  };
+
+  const togglePersonalCategory = (category: string, checked: boolean) => {
+    setSelectedPersonalCategories((prev) => {
+      const updated = new Set(prev);
+      if (checked) {
+        updated.add(category);
       } else {
         updated.delete(category);
       }
@@ -261,10 +409,50 @@ export default function ExpensesSettingsPage() {
     });
   };
 
+  const handleSelectAllPersonal = () => {
+    const allPersonal = new Set<string>(PERSONAL_EXPENSE_CATEGORIES);
+    customPersonalCategories.forEach(cat => allPersonal.add(cat));
+    setSelectedPersonalCategories(allPersonal);
+  };
+
+  const handleDeselectAllPersonal = () => {
+    setSelectedPersonalCategories(new Set());
+  };
+
+  const toggleGeneralCategory = (category: string, checked: boolean) => {
+    setSelectedGeneralCategories((prev) => {
+      const updated = new Set(prev);
+      if (checked) {
+        updated.add(category);
+      } else {
+        updated.delete(category);
+      }
+      return updated;
+    });
+  };
+
+  const handleSelectAllGeneral = () => {
+    const allGeneral = new Set<string>(GENERAL_EXPENSE_CATEGORIES);
+    customGeneralCategories.forEach(cat => allGeneral.add(cat));
+    setSelectedGeneralCategories(allGeneral);
+  };
+
+  const handleDeselectAllGeneral = () => {
+    setSelectedGeneralCategories(new Set());
+  };
+
   const handleSave = () => {
-    // Combine predefined and custom categories
-    const allCategories = [...Array.from(selectedCategories), ...Array.from(customCategories)];
-    updateEnabledCategoriesMutation.mutate(allCategories);
+    // Combine predefined and custom categories for business
+    const allBusinessCategories = [...Array.from(selectedCategories), ...Array.from(customCategories)];
+    // Combine predefined and custom categories for personal
+    const allPersonalCategories = [...Array.from(selectedPersonalCategories), ...Array.from(customPersonalCategories)];
+    // Combine predefined and custom categories for general
+    const allGeneralCategories = [...Array.from(selectedGeneralCategories), ...Array.from(customGeneralCategories)];
+    updateEnabledCategoriesMutation.mutate({ 
+      businessCategories: allBusinessCategories,
+      personalCategories: allPersonalCategories,
+      generalCategories: allGeneralCategories,
+    });
   };
 
   const handleAddCustomCategory = () => {
@@ -407,9 +595,11 @@ export default function ExpensesSettingsPage() {
 
       <Card>
         <CardHeader>
-          <CardTitle>Expense Categories</CardTitle>
+          <CardTitle>Self-Employment Expense Categories</CardTitle>
           <CardDescription>
-            Select which type of business expenses you have
+            Select which type of self-employment expenses you have. If you use any part of your home as a home office for your
+            self-employment activities, set the percentage of your home used as a home office. The deductible portion will automatically
+            be calculated. Do not claim any home expenses under general expenses if using a home office (will be generated automatically)
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -683,6 +873,503 @@ export default function ExpensesSettingsPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
+          <div className="mt-6 flex justify-end">
+            <Button
+              onClick={handleSave}
+              disabled={!hasUnsavedChanges || updateEnabledCategoriesMutation.isPending}
+            >
+              {updateEnabledCategoriesMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Personal Deductions</CardTitle>
+          <CardDescription>
+            Select which personal deduction categories you want to track (Canadian tax deductible)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSelectAllPersonal}
+                disabled={updateEnabledCategoriesMutation.isPending}
+              >
+                Select All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDeselectAllPersonal}
+                disabled={updateEnabledCategoriesMutation.isPending}
+              >
+                Deselect All
+              </Button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {PERSONAL_EXPENSE_CATEGORIES.map((category) => {
+              const isEnabled = selectedPersonalCategories.has(category);
+              const count = categoryCounts.get(category) || 0;
+              return (
+                <div
+                  key={category}
+                  className="flex items-center justify-between p-3 rounded-lg border"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    <Checkbox
+                      id={`personal-category-${category}`}
+                      checked={isEnabled}
+                      onCheckedChange={(checked) => togglePersonalCategory(category, checked as boolean)}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                    />
+                    <label
+                      htmlFor={`personal-category-${category}`}
+                      className="font-medium cursor-pointer flex-1"
+                    >
+                      {getPersonalExpenseCategoryLabel(category)}
+                    </label>
+                    {count > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {count} expense{count !== 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
+            {/* Custom personal categories */}
+            {Array.from(customPersonalCategories).map((category) => {
+              const count = categoryCounts.get(category) || 0;
+              return (
+                <div
+                  key={category}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    <span className="font-medium flex-1">
+                      {formatCustomCategoryLabel(category)}
+                    </span>
+                    {count > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {count} expense{count !== 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEditingCategory(category);
+                        setEditingCategoryName(category);
+                      }}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                      className="h-8 w-8"
+                    >
+                      <Edit className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setCustomPersonalCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                        setSelectedPersonalCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                      }}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                      className="h-8 w-8"
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Custom Personal Categories Widget */}
+          <div className="mt-6 p-4 rounded-lg border bg-muted/50">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-medium">Custom Personal Categories</h3>
+            </div>
+            <div className="flex gap-2 mb-3">
+              <Input
+                placeholder="Enter custom personal category name"
+                value={newCustomPersonalCategory}
+                onChange={(e) => setNewCustomPersonalCategory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const trimmed = newCustomPersonalCategory.trim();
+                    if (!trimmed) {
+                      toast({
+                        title: "Error",
+                        description: "Please enter a category name",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    if (customPersonalCategories.has(trimmed) || selectedPersonalCategories.has(trimmed) || PERSONAL_EXPENSE_CATEGORIES.includes(trimmed as any)) {
+                      toast({
+                        title: "Error",
+                        description: "This category already exists",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    setCustomPersonalCategories((prev) => {
+                      const updated = new Set(prev);
+                      updated.add(trimmed);
+                      return updated;
+                    });
+                    setSelectedPersonalCategories((prev) => {
+                      const updated = new Set(prev);
+                      updated.add(trimmed);
+                      return updated;
+                    });
+                    setNewCustomPersonalCategory("");
+                  }
+                }}
+                className="flex-1"
+              />
+              <Button
+                onClick={() => {
+                  const trimmed = newCustomPersonalCategory.trim();
+                  if (!trimmed) {
+                    toast({
+                      title: "Error",
+                      description: "Please enter a category name",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  if (customPersonalCategories.has(trimmed) || selectedPersonalCategories.has(trimmed) || PERSONAL_EXPENSE_CATEGORIES.includes(trimmed as any)) {
+                    toast({
+                      title: "Error",
+                      description: "This category already exists",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  setCustomPersonalCategories((prev) => {
+                    const updated = new Set(prev);
+                    updated.add(trimmed);
+                    return updated;
+                  });
+                  setSelectedPersonalCategories((prev) => {
+                    const updated = new Set(prev);
+                    updated.add(trimmed);
+                    return updated;
+                  });
+                  setNewCustomPersonalCategory("");
+                }}
+                size="sm"
+                disabled={updateEnabledCategoriesMutation.isPending}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add
+              </Button>
+            </div>
+            {customPersonalCategories.size > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {Array.from(customPersonalCategories).map((category) => (
+                  <Badge
+                    key={category}
+                    variant="outline"
+                    className="flex items-center gap-1.5 pr-1"
+                  >
+                    {formatCustomCategoryLabel(category)}
+                    <button
+                      onClick={() => {
+                        setCustomPersonalCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                        setSelectedPersonalCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                      }}
+                      className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                    >
+                      <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="mt-6 flex justify-end">
+            <Button
+              onClick={handleSave}
+              disabled={!hasUnsavedChanges || updateEnabledCategoriesMutation.isPending}
+            >
+              {updateEnabledCategoriesMutation.isPending ? "Saving..." : "Save Changes"}
+            </Button>
+          </div>
+        </CardContent>
+      </Card>
+
+      <Card>
+        <CardHeader>
+          <CardTitle>Other General Expenses</CardTitle>
+          <CardDescription>
+            Select which general expense categories you want to track (non-deductible personal expenses)
+          </CardDescription>
+        </CardHeader>
+        <CardContent>
+          <div className="mb-4 flex items-center justify-between">
+            <div className="flex gap-2">
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleSelectAllGeneral}
+                disabled={updateEnabledCategoriesMutation.isPending}
+              >
+                Select All
+              </Button>
+              <Button
+                variant="outline"
+                size="sm"
+                onClick={handleDeselectAllGeneral}
+                disabled={updateEnabledCategoriesMutation.isPending}
+              >
+                Deselect All
+              </Button>
+            </div>
+          </div>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-2">
+            {GENERAL_EXPENSE_CATEGORIES.map((category) => {
+              const isEnabled = selectedGeneralCategories.has(category);
+              const count = categoryCounts.get(category) || 0;
+              const isHomeOfficeRelated = category === "rent" || category === "internet" || category === "utilities";
+              const isDisabledByHomeOffice = isHomeOfficeRelated && selectedCategories.has("home_office_expenses");
+              return (
+                <div
+                  key={category}
+                  className={`flex flex-col p-3 rounded-lg border ${
+                    isDisabledByHomeOffice ? "bg-muted opacity-60" : ""
+                  }`}
+                >
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-3 flex-1">
+                      <Checkbox
+                        id={`general-category-${category}`}
+                        checked={isEnabled}
+                        onCheckedChange={(checked) => {
+                          if (!isDisabledByHomeOffice) {
+                            toggleGeneralCategory(category, checked as boolean);
+                          }
+                        }}
+                        disabled={updateEnabledCategoriesMutation.isPending || isDisabledByHomeOffice}
+                      />
+                      <label
+                        htmlFor={`general-category-${category}`}
+                        className={`font-medium ${isDisabledByHomeOffice ? "cursor-not-allowed text-muted-foreground" : "cursor-pointer"} flex-1`}
+                      >
+                        {getGeneralExpenseCategoryLabel(category)}
+                      </label>
+                      {count > 0 && (
+                        <Badge variant="secondary" className="text-xs">
+                          {count} expense{count !== 1 ? "s" : ""}
+                        </Badge>
+                      )}
+                    </div>
+                  </div>
+                  {isDisabledByHomeOffice && (
+                    <p className="text-xs text-muted-foreground mt-1 pl-7">
+                      Claimed under home office expenses
+                    </p>
+                  )}
+                </div>
+              );
+            })}
+            {/* Custom general categories */}
+            {Array.from(customGeneralCategories).map((category) => {
+              const count = categoryCounts.get(category) || 0;
+              return (
+                <div
+                  key={category}
+                  className="flex items-center justify-between p-3 rounded-lg border bg-blue-50 dark:bg-blue-950/20 border-blue-200 dark:border-blue-800"
+                >
+                  <div className="flex items-center gap-3 flex-1">
+                    <span className="font-medium flex-1">
+                      {formatCustomCategoryLabel(category)}
+                    </span>
+                    {count > 0 && (
+                      <Badge variant="secondary" className="text-xs">
+                        {count} expense{count !== 1 ? "s" : ""}
+                      </Badge>
+                    )}
+                  </div>
+                  <div className="flex items-center gap-1">
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setEditingCategory(category);
+                        setEditingCategoryName(category);
+                      }}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                      className="h-8 w-8"
+                    >
+                      <Edit className="h-4 w-4 text-muted-foreground hover:text-primary" />
+                    </Button>
+                    <Button
+                      variant="ghost"
+                      size="icon"
+                      onClick={() => {
+                        setCustomGeneralCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                        setSelectedGeneralCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                      }}
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                      className="h-8 w-8"
+                    >
+                      <Trash2 className="h-4 w-4 text-muted-foreground hover:text-destructive" />
+                    </Button>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
+          {/* Custom General Categories Widget */}
+          <div className="mt-6 p-4 rounded-lg border bg-muted/50">
+            <div className="flex items-center gap-2 mb-3">
+              <h3 className="text-sm font-medium">Custom General Categories</h3>
+            </div>
+            <div className="flex gap-2 mb-3">
+              <Input
+                placeholder="Enter custom general category name"
+                value={newCustomGeneralCategory}
+                onChange={(e) => setNewCustomGeneralCategory(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter") {
+                    e.preventDefault();
+                    const trimmed = newCustomGeneralCategory.trim();
+                    if (!trimmed) {
+                      toast({
+                        title: "Error",
+                        description: "Please enter a category name",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    if (customGeneralCategories.has(trimmed) || selectedGeneralCategories.has(trimmed) || GENERAL_EXPENSE_CATEGORIES.includes(trimmed as any)) {
+                      toast({
+                        title: "Error",
+                        description: "This category already exists",
+                        variant: "destructive",
+                      });
+                      return;
+                    }
+                    setCustomGeneralCategories((prev) => {
+                      const updated = new Set(prev);
+                      updated.add(trimmed);
+                      return updated;
+                    });
+                    setSelectedGeneralCategories((prev) => {
+                      const updated = new Set(prev);
+                      updated.add(trimmed);
+                      return updated;
+                    });
+                    setNewCustomGeneralCategory("");
+                  }
+                }}
+                className="flex-1"
+              />
+              <Button
+                onClick={() => {
+                  const trimmed = newCustomGeneralCategory.trim();
+                  if (!trimmed) {
+                    toast({
+                      title: "Error",
+                      description: "Please enter a category name",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  if (customGeneralCategories.has(trimmed) || selectedGeneralCategories.has(trimmed) || GENERAL_EXPENSE_CATEGORIES.includes(trimmed as any)) {
+                    toast({
+                      title: "Error",
+                      description: "This category already exists",
+                      variant: "destructive",
+                    });
+                    return;
+                  }
+                  setCustomGeneralCategories((prev) => {
+                    const updated = new Set(prev);
+                    updated.add(trimmed);
+                    return updated;
+                  });
+                  setSelectedGeneralCategories((prev) => {
+                    const updated = new Set(prev);
+                    updated.add(trimmed);
+                    return updated;
+                  });
+                  setNewCustomGeneralCategory("");
+                }}
+                size="sm"
+                disabled={updateEnabledCategoriesMutation.isPending}
+              >
+                <Plus className="h-4 w-4 mr-2" />
+                Add
+              </Button>
+            </div>
+            {customGeneralCategories.size > 0 && (
+              <div className="flex flex-wrap gap-2">
+                {Array.from(customGeneralCategories).map((category) => (
+                  <Badge
+                    key={category}
+                    variant="outline"
+                    className="flex items-center gap-1.5 pr-1"
+                  >
+                    {formatCustomCategoryLabel(category)}
+                    <button
+                      onClick={() => {
+                        setCustomGeneralCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                        setSelectedGeneralCategories((prev) => {
+                          const updated = new Set(prev);
+                          updated.delete(category);
+                          return updated;
+                        });
+                      }}
+                      className="ml-1 hover:bg-destructive/20 rounded-full p-0.5"
+                      disabled={updateEnabledCategoriesMutation.isPending}
+                    >
+                      <Trash2 className="h-3 w-3 text-muted-foreground hover:text-destructive" />
+                    </button>
+                  </Badge>
+                ))}
+              </div>
+            )}
+          </div>
           <div className="mt-6 flex justify-end">
             <Button
               onClick={handleSave}

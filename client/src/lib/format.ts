@@ -141,3 +141,69 @@ export function getIncomeCategoryLabel(category: string): string {
   };
   return labels[category] || category;
 }
+
+export function getPersonalExpenseCategoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    child_care_expenses: 'Child Care Expenses',
+    medical_expenses: 'Medical Expenses',
+    charitable_donations: 'Charitable Donations',
+    moving_expenses: 'Moving Expenses',
+    student_loan_interest: 'Student Loan Interest',
+    rrsp_contributions: 'RRSP Contributions',
+    disability_supports: 'Disability Supports',
+    employment_expenses: 'Employment Expenses',
+    legal_fees: 'Legal Fees',
+    investment_counsel_fees: 'Investment Counsel Fees',
+  };
+  
+  // If it's a known category, return the label
+  if (labels[category]) {
+    return labels[category];
+  }
+  
+  // For custom categories, format snake_case to Title Case
+  return category
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export function getGeneralExpenseCategoryLabel(category: string): string {
+  const labels: Record<string, string> = {
+    rent: 'Rent',
+    grocery: 'Grocery',
+    utilities: 'Utilities',
+    phone: 'Phone',
+    internet: 'Internet',
+    subscriptions: 'Subscriptions',
+    entertainment: 'Entertainment',
+    dining_out: 'Dining Out',
+    clothing: 'Clothing',
+    transportation: 'Transportation',
+    insurance_personal: 'Personal Insurance',
+    health_fitness: 'Health & Fitness',
+    education: 'Education',
+    gifts: 'Gifts',
+    household_supplies: 'Household Supplies',
+  };
+  
+  // If it's a known category, return the label
+  if (labels[category]) {
+    return labels[category];
+  }
+  
+  // For custom categories, format snake_case to Title Case
+  return category
+    .split('_')
+    .map(word => word.charAt(0).toUpperCase() + word.slice(1).toLowerCase())
+    .join(' ');
+}
+
+export function getExpenseTypeLabel(type: string): string {
+  const labels: Record<string, string> = {
+    personal: 'Personal',
+    business: 'Business',
+    mixed: 'Mixed',
+  };
+  return labels[type] || type;
+}
