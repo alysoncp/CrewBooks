@@ -34,78 +34,99 @@ export interface UnionAffiliation {
 
 export type UnionId = keyof typeof UNIONS;
 
-// Expense Categories for Film/TV Industry
-export const EXPENSE_CATEGORIES = [
-  "home_office_expenses",
-  "motor_vehicle_expenses",
+// Self-Employment Expense Categories for Film/TV Industry
+export const SELF_EMPLOYMENT_EXPENSE_CATEGORIES = [
   "advertising",
   "business_taxes",
   "commissions_agent_fees",
   "delivery_freight",
-  "fuel_costs",
+  "fuel_non_vehicle",
   "insurance",
   "licenses_memberships",
   "management_admin_fees",
   "meals_entertainment",
-  "office_expenses",
   "office_supplies",
   "professional_fees",
-  "property_tax",
-  "rent",
   "repairs_maintenance",
   "salaries_wages",
   "training",
   "travel_expenses",
-  "utilities",
 ] as const;
 
-export type ExpenseCategory = typeof EXPENSE_CATEGORIES[number];
+// Home Office / Living Expense Categories
+export const HOME_OFFICE_LIVING_CATEGORIES = [
+  "rent",
+  "utilities",
+  "internet",
+  "phone",
+  "heat",
+  "electricity",
+  "insurance_home",
+  "maintenance_home",
+  "mortgage_interest",
+  "property_taxes",
+] as const;
+
+// Vehicle Expense Categories
+export const VEHICLE_CATEGORIES = [
+  "fuel_costs",
+  "electric_vehicle_charging",
+  "vehicle_insurance",
+  "parking_tolls",
+  "lease_payment",
+  "vehicle_repairs",
+] as const;
+
+export type SelfEmploymentExpenseCategory = typeof SELF_EMPLOYMENT_EXPENSE_CATEGORIES[number];
+export type HomeOfficeLivingCategory = typeof HOME_OFFICE_LIVING_CATEGORIES[number];
+export type VehicleCategory = typeof VEHICLE_CATEGORIES[number];
 
 // Expense Types
 export const EXPENSE_TYPES = {
+  HOME_OFFICE_LIVING: "home_office_living",
+  VEHICLE: "vehicle",
+  SELF_EMPLOYMENT: "self_employment",
   PERSONAL: "personal",
-  BUSINESS: "business",
   MIXED: "mixed",
 } as const;
 
 export type ExpenseType = typeof EXPENSE_TYPES[keyof typeof EXPENSE_TYPES];
 
-// Personal Expense Categories (Canadian Tax Deductible)
-export const PERSONAL_EXPENSE_CATEGORIES = [
+// Tax-deductible Personal Expense Categories
+export const TAX_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES = [
   "child_care_expenses",
   "medical_expenses",
   "charitable_donations",
   "moving_expenses",
   "student_loan_interest",
-  "rrsp_contributions",
   "disability_supports",
-  "employment_expenses",
-  "legal_fees",
   "investment_counsel_fees",
+  "tuition",
 ] as const;
 
-export type PersonalExpenseCategory = typeof PERSONAL_EXPENSE_CATEGORIES[number];
-
-// General Expense Categories (Non-deductible personal expenses)
-export const GENERAL_EXPENSE_CATEGORIES = [
-  "rent",
-  "internet",
-  "utilities",
-  "phone",
+// Non-deductible Personal Expense Categories
+export const NON_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES = [
+  "personal_phone",
   "grocery",
-  "subscriptions",
   "entertainment",
   "dining_out",
   "clothing",
   "transportation",
   "insurance_personal",
   "health_fitness",
-  "education",
   "gifts",
   "household_supplies",
 ] as const;
 
-export type GeneralExpenseCategory = typeof GENERAL_EXPENSE_CATEGORIES[number];
+// All Personal Expense Categories (combined)
+export const PERSONAL_EXPENSE_CATEGORIES = [
+  ...TAX_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES,
+  ...NON_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES,
+] as const;
+
+export type TaxDeductiblePersonalExpenseCategory = typeof TAX_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES[number];
+export type NonDeductiblePersonalExpenseCategory = typeof NON_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES[number];
+export type PersonalExpenseCategory = typeof PERSONAL_EXPENSE_CATEGORIES[number];
 
 // Income Types for Film/TV Industry
 export const INCOME_TYPES = [
@@ -243,7 +264,7 @@ export const expenses = pgTable("expenses", {
   baseCost: numeric("base_cost", { precision: 12, scale: 2 }),
   gstAmount: numeric("gst_amount", { precision: 12, scale: 2 }),
   pstAmount: numeric("pst_amount", { precision: 12, scale: 2 }),
-  expenseType: text("expense_type").default("business"), // personal, business, mixed
+  expenseType: text("expense_type").default("self_employment"), // home_office_living, vehicle, self_employment, personal, mixed
   businessUsePercentage: numeric("business_use_percentage", { precision: 5, scale: 2 }), // For mixed expenses (0-100)
 });
 

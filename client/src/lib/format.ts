@@ -87,6 +87,7 @@ export function formatMonth(date: string | Date): string {
 
 export function getCategoryLabel(category: string): string {
   const labels: Record<string, string> = {
+    // Self-Employment categories
     advertising: 'Advertising',
     meals_entertainment: 'Meals & Entertainment',
     insurance: 'Business Insurance',
@@ -96,18 +97,32 @@ export function getCategoryLabel(category: string): string {
     office_supplies: 'Office Supplies',
     professional_fees: 'Professional Fees',
     management_admin_fees: 'Management & Admin Fees',
-    rent: 'Rent (other than Home Office)',
     repairs_maintenance: 'Repairs and Maintenance',
     salaries_wages: 'Salaries & Wages',
     property_tax: 'Property Tax',
     travel_expenses: 'Travel Expenses',
-    utilities: 'Utilities (other than for home office)',
-    fuel_costs: 'Fuel (excluding motor vehicles)',
     delivery_freight: 'Delivery & Freight',
-    motor_vehicle_expenses: 'Vehicle Expenses',
-    home_office_expenses: 'Home Office Expenses',
     commissions_agent_fees: 'Commissions & Agent Fees',
     training: 'Training and Convention',
+    fuel_non_vehicle: 'Fuel (Non-Motor Vehicle)',
+    // Home Office/Living categories
+    rent: 'Rent',
+    utilities: 'Utilities',
+    internet: 'Internet',
+    phone: 'Phone',
+    heat: 'Heat',
+    electricity: 'Electricity',
+    insurance_home: 'Home Insurance',
+    maintenance_home: 'Home Maintenance',
+    mortgage_interest: 'Mortgage Interest',
+    property_taxes: 'Property Taxes',
+    // Vehicle categories
+    fuel_costs: 'Fuel (Motor Vehicle)',
+    electric_vehicle_charging: 'Electric Vehicle Charging',
+    vehicle_insurance: 'Vehicle Insurance',
+    parking_tolls: 'Parking & Tolls',
+    lease_payment: 'Lease or Loan Payment',
+    vehicle_repairs: 'Vehicle Repairs',
   };
   
   // If it's a known category, return the label
@@ -154,6 +169,7 @@ export function getPersonalExpenseCategoryLabel(category: string): string {
     employment_expenses: 'Employment Expenses',
     legal_fees: 'Legal Fees',
     investment_counsel_fees: 'Investment Counsel Fees',
+    tuition: 'Tuition',
   };
   
   // If it's a known category, return the label
@@ -182,7 +198,6 @@ export function getGeneralExpenseCategoryLabel(category: string): string {
     transportation: 'Transportation',
     insurance_personal: 'Personal Insurance',
     health_fitness: 'Health & Fitness',
-    education: 'Education',
     gifts: 'Gifts',
     household_supplies: 'Household Supplies',
   };
@@ -201,9 +216,13 @@ export function getGeneralExpenseCategoryLabel(category: string): string {
 
 export function getExpenseTypeLabel(type: string): string {
   const labels: Record<string, string> = {
+    home_office_living: 'Home',
+    vehicle: 'Vehicle',
+    self_employment: 'Self-Employment',
     personal: 'Personal',
-    business: 'Business',
     mixed: 'Mixed',
+    // Legacy types for backward compatibility
+    business: 'Business',
   };
   return labels[type] || type;
 }

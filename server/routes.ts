@@ -378,9 +378,14 @@ export async function registerRoutes(
       const taxCalculation = await storage.calculateTax(userId);
 
       // Separate expenses by type
-      const businessExpenses = expenseRecords.filter((e: any) => 
-        e.expenseType === "business" || e.expenseType === "mixed" || !e.expenseType
-      );
+      const businessExpenses = expenseRecords.filter((e: any) => {
+        const expenseType = e.expenseType || "self_employment"; // Default for backward compatibility
+        return expenseType === "home_office_living" || 
+               expenseType === "vehicle" || 
+               expenseType === "self_employment" || 
+               expenseType === "mixed" ||
+               expenseType === "business"; // Legacy support
+      });
       const personalExpenses = expenseRecords.filter((e: any) => 
         e.expenseType === "personal"
       );
@@ -2137,7 +2142,7 @@ function calculateDeductibleAmount(expense: any, user?: any): number {
     return 0;
   }
 
-  const expenseType = expense.expenseType || "business";
+  const expenseType = expense.expenseType || "self_employment"; // Default for backward compatibility
   const baseCost = expense.baseCost ? parseFloat(expense.baseCost.toString()) : 0;
   const pstAmount = expense.pstAmount ? parseFloat(expense.pstAmount.toString()) : 0;
 
@@ -2145,12 +2150,18 @@ function calculateDeductibleAmount(expense: any, user?: any): number {
     return 0; // Personal expenses are not deductible for business
   }
 
-  if (expenseType === "business") {
-    // Apply home office percentage for home office expenses
-    if (expense.category === "home_office_expenses" && user?.homeOfficePercentage) {
+  if (expenseType === "home_office_living") {
+    // Home Office/Living expenses: apply home office percentage if set
+    let deductibleAmount = baseCost + pstAmount;
+    if (user?.homeOfficePercentage) {
       const percentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
-      return (baseCost + pstAmount) * percentage;
+      deductibleAmount = deductibleAmount * percentage;
     }
+    return deductibleAmount;
+  }
+
+  if (expenseType === "vehicle" || expenseType === "self_employment") {
+    // Vehicle and Self-Employment expenses: fully deductible
     return baseCost + pstAmount;
   }
 
@@ -2162,17 +2173,25 @@ function calculateDeductibleAmount(expense: any, user?: any): number {
     // Only business portion of base cost + proportional PST is deductible
     const businessBaseCost = baseCost * businessPercentage;
     const businessPstAmount = pstAmount * businessPercentage;
+    let deductibleAmount = businessBaseCost + businessPstAmount;
     
-    // Apply home office percentage if applicable
-    if (expense.category === "home_office_expenses" && user?.homeOfficePercentage) {
+    // Apply home office percentage if applicable for home office/living categories
+    // Check if category is in HOME_OFFICE_LIVING_CATEGORIES
+    const homeOfficeCategories = ["rent", "utilities", "internet", "phone", "heat", "electricity", "insurance_home", "maintenance_home", "mortgage_interest", "property_taxes"];
+    if (homeOfficeCategories.includes(expense.category) && user?.homeOfficePercentage) {
       const homeOfficePercentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
-      return (businessBaseCost + businessPstAmount) * homeOfficePercentage;
+      deductibleAmount = deductibleAmount * homeOfficePercentage;
     }
     
-    return businessBaseCost + businessPstAmount;
+    return deductibleAmount;
   }
 
-  // Default: treat as business expense
+  // Legacy: treat "business" as self_employment for backward compatibility
+  if (expenseType === "business") {
+    return baseCost + pstAmount;
+  }
+
+  // Default: treat as self-employment expense
   return baseCost + pstAmount;
 }
 
