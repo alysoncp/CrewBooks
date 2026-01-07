@@ -65,80 +65,6 @@ const profileFormSchema = z.object({
 
 type ProfileFormData = z.infer<typeof profileFormSchema>;
 
-function MileageLoggingStyleSetting() {
-  const { toast } = useToast();
-  const { data: mileageStyle, isLoading } = useQuery<{ mileageLoggingStyle: string }>({
-    queryKey: ["/api/user/mileage-logging-style"],
-  });
-
-  const updateMileageStyleMutation = useMutation({
-    mutationFn: async (style: string) => {
-      return apiRequest("PATCH", "/api/user/mileage-logging-style", { mileageLoggingStyle: style });
-    },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/user/mileage-logging-style"] });
-      toast({
-        title: "Setting updated",
-        description: "Mileage logging style has been saved.",
-      });
-    },
-    onError: () => {
-      toast({
-        title: "Error",
-        description: "Failed to update mileage logging style. Please try again.",
-        variant: "destructive",
-      });
-    },
-  });
-
-  const currentStyle = mileageStyle?.mileageLoggingStyle || "trip_distance";
-
-  return (
-    <Card>
-      <CardHeader>
-        <CardTitle>Vehicle Mileage Logging</CardTitle>
-        <CardDescription>
-          Choose how you want to log vehicle mileage. This setting applies to all your vehicles.
-        </CardDescription>
-      </CardHeader>
-      <CardContent>
-        {isLoading ? (
-          <Skeleton className="h-20 w-full" />
-        ) : (
-          <RadioGroup
-            value={currentStyle}
-            onValueChange={(value) => updateMileageStyleMutation.mutate(value)}
-            disabled={updateMileageStyleMutation.isPending}
-          >
-            <div className="flex items-start space-x-3 space-y-0 rounded-md border p-4">
-              <RadioGroupItem value="trip_distance" id="trip_distance" className="mt-1" />
-              <div className="space-y-1 flex-1">
-                <label htmlFor="trip_distance" className="text-sm font-medium leading-none cursor-pointer">
-                  Trip Distance (Simple)
-                </label>
-                <p className="text-sm text-muted-foreground">
-                  Enter the distance for each trip. The system calculates cumulative odometer readings automatically.
-                </p>
-              </div>
-            </div>
-            <div className="flex items-start space-x-3 space-y-0 rounded-md border p-4">
-              <RadioGroupItem value="odometer" id="odometer" className="mt-1" />
-              <div className="space-y-1 flex-1">
-                <label htmlFor="odometer" className="text-sm font-medium leading-none cursor-pointer">
-                  Odometer Reading (Full)
-                </label>
-                <p className="text-sm text-muted-foreground">
-                  Enter the actual odometer reading for each entry. Readings must be greater than or equal to the previous reading.
-                </p>
-              </div>
-            </div>
-          </RadioGroup>
-        )}
-      </CardContent>
-    </Card>
-  );
-}
-
 export default function ProfilePage() {
   const { toast } = useToast();
 
@@ -771,8 +697,6 @@ export default function ProfilePage() {
               )}
             </CardContent>
           </Card>
-
-          <MileageLoggingStyleSetting />
         </form>
       </Form>
     </div>

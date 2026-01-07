@@ -222,7 +222,7 @@ export function AppSidebar() {
                 </SidebarMenuButton>
               </SidebarMenuItem>
               
-              {/* Expenses with Receipts and Vehicle Mileage submenu */}
+              {/* Expenses with Receipts submenu */}
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
@@ -238,19 +238,6 @@ export function AppSidebar() {
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
-                  isActive={location === "/vehicle-mileage"}
-                  data-testid="nav-vehicle-mileage"
-                  className="pl-8"
-                >
-                  <Link href="/vehicle-mileage">
-                    <Gauge className="h-4 w-4" />
-                    <span>Vehicle Mileage</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
                   isActive={location === "/receipts"}
                   data-testid="nav-receipts"
                   className="pl-8"
@@ -258,6 +245,20 @@ export function AppSidebar() {
                   <Link href="/receipts">
                     <FileImage className="h-4 w-4" />
                     <span>Receipts</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
+              
+              {/* Vehicle Mileage as top-level item */}
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/vehicle-mileage"}
+                  data-testid="nav-vehicle-mileage"
+                >
+                  <Link href="/vehicle-mileage">
+                    <Gauge className="h-4 w-4" />
+                    <span>Vehicle Mileage</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>
