@@ -697,10 +697,6 @@ export default function ProfilePage() {
               )}
             </CardContent>
           </Card>
-
-          <Button type="submit" disabled={updateMutation.isPending} data-testid="button-save-profile">
-            {updateMutation.isPending ? "Saving..." : "Save Changes"}
-          </Button>
         </form>
       </Form>
     </div>

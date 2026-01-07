@@ -178,6 +178,7 @@ export const users = pgTable("users", {
   enabledExpenseCategories: jsonb("enabled_expense_categories").$type<string[]>(),
   enabledPersonalExpenseCategories: jsonb("enabled_personal_expense_categories").$type<string[]>(),
   enabledGeneralExpenseCategories: jsonb("enabled_general_expense_categories").$type<string[]>(),
+  mileageLoggingStyle: text("mileage_logging_style").default("trip_distance"), // "odometer" | "trip_distance"
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -310,6 +311,10 @@ export const vehicles = pgTable("vehicles", {
   mileageEstimate: boolean("mileage_estimate").default(false),
   purchasedThisYear: boolean("purchased_this_year").default(false),
   purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }),
+  initialOdometerPhotoUrl: text("initial_odometer_photo_url"),
+  startOfYearOdometerPhotoUrl: text("start_of_year_odometer_photo_url"),
+  endOfYearOdometerPhotoUrl: text("end_of_year_odometer_photo_url"),
+  odometerPhotoYear: numeric("odometer_photo_year", { precision: 4, scale: 0 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

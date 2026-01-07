@@ -356,6 +356,40 @@ export async function registerRoutes(
     }
   });
 
+  // GET /api/user/mileage-logging-style - get user's mileage logging style preference
+  app.get("/api/user/mileage-logging-style", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const user = await storage.getUser(userId);
+      if (!user) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ mileageLoggingStyle: user.mileageLoggingStyle || "trip_distance" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to get mileage logging style" });
+    }
+  });
+
+  // PATCH /api/user/mileage-logging-style - update user's mileage logging style preference
+  app.patch("/api/user/mileage-logging-style", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const { mileageLoggingStyle } = req.body;
+      
+      if (mileageLoggingStyle !== "odometer" && mileageLoggingStyle !== "trip_distance") {
+        return res.status(400).json({ error: "Invalid mileage logging style. Must be 'odometer' or 'trip_distance'" });
+      }
+      
+      const updated = await storage.updateUser(userId, { mileageLoggingStyle });
+      if (!updated) {
+        return res.status(404).json({ error: "User not found" });
+      }
+      res.json({ mileageLoggingStyle: updated.mileageLoggingStyle || "trip_distance" });
+    } catch (error) {
+      res.status(500).json({ error: "Failed to update mileage logging style" });
+    }
+  });
+
   app.patch("/api/user/subscription", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
@@ -1482,7 +1516,24 @@ export async function registerRoutes(
     try {
       const userId = getUserId(req);
       const vehicleRecords = await storage.getVehicles(userId);
-      res.json(vehicleRecords);
+      
+      // Handle year transitions: copy end-of-year photos to start-of-year for new tax year
+      const currentYear = new Date().getFullYear();
+      for (const vehicle of vehicleRecords) {
+        const photoYear = vehicle.odometerPhotoYear ? parseInt(vehicle.odometerPhotoYear.toString()) : null;
+        if (photoYear !== null && photoYear < currentYear && vehicle.endOfYearOdometerPhotoUrl) {
+          // Year has changed, copy end-of-year photo to start-of-year
+          await storage.updateVehicle(vehicle.id, {
+            startOfYearOdometerPhotoUrl: vehicle.endOfYearOdometerPhotoUrl,
+            endOfYearOdometerPhotoUrl: null,
+            odometerPhotoYear: currentYear.toString(),
+          });
+        }
+      }
+      
+      // Fetch updated vehicles after year transitions
+      const updatedVehicles = await storage.getVehicles(userId);
+      res.json(updatedVehicles);
     } catch (error) {
       res.status(500).json({ error: "Failed to get vehicles" });
     }
@@ -1594,6 +1645,12 @@ export async function registerRoutes(
       if (req.body.mileageAtBeginningOfYear !== undefined) cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
       if (req.body.totalAnnualMileage !== undefined) cleanedData.totalAnnualMileage = req.body.totalAnnualMileage !== null && req.body.totalAnnualMileage !== undefined ? String(req.body.totalAnnualMileage) : null;
       
+      // Handle photo URL fields
+      if (req.body.initialOdometerPhotoUrl !== undefined) cleanedData.initialOdometerPhotoUrl = req.body.initialOdometerPhotoUrl || null;
+      if (req.body.startOfYearOdometerPhotoUrl !== undefined) cleanedData.startOfYearOdometerPhotoUrl = req.body.startOfYearOdometerPhotoUrl || null;
+      if (req.body.endOfYearOdometerPhotoUrl !== undefined) cleanedData.endOfYearOdometerPhotoUrl = req.body.endOfYearOdometerPhotoUrl || null;
+      if (req.body.odometerPhotoYear !== undefined) cleanedData.odometerPhotoYear = req.body.odometerPhotoYear ? String(req.body.odometerPhotoYear) : null;
+      
       const updated = await storage.updateVehicle(req.params.id, cleanedData);
       
       // Sync vehicle to asset for CCA tracking
@@ -1620,6 +1677,48 @@ export async function registerRoutes(
       res.status(204).send();
     } catch (error) {
       res.status(500).json({ error: "Failed to delete vehicle" });
+    }
+  });
+
+  // POST /api/vehicles/:id/odometer-photo - upload odometer photo
+  app.post("/api/vehicles/:id/odometer-photo", isAuthenticated, upload.single("file"), async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.id);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const { photoType } = req.body; // initial, startOfYear, or endOfYear
+      if (!photoType || !["initial", "startOfYear", "endOfYear"].includes(photoType)) {
+        return res.status(400).json({ error: "Invalid photoType. Must be 'initial', 'startOfYear', or 'endOfYear'" });
+      }
+
+      if (!req.file) {
+        return res.status(400).json({ error: "No file uploaded" });
+      }
+
+      const photoUrl = `/uploads/${req.file.filename}`;
+      const currentYear = new Date().getFullYear();
+      const updateData: any = {};
+
+      if (photoType === "initial") {
+        updateData.initialOdometerPhotoUrl = photoUrl;
+      } else if (photoType === "startOfYear") {
+        updateData.startOfYearOdometerPhotoUrl = photoUrl;
+        updateData.odometerPhotoYear = currentYear.toString();
+      } else if (photoType === "endOfYear") {
+        updateData.endOfYearOdometerPhotoUrl = photoUrl;
+        updateData.odometerPhotoYear = currentYear.toString();
+      }
+
+      const updated = await storage.updateVehicle(req.params.id, updateData);
+      res.json(updated);
+    } catch (error) {
+      res.status(500).json({ error: "Failed to upload odometer photo" });
     }
   });
 
@@ -1652,6 +1751,39 @@ export async function registerRoutes(
       if (vehicle.userId !== userId) {
         return res.status(403).json({ error: "Access denied" });
       }
+
+      // Get user's mileage logging style
+      const user = await storage.getUser(userId);
+      const mileageLoggingStyle = user?.mileageLoggingStyle || "trip_distance";
+
+      // If odometer style, validate that reading is >= previous reading
+      if (mileageLoggingStyle === "odometer") {
+        const odometerReading = parseFloat(req.body.odometerReading);
+        if (isNaN(odometerReading)) {
+          return res.status(400).json({ error: "Invalid odometer reading" });
+        }
+
+        // Get existing logs sorted by date to find the most recent
+        const existingLogs = await storage.getVehicleMileageLogs(req.params.vehicleId, userId);
+        const sortedLogs = [...existingLogs].sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        
+        let previousReading: number;
+        if (sortedLogs.length > 0) {
+          previousReading = parseFloat(sortedLogs[sortedLogs.length - 1].odometerReading.toString());
+        } else {
+          // Use vehicle's starting mileage if no logs exist
+          previousReading = vehicle.currentMileage ? parseFloat(vehicle.currentMileage.toString()) : 0;
+        }
+
+        if (odometerReading < previousReading) {
+          return res.status(400).json({ 
+            error: `Odometer reading (${odometerReading}) must be greater than or equal to previous reading (${previousReading})` 
+          });
+        }
+      }
+
       const data = insertVehicleMileageLogSchema.parse({ ...req.body, vehicleId: req.params.vehicleId, userId });
       const log = await storage.createVehicleMileageLog(data);
       res.status(201).json(log);
@@ -1674,6 +1806,48 @@ export async function registerRoutes(
       if (log.userId !== userId) {
         return res.status(403).json({ error: "Access denied" });
       }
+
+      // Get user's mileage logging style
+      const user = await storage.getUser(userId);
+      const mileageLoggingStyle = user?.mileageLoggingStyle || "trip_distance";
+
+      // If odometer style and odometer reading is being updated, validate it
+      if (mileageLoggingStyle === "odometer" && req.body.odometerReading !== undefined) {
+        const odometerReading = parseFloat(req.body.odometerReading);
+        if (isNaN(odometerReading)) {
+          return res.status(400).json({ error: "Invalid odometer reading" });
+        }
+
+        // Get vehicle and existing logs
+        const vehicle = await storage.getVehicleById(log.vehicleId);
+        const existingLogs = await storage.getVehicleMileageLogs(log.vehicleId, userId);
+        
+        // Get all logs except the one being updated, sorted by date
+        const otherLogs = existingLogs
+          .filter(l => l.id !== log.id)
+          .sort((a, b) => new Date(a.date).getTime() - new Date(b.date).getTime());
+        
+        // Find the previous log based on the original date
+        const originalDate = new Date(log.date).getTime();
+        const previousLog = otherLogs
+          .filter(l => new Date(l.date).getTime() < originalDate)
+          .pop();
+        
+        let previousReading: number;
+        if (previousLog) {
+          previousReading = parseFloat(previousLog.odometerReading.toString());
+        } else {
+          // Use vehicle's starting mileage if no previous log
+          previousReading = vehicle?.currentMileage ? parseFloat(vehicle.currentMileage.toString()) : 0;
+        }
+
+        if (odometerReading < previousReading) {
+          return res.status(400).json({ 
+            error: `Odometer reading (${odometerReading}) must be greater than or equal to previous reading (${previousReading})` 
+          });
+        }
+      }
+
       const cleanedData: any = {};
       if (req.body.date !== undefined) cleanedData.date = req.body.date;
       if (req.body.odometerReading !== undefined) cleanedData.odometerReading = req.body.odometerReading !== null && req.body.odometerReading !== undefined ? String(req.body.odometerReading) : null;
