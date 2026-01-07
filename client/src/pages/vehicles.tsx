@@ -1,10 +1,10 @@
-import { useState } from "react";
+import { useState, useRef } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link } from "wouter";
-import { Car, Plus, Edit, Trash2, Info } from "lucide-react";
+import { Car, Plus, Edit, Trash2, Info, Upload, X, Image as ImageIcon } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
@@ -95,6 +95,10 @@ type VehicleFormData = z.input<typeof vehicleFormSchema>;
 export default function VehiclesPage() {
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
+  const [uploadingPhotoType, setUploadingPhotoType] = useState<string | null>(null);
+  const initialPhotoInputRef = useRef<HTMLInputElement>(null);
+  const startOfYearPhotoInputRef = useRef<HTMLInputElement>(null);
+  const endOfYearPhotoInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
@@ -278,6 +282,56 @@ export default function VehiclesPage() {
       });
     },
   });
+
+  const uploadPhotoMutation = useMutation({
+    mutationFn: async ({ vehicleId, photoType, file }: { vehicleId: string; photoType: string; file: File }) => {
+      const formData = new FormData();
+      formData.append("file", file);
+      formData.append("photoType", photoType);
+      
+      const response = await fetch(`/api/vehicles/${vehicleId}/odometer-photo`, {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to upload photo");
+      }
+      
+      return response.json();
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      setUploadingPhotoType(null);
+      toast({
+        title: "Photo uploaded",
+        description: "Odometer photo has been uploaded successfully.",
+      });
+    },
+    onError: (error: Error) => {
+      setUploadingPhotoType(null);
+      toast({
+        title: "Error",
+        description: error.message || "Failed to upload photo. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handlePhotoUpload = (vehicleId: string, photoType: string, file: File) => {
+    setUploadingPhotoType(photoType);
+    uploadPhotoMutation.mutate({ vehicleId, photoType, file });
+  };
+
+  const handlePhotoInputChange = (vehicleId: string, photoType: string, event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      handlePhotoUpload(vehicleId, photoType, file);
+    }
+    // Reset input so same file can be selected again
+    event.target.value = "";
+  };
 
   const handleEditVehicle = (vehicle: Vehicle) => {
     setEditingVehicle(vehicle);
@@ -570,6 +624,162 @@ export default function VehiclesPage() {
                       )}
                     />
                   )}
+
+                  {/* Odometer Photos Section */}
+                  {editingVehicle && (
+                    <div className="space-y-4 pt-4 border-t">
+                      <FormLabel className="text-base">Odometer Photos</FormLabel>
+                      <FormDescription>
+                        Upload photos of your odometer for record keeping. These are optional but recommended for tax purposes.
+                      </FormDescription>
+                      
+                      <div className="space-y-3">
+                        {/* Initial Odometer Photo */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <FormLabel className="text-sm">Initial Odometer Photo</FormLabel>
+                            {editingVehicle.initialOdometerPhotoUrl && (
+                              <Badge variant="outline" className="text-xs">Uploaded</Badge>
+                            )}
+                          </div>
+                          {editingVehicle.initialOdometerPhotoUrl ? (
+                            <div className="relative">
+                              <img
+                                src={editingVehicle.initialOdometerPhotoUrl}
+                                alt="Initial odometer"
+                                className="w-full h-32 object-cover rounded-md border"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2"
+                                onClick={() => {
+                                  initialPhotoInputRef.current?.click();
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => initialPhotoInputRef.current?.click()}
+                              disabled={uploadingPhotoType === "initial"}
+                            >
+                              <Upload className="mr-2 h-4 w-4" />
+                              {uploadingPhotoType === "initial" ? "Uploading..." : "Upload Initial Photo"}
+                            </Button>
+                          )}
+                          <input
+                            ref={initialPhotoInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handlePhotoInputChange(editingVehicle.id, "initial", e)}
+                          />
+                        </div>
+
+                        {/* Start of Year Odometer Photo */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <FormLabel className="text-sm">Start of Year Photo</FormLabel>
+                            {editingVehicle.startOfYearOdometerPhotoUrl && (
+                              <Badge variant="outline" className="text-xs">Uploaded</Badge>
+                            )}
+                          </div>
+                          {editingVehicle.startOfYearOdometerPhotoUrl ? (
+                            <div className="relative">
+                              <img
+                                src={editingVehicle.startOfYearOdometerPhotoUrl}
+                                alt="Start of year odometer"
+                                className="w-full h-32 object-cover rounded-md border"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2"
+                                onClick={() => {
+                                  startOfYearPhotoInputRef.current?.click();
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => startOfYearPhotoInputRef.current?.click()}
+                              disabled={uploadingPhotoType === "startOfYear"}
+                            >
+                              <Upload className="mr-2 h-4 w-4" />
+                              {uploadingPhotoType === "startOfYear" ? "Uploading..." : "Upload Start of Year Photo"}
+                            </Button>
+                          )}
+                          <input
+                            ref={startOfYearPhotoInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handlePhotoInputChange(editingVehicle.id, "startOfYear", e)}
+                          />
+                        </div>
+
+                        {/* End of Year Odometer Photo */}
+                        <div className="space-y-2">
+                          <div className="flex items-center justify-between">
+                            <FormLabel className="text-sm">End of Year Photo</FormLabel>
+                            {editingVehicle.endOfYearOdometerPhotoUrl && (
+                              <Badge variant="outline" className="text-xs">Uploaded</Badge>
+                            )}
+                          </div>
+                          {editingVehicle.endOfYearOdometerPhotoUrl ? (
+                            <div className="relative">
+                              <img
+                                src={editingVehicle.endOfYearOdometerPhotoUrl}
+                                alt="End of year odometer"
+                                className="w-full h-32 object-cover rounded-md border"
+                              />
+                              <Button
+                                type="button"
+                                variant="ghost"
+                                size="icon"
+                                className="absolute top-2 right-2"
+                                onClick={() => {
+                                  endOfYearPhotoInputRef.current?.click();
+                                }}
+                              >
+                                <Edit className="h-4 w-4" />
+                              </Button>
+                            </div>
+                          ) : (
+                            <Button
+                              type="button"
+                              variant="outline"
+                              className="w-full"
+                              onClick={() => endOfYearPhotoInputRef.current?.click()}
+                              disabled={uploadingPhotoType === "endOfYear"}
+                            >
+                              <Upload className="mr-2 h-4 w-4" />
+                              {uploadingPhotoType === "endOfYear" ? "Uploading..." : "Upload End of Year Photo"}
+                            </Button>
+                          )}
+                          <input
+                            ref={endOfYearPhotoInputRef}
+                            type="file"
+                            accept="image/*"
+                            className="hidden"
+                            onChange={(e) => handlePhotoInputChange(editingVehicle.id, "endOfYear", e)}
+                          />
+                        </div>
+                      </div>
+                    </div>
+                  )}
                 </form>
               </Form>
             </div>
@@ -720,6 +930,54 @@ export default function VehiclesPage() {
                         }
                         return null;
                       })()}
+                      
+                      {/* Odometer Photos Display */}
+                      {(vehicle.initialOdometerPhotoUrl || vehicle.startOfYearOdometerPhotoUrl || vehicle.endOfYearOdometerPhotoUrl) && (
+                        <div className="mt-3 pt-3 border-t">
+                          <span className="text-sm text-muted-foreground mb-2 block">Odometer Photos:</span>
+                          <div className="flex gap-2 flex-wrap">
+                            {vehicle.initialOdometerPhotoUrl && (
+                              <div className="relative group">
+                                <img
+                                  src={vehicle.initialOdometerPhotoUrl}
+                                  alt="Initial odometer"
+                                  className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80"
+                                  onClick={() => window.open(vehicle.initialOdometerPhotoUrl!, "_blank")}
+                                />
+                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 text-center rounded-b">
+                                  Initial
+                                </div>
+                              </div>
+                            )}
+                            {vehicle.startOfYearOdometerPhotoUrl && (
+                              <div className="relative group">
+                                <img
+                                  src={vehicle.startOfYearOdometerPhotoUrl}
+                                  alt="Start of year odometer"
+                                  className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80"
+                                  onClick={() => window.open(vehicle.startOfYearOdometerPhotoUrl!, "_blank")}
+                                />
+                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 text-center rounded-b">
+                                  Start
+                                </div>
+                              </div>
+                            )}
+                            {vehicle.endOfYearOdometerPhotoUrl && (
+                              <div className="relative group">
+                                <img
+                                  src={vehicle.endOfYearOdometerPhotoUrl}
+                                  alt="End of year odometer"
+                                  className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80"
+                                  onClick={() => window.open(vehicle.endOfYearOdometerPhotoUrl!, "_blank")}
+                                />
+                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 text-center rounded-b">
+                                  End
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 ml-4">
                       <Button

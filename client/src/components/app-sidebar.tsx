@@ -49,6 +49,7 @@ const mainMenuItems = [
 const settingsMenuItems = [
   { title: "Profile", url: "/profile", icon: User },
   { title: "Expense Settings", url: "/expenses/settings", icon: Settings },
+  { title: "Vehicle Settings", url: "/vehicles", icon: Car },
   { title: "Subscription", url: "/pricing", icon: CreditCard },
 ];
 
@@ -277,18 +278,6 @@ export function AppSidebar() {
                   <Link href="/assets">
                     <Package className="h-4 w-4" />
                     <span>Assets</span>
-                  </Link>
-                </SidebarMenuButton>
-              </SidebarMenuItem>
-              <SidebarMenuItem>
-                <SidebarMenuButton
-                  asChild
-                  isActive={location === "/vehicles"}
-                  data-testid="nav-vehicles"
-                >
-                  <Link href="/vehicles">
-                    <Car className="h-4 w-4" />
-                    <span>Vehicles</span>
                   </Link>
                 </SidebarMenuButton>
               </SidebarMenuItem>

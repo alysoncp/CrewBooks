@@ -59,16 +59,17 @@ import { formatDate, getTodayLocalDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
 import { type Vehicle, type VehicleMileageLog } from "@shared/schema";
 
-const mileageLogFormSchema = z.object({
+// Dynamic schema based on logging style
+const createMileageLogFormSchema = (isOdometerStyle: boolean) => z.object({
   date: z.string().min(1, "Date is required"),
   tripTitle: z.string().optional(),
-  odometerReading: z.string().min(1, "Trip distance is required").transform((v) => parseFloat(v)),
+  odometerReading: z.string().min(1, isOdometerStyle ? "Odometer reading is required" : "Trip distance is required").transform((v) => parseFloat(v)),
   description: z.string().optional(),
   isBusinessUse: z.boolean().default(true),
   isRepeatTrip: z.boolean().default(false),
 });
 
-type MileageLogFormData = z.input<typeof mileageLogFormSchema>;
+type MileageLogFormData = z.input<ReturnType<typeof createMileageLogFormSchema>>;
 
 export default function VehicleMileagePage() {
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
@@ -80,6 +81,13 @@ export default function VehicleMileagePage() {
   const { data: vehicles = [], isLoading: vehiclesLoading } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
   });
+
+  // Get user's mileage logging style preference
+  const { data: mileageStyle } = useQuery<{ mileageLoggingStyle: string }>({
+    queryKey: ["/api/user/mileage-logging-style"],
+  });
+
+  const mileageLoggingStyle = mileageStyle?.mileageLoggingStyle || "trip_distance";
 
   const { data: mileageLogs = [], isLoading: logsLoading } = useQuery<VehicleMileageLog[]>({
     queryKey: ["/api/vehicles", selectedVehicleId, "mileage-logs"],
@@ -93,6 +101,9 @@ export default function VehicleMileagePage() {
   });
 
   const selectedVehicle = vehicles.find((v) => v.id === selectedVehicleId);
+
+  const isOdometerStyle = mileageLoggingStyle === "odometer";
+  const mileageLogFormSchema = createMileageLogFormSchema(isOdometerStyle);
 
   const form = useForm<MileageLogFormData>({
     resolver: zodResolver(mileageLogFormSchema),
@@ -108,24 +119,34 @@ export default function VehicleMileagePage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: MileageLogFormData) => {
-      // Calculate cumulative odometer reading from trip distance
-      const tripDistance = parseFloat(data.odometerReading.toString()); // This is actually trip distance in the form
-      // Get the latest odometer reading from existing logs or vehicle starting mileage
-      const sortedLogs = [...mileageLogs].sort((a, b) => 
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-      const lastLog = sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1] : null;
-      const lastOdometer = lastLog 
-        ? Number(lastLog.odometerReading) 
-        : (selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0);
-      const newOdometerReading = lastOdometer + tripDistance;
-      
-      return apiRequest("POST", `/api/vehicles/${selectedVehicleId}/mileage-logs`, {
-        date: data.date,
-        odometerReading: newOdometerReading.toString(),
-        description: data.tripTitle || "",
-        isBusinessUse: data.isBusinessUse,
-      });
+      if (isOdometerStyle) {
+        // Odometer style: use the reading directly
+        return apiRequest("POST", `/api/vehicles/${selectedVehicleId}/mileage-logs`, {
+          date: data.date,
+          odometerReading: data.odometerReading.toString(),
+          description: data.tripTitle || "",
+          isBusinessUse: data.isBusinessUse,
+        });
+      } else {
+        // Trip distance style: calculate cumulative odometer reading from trip distance
+        const tripDistance = parseFloat(data.odometerReading.toString());
+        // Get the latest odometer reading from existing logs or vehicle starting mileage
+        const sortedLogs = [...mileageLogs].sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        const lastLog = sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1] : null;
+        const lastOdometer = lastLog 
+          ? Number(lastLog.odometerReading) 
+          : (selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0);
+        const newOdometerReading = lastOdometer + tripDistance;
+        
+        return apiRequest("POST", `/api/vehicles/${selectedVehicleId}/mileage-logs`, {
+          date: data.date,
+          odometerReading: newOdometerReading.toString(),
+          description: data.tripTitle || "",
+          isBusinessUse: data.isBusinessUse,
+        });
+      }
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vehicles", selectedVehicleId, "mileage-logs"] });
@@ -147,39 +168,49 @@ export default function VehicleMileagePage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: MileageLogFormData }) => {
-      // For updates, calculate new odometer reading based on trip distance
-      const logToUpdate = mileageLogs.find(log => log.id === id);
-      if (!logToUpdate) throw new Error("Log not found");
-      
-      const tripDistance = parseFloat(data.odometerReading.toString()); // This is actually trip distance in the form
-      
-      // Get all logs except the one being updated, sorted by date
-      const otherLogs = [...mileageLogs.filter(log => log.id !== id)].sort((a, b) => 
-        new Date(a.date).getTime() - new Date(b.date).getTime()
-      );
-      
-      // Find the previous log based on the original date (to maintain chronological order)
-      const originalDate = new Date(logToUpdate.date).getTime();
-      const previousLog = otherLogs
-        .filter(log => new Date(log.date).getTime() < originalDate)
-        .pop(); // Get the last log before this one's original date
-      
-      let newOdometerReading: number;
-      if (!previousLog) {
-        // This was the first log chronologically
-        const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
-        newOdometerReading = startingMileage + tripDistance;
+      if (isOdometerStyle) {
+        // Odometer style: use the reading directly
+        return apiRequest("PATCH", `/api/mileage-logs/${id}`, {
+          date: data.date,
+          odometerReading: data.odometerReading.toString(),
+          description: data.tripTitle || "",
+          isBusinessUse: data.isBusinessUse,
+        });
       } else {
-        // Use the previous log's odometer reading
-        newOdometerReading = Number(previousLog.odometerReading) + tripDistance;
+        // Trip distance style: calculate new odometer reading based on trip distance
+        const logToUpdate = mileageLogs.find(log => log.id === id);
+        if (!logToUpdate) throw new Error("Log not found");
+        
+        const tripDistance = parseFloat(data.odometerReading.toString());
+        
+        // Get all logs except the one being updated, sorted by date
+        const otherLogs = [...mileageLogs.filter(log => log.id !== id)].sort((a, b) => 
+          new Date(a.date).getTime() - new Date(b.date).getTime()
+        );
+        
+        // Find the previous log based on the original date (to maintain chronological order)
+        const originalDate = new Date(logToUpdate.date).getTime();
+        const previousLog = otherLogs
+          .filter(log => new Date(log.date).getTime() < originalDate)
+          .pop(); // Get the last log before this one's original date
+        
+        let newOdometerReading: number;
+        if (!previousLog) {
+          // This was the first log chronologically
+          const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+          newOdometerReading = startingMileage + tripDistance;
+        } else {
+          // Use the previous log's odometer reading
+          newOdometerReading = Number(previousLog.odometerReading) + tripDistance;
+        }
+        
+        return apiRequest("PATCH", `/api/mileage-logs/${id}`, {
+          date: data.date,
+          odometerReading: newOdometerReading.toString(),
+          description: data.tripTitle || "",
+          isBusinessUse: data.isBusinessUse,
+        });
       }
-      
-      return apiRequest("PATCH", `/api/mileage-logs/${id}`, {
-        date: data.date,
-        odometerReading: newOdometerReading.toString(),
-        description: data.tripTitle || "",
-        isBusinessUse: data.isBusinessUse,
-      });
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: ["/api/vehicles", selectedVehicleId, "mileage-logs"] });
@@ -222,25 +253,33 @@ export default function VehicleMileagePage() {
 
   const handleEdit = (log: VehicleMileageLog) => {
     setEditingLogId(log.id);
-    // Calculate trip distance from this log and the previous one
-    const sortedLogs = [...mileageLogs].sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-    const logIndex = sortedLogs.findIndex(l => l.id === log.id);
-    let tripDistance = 0;
-    if (logIndex > 0) {
-      const prevLog = sortedLogs[logIndex - 1];
-      tripDistance = Number(log.odometerReading) - Number(prevLog.odometerReading);
+    
+    let readingValue: string;
+    if (isOdometerStyle) {
+      // Odometer style: use the reading directly
+      readingValue = log.odometerReading.toString();
     } else {
-      // First log, use vehicle starting mileage
-      const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
-      tripDistance = Number(log.odometerReading) - startingMileage;
+      // Trip distance style: calculate trip distance from this log and the previous one
+      const sortedLogs = [...mileageLogs].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      const logIndex = sortedLogs.findIndex(l => l.id === log.id);
+      let tripDistance = 0;
+      if (logIndex > 0) {
+        const prevLog = sortedLogs[logIndex - 1];
+        tripDistance = Number(log.odometerReading) - Number(prevLog.odometerReading);
+      } else {
+        // First log, use vehicle starting mileage
+        const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+        tripDistance = Number(log.odometerReading) - startingMileage;
+      }
+      readingValue = tripDistance.toString();
     }
     
     form.reset({
       date: log.date,
       tripTitle: log.description || "",
-      odometerReading: tripDistance.toString(),
+      odometerReading: readingValue,
       isBusinessUse: log.isBusinessUse ?? true,
       isRepeatTrip: false,
     });
@@ -262,25 +301,32 @@ export default function VehicleMileagePage() {
   const handleRepeatTrip = (log: VehicleMileageLog) => {
     setEditingLogId(null);
     
-    // Calculate trip distance from this log
-    const sortedLogs = [...mileageLogs].sort((a, b) => 
-      new Date(a.date).getTime() - new Date(b.date).getTime()
-    );
-    const logIndex = sortedLogs.findIndex(l => l.id === log.id);
-    
-    let tripDistance = 0;
-    if (logIndex > 0) {
-      const prevLog = sortedLogs[logIndex - 1];
-      tripDistance = Number(log.odometerReading) - Number(prevLog.odometerReading);
+    let readingValue: string;
+    if (isOdometerStyle) {
+      // Odometer style: can't repeat odometer readings, use current reading
+      readingValue = log.odometerReading.toString();
     } else {
-      const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
-      tripDistance = Number(log.odometerReading) - startingMileage;
+      // Trip distance style: calculate trip distance from this log
+      const sortedLogs = [...mileageLogs].sort((a, b) => 
+        new Date(a.date).getTime() - new Date(b.date).getTime()
+      );
+      const logIndex = sortedLogs.findIndex(l => l.id === log.id);
+      
+      let tripDistance = 0;
+      if (logIndex > 0) {
+        const prevLog = sortedLogs[logIndex - 1];
+        tripDistance = Number(log.odometerReading) - Number(prevLog.odometerReading);
+      } else {
+        const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+        tripDistance = Number(log.odometerReading) - startingMileage;
+      }
+      readingValue = tripDistance.toString();
     }
     
     form.reset({
       date: getTodayLocalDateString(), // Use today's date for the repeat
       tripTitle: log.description || "",
-      odometerReading: tripDistance.toString(),
+      odometerReading: readingValue,
       isBusinessUse: log.isBusinessUse ?? true,
       isRepeatTrip: true,
     });
@@ -411,7 +457,7 @@ export default function VehicleMileagePage() {
                     name="odometerReading"
                     render={({ field }) => (
                       <FormItem>
-                        <FormLabel>Trip Distance (km)</FormLabel>
+                        <FormLabel>{isOdometerStyle ? "Odometer Reading (km)" : "Trip Distance (km)"}</FormLabel>
                         <FormControl>
                           <Input
                             type="number"
@@ -419,7 +465,7 @@ export default function VehicleMileagePage() {
                             min="0"
                             placeholder="0.00"
                             className="font-mono"
-                            data-testid="input-trip-distance"
+                            data-testid={isOdometerStyle ? "input-odometer-reading" : "input-trip-distance"}
                             value={field.value || ""}
                             onChange={(e) => field.onChange(e.target.value)}
                             onBlur={field.onBlur}
@@ -427,7 +473,9 @@ export default function VehicleMileagePage() {
                           />
                         </FormControl>
                         <FormDescription>
-                          Enter the distance traveled for this trip
+                          {isOdometerStyle 
+                            ? "Enter the current odometer reading. It must be greater than or equal to the previous reading."
+                            : "Enter the distance traveled for this trip"}
                         </FormDescription>
                         <FormMessage />
                       </FormItem>
