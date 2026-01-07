@@ -377,15 +377,34 @@ export async function registerRoutes(
       const expenseRecords = await storage.getExpenses(userId);
       const taxCalculation = await storage.calculateTax(userId);
 
+      // Separate expenses by type
+      const businessExpenses = expenseRecords.filter((e: any) => {
+        const expenseType = e.expenseType || "self_employment"; // Default for backward compatibility
+        return expenseType === "home_office_living" || 
+               expenseType === "vehicle" || 
+               expenseType === "self_employment" || 
+               expenseType === "mixed" ||
+               expenseType === "business"; // Legacy support
+      });
+      const personalExpenses = expenseRecords.filter((e: any) => 
+        e.expenseType === "personal"
+      );
+
       const monthlyData = calculateMonthlyData(incomeRecords, expenseRecords);
       const expensesByCategory = calculateExpensesByCategory(expenseRecords);
+      const businessExpensesByCategory = calculateExpensesByCategory(businessExpenses);
+      const personalExpensesByCategory = calculateExpensesByCategory(personalExpenses);
 
       res.json({
         income: incomeRecords,
         expenses: expenseRecords,
+        businessExpenses,
+        personalExpenses,
         taxCalculation,
         monthlyData,
         expensesByCategory,
+        businessExpensesByCategory,
+        personalExpensesByCategory,
       });
     } catch (error) {
       res.status(500).json({ error: "Failed to load dashboard data" });
@@ -2112,6 +2131,68 @@ function calculateMonthlyData(
   });
 
   return data;
+}
+
+/**
+ * Calculate deductible amount for an expense
+ * Only business portion + proportional PST is deductible
+ */
+function calculateDeductibleAmount(expense: any, user?: any): number {
+  if (!expense.isTaxDeductible) {
+    return 0;
+  }
+
+  const expenseType = expense.expenseType || "self_employment"; // Default for backward compatibility
+  const baseCost = expense.baseCost ? parseFloat(expense.baseCost.toString()) : 0;
+  const pstAmount = expense.pstAmount ? parseFloat(expense.pstAmount.toString()) : 0;
+
+  if (expenseType === "personal") {
+    return 0; // Personal expenses are not deductible for business
+  }
+
+  if (expenseType === "home_office_living") {
+    // Home Office/Living expenses: apply home office percentage if set
+    let deductibleAmount = baseCost + pstAmount;
+    if (user?.homeOfficePercentage) {
+      const percentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
+      deductibleAmount = deductibleAmount * percentage;
+    }
+    return deductibleAmount;
+  }
+
+  if (expenseType === "vehicle" || expenseType === "self_employment") {
+    // Vehicle and Self-Employment expenses: fully deductible
+    return baseCost + pstAmount;
+  }
+
+  if (expenseType === "mixed") {
+    const businessPercentage = expense.businessUsePercentage 
+      ? parseFloat(expense.businessUsePercentage.toString()) / 100 
+      : 0;
+    
+    // Only business portion of base cost + proportional PST is deductible
+    const businessBaseCost = baseCost * businessPercentage;
+    const businessPstAmount = pstAmount * businessPercentage;
+    let deductibleAmount = businessBaseCost + businessPstAmount;
+    
+    // Apply home office percentage if applicable for home office/living categories
+    // Check if category is in HOME_OFFICE_LIVING_CATEGORIES
+    const homeOfficeCategories = ["rent", "utilities", "internet", "phone", "heat", "electricity", "insurance_home", "maintenance_home", "mortgage_interest", "property_taxes"];
+    if (homeOfficeCategories.includes(expense.category) && user?.homeOfficePercentage) {
+      const homeOfficePercentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
+      deductibleAmount = deductibleAmount * homeOfficePercentage;
+    }
+    
+    return deductibleAmount;
+  }
+
+  // Legacy: treat "business" as self_employment for backward compatibility
+  if (expenseType === "business") {
+    return baseCost + pstAmount;
+  }
+
+  // Default: treat as self-employment expense
+  return baseCost + pstAmount;
 }
 
 function calculateExpensesByCategory(

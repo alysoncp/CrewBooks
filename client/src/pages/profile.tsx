@@ -29,7 +29,7 @@ import {
 import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { User, Building2, Crown, Sparkles, Briefcase, Camera, Users, Car, ArrowUpRight } from "lucide-react";
+import { User, Building2, Crown, Sparkles, Briefcase, Camera, Users, ArrowUpRight } from "lucide-react";
 import { Link } from "wouter";
 import { 
   CANADIAN_PROVINCES, 
@@ -694,107 +694,6 @@ export default function ProfilePage() {
                     </FormItem>
                   )}
                 />
-              )}
-            </CardContent>
-          </Card>
-
-          <Card>
-            <CardHeader>
-              <CardTitle className="flex items-center gap-2">
-                <Car className="h-5 w-5" />
-                Expense Settings
-              </CardTitle>
-              <CardDescription>Help us calculate your deductions accurately</CardDescription>
-            </CardHeader>
-            <CardContent className="space-y-6">
-              {hasPersonalFeatures && (
-                <>
-                  <FormField
-                    control={form.control}
-                    name="hasRegularEmployment"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5">
-                          <FormLabel className="text-base">Regular Employment Income</FormLabel>
-                          <FormDescription>
-                            Do you also have regular T4 employment income in addition to your self-employment?
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="switch-has-employment"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  <FormField
-                    control={form.control}
-                    name="hasHomeOffice"
-                    render={({ field }) => (
-                      <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                        <div className="space-y-0.5">
-                          <FormLabel className="text-base">Home Office</FormLabel>
-                          <FormDescription>
-                            Do you use a home office?
-                          </FormDescription>
-                        </div>
-                        <FormControl>
-                          <Switch
-                            checked={field.value}
-                            onCheckedChange={field.onChange}
-                            data-testid="switch-has-home-office"
-                          />
-                        </FormControl>
-                      </FormItem>
-                    )}
-                  />
-
-                  {watchedHasHomeOffice && (
-                    <FormField
-                      control={form.control}
-                      name="homeOfficePercentage"
-                      render={({ field }) => (
-                        <FormItem>
-                          <FormLabel>What percentage of your home is used for business?</FormLabel>
-                          <FormControl>
-                            <div className="relative">
-                              <Input
-                                {...field}
-                                type="number"
-                                step="0.1"
-                                min="0"
-                                max="100"
-                                placeholder="10"
-                                className="pr-8"
-                                data-testid="input-home-office-percentage"
-                              />
-                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
-                            </div>
-                          </FormControl>
-                          <FormDescription>Enter the percentage of your home used exclusively for business</FormDescription>
-                          <FormMessage />
-                        </FormItem>
-                      )}
-                    />
-                  )}
-                </>
-              )}
-
-              {!hasPersonalFeatures && (
-                <div className="rounded-lg border border-dashed p-4 text-center text-muted-foreground">
-                  <p className="text-sm">
-                    Upgrade to Personal or Corporate plan to track regular employment income and get advanced tax features.
-                  </p>
-                  <Link href="/pricing">
-                    <Button variant="ghost" size="sm" className="mt-2">
-                      View Plans
-                    </Button>
-                  </Link>
-                </div>
               )}
             </CardContent>
           </Card>

@@ -6,7 +6,7 @@ import { FileText } from "lucide-react";
 import { formatCurrency } from "@/lib/format";
 import { useTaxYear } from "@/components/tax-year-provider";
 import type { T2125Summary } from "@shared/schema";
-import { EXPENSE_CATEGORIES } from "@shared/schema";
+import { SELF_EMPLOYMENT_EXPENSE_CATEGORIES } from "@shared/schema";
 
 // Map expense categories to T2125 line descriptions
 const CATEGORY_LABELS: Record<string, string> = {

@@ -11,9 +11,13 @@ import { useTaxYear } from "@/components/tax-year-provider";
 interface DashboardData {
   income: Income[];
   expenses: Expense[];
+  businessExpenses: Expense[];
+  personalExpenses: Expense[];
   taxCalculation: TaxCalculation;
   monthlyData: Array<{ month: string; income: number; expenses: number }>;
   expensesByCategory: Array<{ category: string; amount: number; color: string }>;
+  businessExpensesByCategory: Array<{ category: string; amount: number; color: string }>;
+  personalExpensesByCategory: Array<{ category: string; amount: number; color: string }>;
 }
 
 const CHART_COLORS = [
@@ -102,6 +106,20 @@ export default function Dashboard() {
     });
   }, [data?.expenses, taxYear]);
 
+  const filteredBusinessExpenses = useMemo(() => {
+    return (data?.businessExpenses || []).filter((item) => {
+      const itemYear = getYearFromDateString(item.date);
+      return itemYear === taxYear;
+    });
+  }, [data?.businessExpenses, taxYear]);
+
+  const filteredPersonalExpenses = useMemo(() => {
+    return (data?.personalExpenses || []).filter((item) => {
+      const itemYear = getYearFromDateString(item.date);
+      return itemYear === taxYear;
+    });
+  }, [data?.personalExpenses, taxYear]);
+
   // Recalculate monthly data from filtered data
   const monthlyData = useMemo(() => {
     const months = [
@@ -130,11 +148,11 @@ export default function Dashboard() {
     return data;
   }, [filteredIncome, filteredExpenses]);
 
-  // Recalculate expenses by category from filtered data
+  // Recalculate expenses by category from filtered data (business expenses)
   const expensesByCategory = useMemo(() => {
     const categoryTotals: Record<string, number> = {};
 
-    filteredExpenses.forEach((expense) => {
+    filteredBusinessExpenses.forEach((expense) => {
       const category = expense.category;
       categoryTotals[category] = (categoryTotals[category] || 0) + parseFloat(expense.amount.toString());
     });
@@ -147,11 +165,13 @@ export default function Dashboard() {
       }))
       .sort((a, b) => b.amount - a.amount)
       .slice(0, 8);
-  }, [filteredExpenses]);
+  }, [filteredBusinessExpenses]);
 
   // Recalculate totals from filtered data
   const totalIncome = filteredIncome.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
+  const totalBusinessExpenses = filteredBusinessExpenses.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
+  const totalPersonalExpenses = filteredPersonalExpenses.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
   const netIncome = totalIncome - totalExpenses;
   
   // For tax calculations, we'll proportionally adjust based on the income ratio
@@ -177,7 +197,7 @@ export default function Dashboard() {
         <p className="text-muted-foreground">Your financial overview for {taxYear}</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
         <StatCard
           title="Total Income"
           value={formatCurrency(totalIncome)}
@@ -188,13 +208,22 @@ export default function Dashboard() {
           testId="stat-total-income"
         />
         <StatCard
-          title="Deductible Expenses"
-          value={formatCurrency(totalExpenses)}
+          title="Business Expenses"
+          value={formatCurrency(totalBusinessExpenses)}
           subtitle="Year to date"
           icon={Receipt}
           trend="neutral"
           isLoading={isLoading}
-          testId="stat-total-expenses"
+          testId="stat-business-expenses"
+        />
+        <StatCard
+          title="Personal Expenses"
+          value={formatCurrency(totalPersonalExpenses)}
+          subtitle="Year to date"
+          icon={Receipt}
+          trend="neutral"
+          isLoading={isLoading}
+          testId="stat-personal-expenses"
         />
         <StatCard
           title="Net Income"
@@ -205,7 +234,7 @@ export default function Dashboard() {
           isLoading={isLoading}
           testId="stat-net-income"
         />
-        <Card>
+        <Card className="lg:col-span-1">
           <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
             <CardTitle className="text-sm font-medium text-muted-foreground">{taxLabel}</CardTitle>
             <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
@@ -291,8 +320,8 @@ export default function Dashboard() {
 
         <Card>
           <CardHeader>
-            <CardTitle>Expenses by Category</CardTitle>
-            <CardDescription>Distribution of spending</CardDescription>
+            <CardTitle>Business Expenses by Category</CardTitle>
+            <CardDescription>Distribution of business spending</CardDescription>
           </CardHeader>
           <CardContent>
             {isLoading ? (

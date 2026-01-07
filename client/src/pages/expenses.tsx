@@ -56,39 +56,18 @@ import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
-import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
+import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString, getYearFromDateString, getExpenseTypeLabel, getPersonalExpenseCategoryLabel } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { EXPENSE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
+import { SELF_EMPLOYMENT_EXPENSE_CATEGORIES, EXPENSE_TYPES, PERSONAL_EXPENSE_CATEGORIES, HOME_OFFICE_LIVING_CATEGORIES, VEHICLE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaxYear } from "@/components/tax-year-provider";
 import React from "react";
 import { Link, useLocation } from "wouter";
 import { Settings, ArrowLeft } from "lucide-react";
 
-// Define vehicle subcategories (since schema config was rejected, define inline)
-const VEHICLE_SUBCATEGORIES = [
-  { id: 'fuel', label: 'Fuel' },
-  { id: 'electric_vehicle_charging', label: 'Electric Vehicle Charging' },
-  { id: 'maintenance', label: 'Maintenance & Repairs' },
-  { id: 'insurance', label: 'Insurance' },
-  { id: 'registration', label: 'Registration & Licensing' },
-  { id: 'parking', label: 'Parking & Tolls' },
-  { id: 'lease_payment', label: 'Lease or Loan Payment' },
-  { id: 'other_vehicle', label: 'Other' },
-] as const;
+// Vehicle and home office subcategories are now regular categories, no longer needed as constants
 
-// Define home office subcategories
-const HOME_OFFICE_SUBCATEGORIES = [
-  { id: 'heat', label: 'Heat' },
-  { id: 'electricity', label: 'Electricity' },
-  { id: 'insurance', label: 'Insurance' },
-  { id: 'maintenance', label: 'Maintenance' },
-  { id: 'mortgage_interest', label: 'Mortgage Interest' },
-  { id: 'property_taxes', label: 'Property Taxes' },
-  { id: 'rent', label: 'Rent' },
-] as const;
-
-type ExpenseCategoryTuple = typeof EXPENSE_CATEGORIES;
+type ExpenseCategoryTuple = typeof SELF_EMPLOYMENT_EXPENSE_CATEGORIES;
 
 const expenseFormSchema = z.object({
   baseCost: z.string().optional().refine((val) => {
@@ -129,8 +108,17 @@ const expenseFormSchema = z.object({
   vendor: z.string().optional(),
   description: z.string().optional(),
   isTaxDeductible: z.boolean().default(true),
+  expenseType: z.enum(["home_office_living", "vehicle", "self_employment", "personal", "mixed"]).default("self_employment"),
+  businessUsePercentage: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true; // Optional field
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0 && num <= 100;
+  }, {
+    message: "Business use percentage must be between 0 and 100",
+  }),
 }).refine((data) => {
-  if (data.category === 'motor_vehicle_expenses' && !data.vehicleId) {
+  // Vehicle expenses require a vehicle selection
+  if (data.expenseType === "vehicle" && !data.vehicleId) {
     return false;
   }
   return true;
@@ -145,6 +133,16 @@ const expenseFormSchema = z.object({
 }, {
   message: "Please enter either base cost or total amount",
   path: ["baseCost"],
+}).refine((data) => {
+  // If expense type is mixed, business use percentage is required
+  if (data.expenseType === "mixed") {
+    const percentage = data.businessUsePercentage ? parseFloat(data.businessUsePercentage) : null;
+    return percentage !== null && !isNaN(percentage) && percentage >= 0 && percentage <= 100;
+  }
+  return true;
+}, {
+  message: "Business use percentage is required for mixed expenses (0-100%)",
+  path: ["businessUsePercentage"],
 });
 
 type ExpenseFormData = z.input<typeof expenseFormSchema>;
@@ -189,33 +187,27 @@ export default function ExpensesPage() {
   // State for viewing receipt
   const [viewingReceipt, setViewingReceipt] = useState<Receipt | null>(null);
 
-  // Get enabled categories from user profile (default to all if not set)
-  const enabledCategories = useMemo(() => {
-    if (userProfile?.enabledExpenseCategories) {
-      return new Set(userProfile.enabledExpenseCategories as string[]);
-    }
-    // Default: all categories enabled
-    return new Set(EXPENSE_CATEGORIES);
-  }, [userProfile]);
-
-  // Extract custom categories (those not in EXPENSE_CATEGORIES)
+  // Extract custom categories (those not in predefined lists)
+  // All predefined categories are always available - no need to check enabled status
   const customCategories = useMemo(() => {
     if (userProfile?.enabledExpenseCategories) {
       const allCategories = userProfile.enabledExpenseCategories as string[];
-      return allCategories.filter(cat => !EXPENSE_CATEGORIES.includes(cat as any));
+      return allCategories.filter(cat => 
+        !SELF_EMPLOYMENT_EXPENSE_CATEGORIES.includes(cat as any) &&
+        !HOME_OFFICE_LIVING_CATEGORIES.includes(cat as any) &&
+        !VEHICLE_CATEGORIES.includes(cat as any)
+      );
     }
     return [];
   }, [userProfile]);
 
-  // Filter categories to only show enabled ones, and include custom categories
-  // Deduplicate to prevent React key warnings
-  const availableCategories = useMemo(() => {
-    const predefined = EXPENSE_CATEGORIES.filter((category) => enabledCategories.has(category));
-    // Add custom categories that are enabled, but filter out duplicates
-    const custom = customCategories.filter(cat => enabledCategories.has(cat) && !predefined.includes(cat as any));
-    // Use Set to ensure uniqueness, then convert back to array
-    return Array.from(new Set([...predefined, ...custom]));
-  }, [enabledCategories, customCategories]);
+  const customPersonalCategories = useMemo(() => {
+    if (userProfile?.enabledPersonalExpenseCategories) {
+      const allCategories = userProfile.enabledPersonalExpenseCategories as string[];
+      return allCategories.filter(cat => !PERSONAL_EXPENSE_CATEGORIES.includes(cat as any));
+    }
+    return [];
+  }, [userProfile]);
 
   // Move form definition BEFORE the useEffect that uses it
   const form = useForm<ExpenseFormData>({
@@ -234,8 +226,75 @@ export default function ExpensesPage() {
       vendor: "",
       description: "",
       isTaxDeductible: true,
+      expenseType: "self_employment",
+      businessUsePercentage: "",
     },
   });
+
+  // Watch expense type to determine which categories to show
+  const expenseType = form.watch("expenseType");
+
+  // Get enabled categories from user profile
+  const enabledCategories = useMemo(() => {
+    if (userProfile?.enabledExpenseCategories) {
+      return new Set(userProfile.enabledExpenseCategories as string[]);
+    }
+    // Default: all categories enabled if not set
+    return new Set(Array.from(SELF_EMPLOYMENT_EXPENSE_CATEGORIES));
+  }, [userProfile]);
+
+  const enabledPersonalCategories = useMemo(() => {
+    if (userProfile?.enabledPersonalExpenseCategories) {
+      return new Set(userProfile.enabledPersonalExpenseCategories as string[]);
+    }
+    // Default: all categories enabled if not set
+    return new Set(Array.from(PERSONAL_EXPENSE_CATEGORIES));
+  }, [userProfile]);
+
+  // Categories are shown contextually based on expense type
+  // Only show categories that are enabled in user settings
+  const availableCategories = useMemo(() => {
+    if (expenseType === "home_office_living") {
+      // Home Office/Living expenses: show only home office/living categories
+      // All home office categories are always available (no filtering needed)
+      return Array.from(new Set([...HOME_OFFICE_LIVING_CATEGORIES]));
+    } else if (expenseType === "vehicle") {
+      // Vehicle expenses: show only vehicle categories
+      // All vehicle categories are always available (no filtering needed)
+      return Array.from(new Set([...VEHICLE_CATEGORIES]));
+    } else if (expenseType === "self_employment") {
+      // Self-Employment expenses: show only enabled self-employment categories
+      const filteredCustomCategories = customCategories.filter(cat => 
+        !HOME_OFFICE_LIVING_CATEGORIES.includes(cat as any) &&
+        !VEHICLE_CATEGORIES.includes(cat as any) &&
+        !PERSONAL_EXPENSE_CATEGORIES.includes(cat as any)
+      );
+      // Filter to only show enabled self-employment categories
+      const enabledSelfEmployment = Array.from(SELF_EMPLOYMENT_EXPENSE_CATEGORIES).filter(cat => 
+        enabledCategories.has(cat)
+      );
+      return Array.from(new Set([...enabledSelfEmployment, ...filteredCustomCategories]));
+    } else if (expenseType === "personal") {
+      // Personal expenses: show only enabled personal expense categories
+      const enabledPersonal = Array.from(PERSONAL_EXPENSE_CATEGORIES).filter(cat => 
+        enabledPersonalCategories.has(cat)
+      );
+      return Array.from(new Set([...enabledPersonal, ...customPersonalCategories]));
+    } else if (expenseType === "mixed") {
+      // Mixed expenses: show only enabled self-employment categories
+      const filteredCustomCategories = customCategories.filter(cat => 
+        !HOME_OFFICE_LIVING_CATEGORIES.includes(cat as any) &&
+        !VEHICLE_CATEGORIES.includes(cat as any) &&
+        !PERSONAL_EXPENSE_CATEGORIES.includes(cat as any)
+      );
+      // Filter to only show enabled self-employment categories
+      const enabledSelfEmployment = Array.from(SELF_EMPLOYMENT_EXPENSE_CATEGORIES).filter(cat => 
+        enabledCategories.has(cat)
+      );
+      return Array.from(new Set([...enabledSelfEmployment, ...filteredCustomCategories]));
+    }
+    return [];
+  }, [customCategories, customPersonalCategories, expenseType, enabledCategories, enabledPersonalCategories]);
 
   // Track which field was last edited to prevent circular updates
   const [lastEditedField, setLastEditedField] = useState<"baseCost" | "total" | "gstAmount" | "pstAmount" | null>(null);
@@ -446,6 +505,8 @@ export default function ExpensesPage() {
             vendor: "",
             description: "",
             isTaxDeductible: true,
+            expenseType: "self_employment",
+            businessUsePercentage: "",
           });
           // Open dialog so user can create expense manually
           setTimeout(() => setIsDialogOpen(true), 0);
@@ -508,6 +569,10 @@ export default function ExpensesPage() {
       if (receiptIdForExpense) {
         payload.linkedReceiptId = receiptIdForExpense;
       }
+      
+      // Add expense type and business use percentage
+      payload.expenseType = data.expenseType || "self_employment";
+      payload.businessUsePercentage = data.businessUsePercentage ? data.businessUsePercentage.toString() : null;
       
       return apiRequest("POST", "/api/expenses", payload);
     },
@@ -577,6 +642,8 @@ export default function ExpensesPage() {
         vendor: data.vendor,
         description: data.description,
         isTaxDeductible: data.isTaxDeductible,
+        expenseType: data.expenseType || "self_employment",
+        businessUsePercentage: data.businessUsePercentage ? data.businessUsePercentage.toString() : null,
       };
       return apiRequest("PATCH", `/api/expenses/${id}`, payload);
     },
@@ -673,6 +740,10 @@ export default function ExpensesPage() {
         vendor: expense.vendor || "",
         description: expense.description || "",
         isTaxDeductible: expense.isTaxDeductible ?? true,
+        expenseType: (expense as any).expenseType || "self_employment",
+        businessUsePercentage: (expense as any).businessUsePercentage 
+          ? parseFloat((expense as any).businessUsePercentage.toString()).toFixed(2) 
+          : "",
       });
       setLastEditedField("baseCost");
     } else {
@@ -692,6 +763,10 @@ export default function ExpensesPage() {
         vendor: expense.vendor || "",
         description: expense.description || "",
         isTaxDeductible: expense.isTaxDeductible ?? true,
+        expenseType: (expense as any).expenseType || "self_employment",
+        businessUsePercentage: (expense as any).businessUsePercentage 
+          ? parseFloat((expense as any).businessUsePercentage.toString()).toFixed(2) 
+          : "",
       });
       setLastEditedField("total");
     }
@@ -748,17 +823,53 @@ export default function ExpensesPage() {
 
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount), 0);
   const deductibleExpenses = filteredExpenses.reduce((sum, item) => {
+    if (!item.isTaxDeductible) {
+      return sum;
+    }
+
+    const expenseType = (item as any).expenseType || "self_employment";
     const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
     const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
-    let deductibleAmount = baseCost + pstAmount;
-    
-    // Apply home office percentage for home office expenses
-    if (item.category === "home_office_expenses" && userProfile?.homeOfficePercentage) {
-      const percentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
-      deductibleAmount = deductibleAmount * percentage;
+
+    if (expenseType === "personal") {
+      return sum; // Personal expenses are not deductible for business
     }
-    
-    return sum + deductibleAmount;
+
+    if (expenseType === "home_office_living") {
+      // Home Office/Living expenses: apply home office percentage if set
+      let deductibleAmount = baseCost + pstAmount;
+      if (userProfile?.homeOfficePercentage) {
+        const percentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+        deductibleAmount = deductibleAmount * percentage;
+      }
+      return sum + deductibleAmount;
+    } else if (expenseType === "vehicle" || expenseType === "self_employment") {
+      // Vehicle and Self-Employment expenses: fully deductible
+      const deductibleAmount = baseCost + pstAmount;
+      return sum + deductibleAmount;
+    }
+
+    if (expenseType === "mixed") {
+      const businessPercentage = (item as any).businessUsePercentage 
+        ? parseFloat((item as any).businessUsePercentage.toString()) / 100 
+        : 0;
+      
+      // Only business portion of base cost + proportional PST is deductible
+      const businessBaseCost = baseCost * businessPercentage;
+      const businessPstAmount = pstAmount * businessPercentage;
+      let deductibleAmount = businessBaseCost + businessPstAmount;
+      
+      // Apply home office percentage if applicable
+      if (item.category === "home_office_expenses" && userProfile?.homeOfficePercentage) {
+        const homeOfficePercentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+        deductibleAmount = deductibleAmount * homeOfficePercentage;
+      }
+      
+      return sum + deductibleAmount;
+    }
+
+    // Default: treat as business expense
+    return sum + baseCost + pstAmount;
   }, 0);
   const totalGstCredits = filteredExpenses.reduce((sum, item) => {
     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
@@ -1024,6 +1135,33 @@ export default function ExpensesPage() {
                     />
                     <FormField
                       control={form.control}
+                      name="expenseType"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Expense Type</FormLabel>
+                          <Select onValueChange={field.onChange} value={field.value}>
+                            <FormControl>
+                              <SelectTrigger data-testid="select-expense-type">
+                                <SelectValue placeholder="Select expense type" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              <SelectItem value="home_office_living">Home</SelectItem>
+                              <SelectItem value="vehicle">Vehicle</SelectItem>
+                              <SelectItem value="self_employment">Self-Employment</SelectItem>
+                              <SelectItem value="personal">Personal</SelectItem>
+                              <SelectItem value="mixed">Mixed (Personal & Self-Employment)</SelectItem>
+                            </SelectContent>
+                          </Select>
+                          <FormDescription>
+                            Select whether this expense is for business, personal use, or a mix of both
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
                       name="category"
                       render={({ field }) => (
                         <FormItem>
@@ -1038,95 +1176,86 @@ export default function ExpensesPage() {
                               </SelectTrigger>
                             </FormControl>
                             <SelectContent>
-                              {availableCategories.map((category) => (
-                                <SelectItem key={category} value={category}>
-                                  {getCategoryLabel(category)}
-                                </SelectItem>
-                              ))}
+                              {availableCategories.map((category: string) => {
+                                // Determine which label function to use
+                                let label = getCategoryLabel(category);
+                                if (expenseType === "personal") {
+                                  // All personal expense categories (including former general categories) use personal label
+                                  if (PERSONAL_EXPENSE_CATEGORIES.includes(category as any)) {
+                                    label = getPersonalExpenseCategoryLabel(category);
+                                  } else {
+                                    // Custom category - use personal format
+                                    label = getPersonalExpenseCategoryLabel(category);
+                                  }
+                                }
+                                return (
+                                  <SelectItem key={category} value={category}>
+                                    {label}
+                                  </SelectItem>
+                                );
+                              })}
                             </SelectContent>
                           </Select>
                           <FormMessage />
                         </FormItem>
                       )}
                     />
-
-                    {form.watch("category") === "motor_vehicle_expenses" && (
-                      <>
-                        <FormField
-                          control={form.control}
-                          name="vehicleId"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Vehicle</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select vehicle" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {vehicles.length === 0 ? (
-                                    <div className="px-2 py-1.5 text-sm text-muted-foreground">
-                                      No vehicles found. <Link href="/expenses/settings" className="text-primary underline">Add a vehicle</Link> in expense settings.
-                                    </div>
-                                  ) : (
-                                    vehicles.map((vehicle) => (
-                                      <SelectItem key={vehicle.id} value={vehicle.id}>
-                                        {vehicle.name}
-                                      </SelectItem>
-                                    ))
-                                  )}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                        <FormField
-                          control={form.control}
-                          name="subcategory"
-                          render={({ field }) => (
-                            <FormItem>
-                              <FormLabel>Expense Type</FormLabel>
-                              <Select onValueChange={field.onChange} defaultValue={field.value}>
-                                <FormControl>
-                                  <SelectTrigger>
-                                    <SelectValue placeholder="Select expense type" />
-                                  </SelectTrigger>
-                                </FormControl>
-                                <SelectContent>
-                                  {VEHICLE_SUBCATEGORIES.map((subcat) => (
-                                    <SelectItem key={subcat.id} value={subcat.id}>
-                                      {subcat.label}
-                                    </SelectItem>
-                                  ))}
-                                </SelectContent>
-                              </Select>
-                              <FormMessage />
-                            </FormItem>
-                          )}
-                        />
-                      </>
-                    )}
-                    {form.watch("category") === "home_office_expenses" && (
+                    {expenseType === "mixed" && (
                       <FormField
                         control={form.control}
-                        name="subcategory"
+                        name="businessUsePercentage"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Expense Type</FormLabel>
+                            <FormLabel>Business Use Percentage</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  max="100"
+                                  placeholder="0.00"
+                                  className="pr-8 font-mono"
+                                  data-testid="input-business-use-percentage"
+                                />
+                                <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+                              </div>
+                            </FormControl>
+                            <FormDescription>
+                              Enter the percentage of this expense that is for business use (0-100%)
+                            </FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                    )}
+
+                    {expenseType === "vehicle" && (
+                      <FormField
+                        control={form.control}
+                        name="vehicleId"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Vehicle</FormLabel>
                             <Select onValueChange={field.onChange} defaultValue={field.value}>
                               <FormControl>
                                 <SelectTrigger>
-                                  <SelectValue placeholder="Select expense type" />
+                                  <SelectValue placeholder="Select vehicle" />
                                 </SelectTrigger>
                               </FormControl>
                               <SelectContent>
-                                {HOME_OFFICE_SUBCATEGORIES.map((subcat) => (
-                                  <SelectItem key={subcat.id} value={subcat.id}>
-                                    {subcat.label}
-                                  </SelectItem>
-                                ))}
+                                {vehicles.length === 0 ? (
+                                  <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                    No vehicles found. <Link href="/expenses/settings" className="text-primary underline">Add a vehicle</Link> in expense settings.
+                                  </div>
+                                ) : (
+                                  vehicles.map((vehicle) => (
+                                    <SelectItem key={vehicle.id} value={vehicle.id}>
+                                      {vehicle.name}
+                                    </SelectItem>
+                                  ))
+                                )}
                               </SelectContent>
                             </Select>
                             <FormMessage />
@@ -1134,6 +1263,7 @@ export default function ExpensesPage() {
                         )}
                       />
                     )}
+
                     <FormField
                       control={form.control}
                       name="vendor"
@@ -1259,6 +1389,7 @@ export default function ExpensesPage() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Title</TableHead>
+                    <TableHead>Type</TableHead>
                     <TableHead>Category</TableHead>
                     <TableHead>Vendor</TableHead>
                     <TableHead className="text-right">Total</TableHead>
@@ -1269,15 +1400,39 @@ export default function ExpensesPage() {
                 </TableHeader>
                 <TableBody>
                   {filteredExpenses.map((item) => {
+                    const expenseType = (item as any).expenseType || "self_employment";
                     const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
                     const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
                     const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
-                    let deductibleAmount = baseCost + pstAmount;
                     
-                    // Apply home office percentage for home office expenses
-                    if (item.category === "home_office_expenses" && userProfile?.homeOfficePercentage) {
-                      const percentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
-                      deductibleAmount = deductibleAmount * percentage;
+                    // Calculate deductible amount using same logic as total calculation
+                    let deductibleAmount = 0;
+                    if (item.isTaxDeductible) {
+                      if (expenseType === "home_office_living") {
+                        // Home Office/Living expenses: apply home office percentage if set
+                        deductibleAmount = baseCost + pstAmount;
+                        if (userProfile?.homeOfficePercentage) {
+                          const percentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+                          deductibleAmount = deductibleAmount * percentage;
+                        }
+                      } else if (expenseType === "vehicle" || expenseType === "self_employment") {
+                        // Vehicle and Self-Employment expenses: fully deductible
+                        deductibleAmount = baseCost + pstAmount;
+                      } else if (expenseType === "mixed") {
+                        // Mixed expenses: apply business use percentage
+                        const businessPercentage = (item as any).businessUsePercentage 
+                          ? parseFloat((item as any).businessUsePercentage.toString()) / 100 
+                          : 0;
+                        const businessBaseCost = baseCost * businessPercentage;
+                        const businessPstAmount = pstAmount * businessPercentage;
+                        deductibleAmount = businessBaseCost + businessPstAmount;
+                        // Apply home office percentage if applicable for home office/living categories
+                        if (HOME_OFFICE_LIVING_CATEGORIES.includes(item.category as any) && userProfile?.homeOfficePercentage) {
+                          const homeOfficePercentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+                          deductibleAmount = deductibleAmount * homeOfficePercentage;
+                        }
+                      }
+                      // Personal expenses have deductibleAmount = 0 (already set)
                     }
                     
                     return (
@@ -1294,8 +1449,23 @@ export default function ExpensesPage() {
                           </div>
                         </TableCell>
                         <TableCell>
+                          <Badge variant={expenseType === "personal" ? "secondary" : expenseType === "mixed" ? "outline" : "default"} className="text-xs">
+                            {getExpenseTypeLabel(expenseType)}
+                            {expenseType === "mixed" && (item as any).businessUsePercentage && (
+                              <span className="ml-1">({parseFloat((item as any).businessUsePercentage.toString()).toFixed(0)}%)</span>
+                            )}
+                          </Badge>
+                        </TableCell>
+                        <TableCell>
                           <Badge variant="outline" className="text-xs">
-                            {getCategoryLabel(item.category)}
+                            {(() => {
+                              if (expenseType === "personal") {
+                                // All personal expense categories (including former general categories) use personal label
+                                return getPersonalExpenseCategoryLabel(item.category);
+                              }
+                              // For all other expense types, use getCategoryLabel which handles all category types
+                              return getCategoryLabel(item.category);
+                            })()}
                           </Badge>
                         </TableCell>
                         <TableCell>
