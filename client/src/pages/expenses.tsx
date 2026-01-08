@@ -1482,17 +1482,16 @@ export default function ExpensesPage() {
                         </TableCell>
                       <TableCell>
                         <div className="flex items-center gap-1">
-                          {receiptMap.has(item.id) && (
-                            <Button
-                              variant="ghost"
-                              size="icon"
-                              onClick={() => setViewingReceipt(receiptMap.get(item.id)!)}
-                              data-testid={`button-view-receipt-${item.id}`}
-                              title="View receipt"
-                            >
-                              <ImageIcon className="h-4 w-4 text-muted-foreground" />
-                            </Button>
-                          )}
+                          <Button
+                            variant="ghost"
+                            size="icon"
+                            onClick={() => setViewingReceipt(receiptMap.get(item.id)!)}
+                            data-testid={`button-view-receipt-${item.id}`}
+                            title="View receipt"
+                            className={receiptMap.has(item.id) ? "" : "invisible"}
+                          >
+                            <ImageIcon className="h-4 w-4 text-muted-foreground" />
+                          </Button>
                           <Button
                             variant="ghost"
                             size="icon"
