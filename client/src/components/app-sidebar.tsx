@@ -49,7 +49,7 @@ const mainMenuItems = [
 const settingsMenuItems = [
   { title: "Profile", url: "/profile", icon: User },
   { title: "Expense Settings", url: "/expenses/settings", icon: Settings },
-  { title: "Vehicle Settings", url: "/vehicles", icon: Car },
+  { title: "Manage Vehicles", url: "/vehicles", icon: Car },
   { title: "Subscription", url: "/pricing", icon: CreditCard },
 ];
 

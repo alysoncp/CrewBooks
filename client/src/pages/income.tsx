@@ -120,6 +120,8 @@ export default function IncomePage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [incomeCategoryFilter, setIncomeCategoryFilter] = useState<string>("all");
+  const [showFilter, setShowFilter] = useState<string>("all");
   const [customAccountingOffice, setCustomAccountingOffice] = useState("");
   const [paystubIdForIncome, setPaystubIdForIncome] = useState<string | null>(null);
   const [paystubImageUrl, setPaystubImageUrl] = useState<string | null>(null);
@@ -570,12 +572,50 @@ export default function IncomePage() {
     }
   }, [form, toast]);
 
-  // Filter income by year and search query
+  // Get unique income categories and shows from income for filter dropdowns
+  const availableIncomeCategoriesForFilter = useMemo(() => {
+    if (!incomeList) return [];
+    const categories = new Set<string>();
+    incomeList.forEach((item) => {
+      const itemYear = getYearFromDateString(item.date);
+      if (itemYear === taxYear) {
+        categories.add(item.incomeCategory || INCOME_CATEGORIES.FILM_TV);
+      }
+    });
+    return Array.from(categories).sort();
+  }, [incomeList, taxYear]);
+
+  const availableShowsForFilter = useMemo(() => {
+    if (!incomeList) return [];
+    const shows = new Set<string>();
+    incomeList.forEach((item) => {
+      const itemYear = getYearFromDateString(item.date);
+      if (itemYear === taxYear && item.productionName) {
+        shows.add(item.productionName);
+      }
+    });
+    return Array.from(shows).sort();
+  }, [incomeList, taxYear]);
+
+  // Filter income by year, search query, income category, and show
   const filteredIncome = useMemo(() => {
     return (incomeList || []).filter((item) => {
       // Filter by year - extract year directly from date string to avoid timezone issues
       const itemYear = getYearFromDateString(item.date);
       if (itemYear !== taxYear) return false;
+
+      // Filter by income category
+      if (incomeCategoryFilter !== "all") {
+        const category = item.incomeCategory || INCOME_CATEGORIES.FILM_TV;
+        if (category !== incomeCategoryFilter) {
+          return false;
+        }
+      }
+
+      // Filter by show (production name)
+      if (showFilter !== "all" && item.productionName !== showFilter) {
+        return false;
+      }
 
       // Filter by search query
       const searchLower = searchQuery.toLowerCase();
@@ -588,7 +628,7 @@ export default function IncomePage() {
         getIncomeCategoryLabel(item.incomeCategory || INCOME_CATEGORIES.FILM_TV).toLowerCase().includes(searchLower)
       );
     });
-  }, [incomeList, taxYear, searchQuery]);
+  }, [incomeList, taxYear, searchQuery, incomeCategoryFilter, showFilter]);
 
   // Calculate totals by category
   const incomeByCategory = useMemo(() => {
@@ -1349,7 +1389,7 @@ export default function IncomePage() {
                 Total for {taxYear}: <span className="font-mono font-semibold">{formatCurrency(totalNetIncome)}</span>
               </CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -1360,6 +1400,34 @@ export default function IncomePage() {
                   data-testid="input-search-income"
                 />
               </div>
+              <Select value={incomeCategoryFilter} onValueChange={setIncomeCategoryFilter}>
+                <SelectTrigger className="w-full sm:w-48" data-testid="select-income-category-filter">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {availableIncomeCategoriesForFilter.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {getIncomeCategoryLabel(category)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              {availableShowsForFilter.length > 0 && (
+                <Select value={showFilter} onValueChange={setShowFilter}>
+                  <SelectTrigger className="w-full sm:w-48" data-testid="select-show-filter">
+                    <SelectValue placeholder="All Shows" />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="all">All Shows</SelectItem>
+                    {availableShowsForFilter.map((show) => (
+                      <SelectItem key={show} value={show}>
+                        {show}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              )}
             </div>
           </div>
         </CardHeader>

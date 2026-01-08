@@ -151,6 +151,8 @@ export default function ExpensesPage() {
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
+  const [categoryFilter, setCategoryFilter] = useState<string>("all");
+  const [expenseTypeFilter, setExpenseTypeFilter] = useState<string>("all");
   const [receiptIdForExpense, setReceiptIdForExpense] = useState<string | null>(null);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
   const { taxYear } = useTaxYear();
@@ -803,12 +805,51 @@ export default function ExpensesPage() {
     }
   };
 
-  // Filter expenses by year and search query
+  // Get unique categories and expense types from expenses for filter dropdowns
+  const availableCategoriesForFilter = useMemo(() => {
+    if (!expenseList) return [];
+    const categories = new Set<string>();
+    expenseList.forEach((item) => {
+      const itemYear = getYearFromDateString(item.date);
+      if (itemYear === taxYear) {
+        categories.add(item.category);
+      }
+    });
+    return Array.from(categories).sort();
+  }, [expenseList, taxYear]);
+
+  const availableExpenseTypesForFilter = useMemo(() => {
+    if (!expenseList) return [];
+    const types = new Set<string>();
+    expenseList.forEach((item) => {
+      const itemYear = getYearFromDateString(item.date);
+      if (itemYear === taxYear) {
+        const expenseType = (item as any).expenseType || "self_employment";
+        types.add(expenseType);
+      }
+    });
+    return Array.from(types).sort();
+  }, [expenseList, taxYear]);
+
+  // Filter expenses by year, search query, category, and expense type
   const filteredExpenses = useMemo(() => {
     return (expenseList || []).filter((item) => {
       // Filter by year - extract year directly from date string to avoid timezone issues
       const itemYear = getYearFromDateString(item.date);
       if (itemYear !== taxYear) return false;
+
+      // Filter by category
+      if (categoryFilter !== "all" && item.category !== categoryFilter) {
+        return false;
+      }
+
+      // Filter by expense type
+      if (expenseTypeFilter !== "all") {
+        const expenseType = (item as any).expenseType || "self_employment";
+        if (expenseType !== expenseTypeFilter) {
+          return false;
+        }
+      }
 
       // Filter by search query
       const searchLower = searchQuery.toLowerCase();
@@ -819,7 +860,7 @@ export default function ExpensesPage() {
         getCategoryLabel(item.category).toLowerCase().includes(searchLower)
       );
     });
-  }, [expenseList, taxYear, searchQuery]);
+  }, [expenseList, taxYear, searchQuery, categoryFilter, expenseTypeFilter]);
 
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount), 0);
   const deductibleExpenses = filteredExpenses.reduce((sum, item) => {
@@ -1351,7 +1392,7 @@ export default function ExpensesPage() {
               <CardTitle>Expense History</CardTitle>
               <CardDescription>All recorded business expenses for {taxYear}</CardDescription>
             </div>
-            <div className="flex gap-2">
+            <div className="flex flex-wrap gap-2">
               <div className="relative w-full sm:w-64">
                 <Search className="absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-muted-foreground" />
                 <Input
@@ -1362,6 +1403,32 @@ export default function ExpensesPage() {
                   data-testid="input-search-expenses"
                 />
               </div>
+              <Select value={categoryFilter} onValueChange={setCategoryFilter}>
+                <SelectTrigger className="w-full sm:w-48" data-testid="select-category-filter">
+                  <SelectValue placeholder="All Categories" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Categories</SelectItem>
+                  {availableCategoriesForFilter.map((category) => (
+                    <SelectItem key={category} value={category}>
+                      {getCategoryLabel(category)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
+              <Select value={expenseTypeFilter} onValueChange={setExpenseTypeFilter}>
+                <SelectTrigger className="w-full sm:w-48" data-testid="select-expense-type-filter">
+                  <SelectValue placeholder="All Types" />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="all">All Types</SelectItem>
+                  {availableExpenseTypesForFilter.map((type) => (
+                    <SelectItem key={type} value={type}>
+                      {getExpenseTypeLabel(type)}
+                    </SelectItem>
+                  ))}
+                </SelectContent>
+              </Select>
             </div>
           </div>
         </CardHeader>
