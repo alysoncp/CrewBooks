@@ -20,6 +20,8 @@ import {
   type InsertVehicle,
   type VehicleMileageLog,
   type InsertVehicleMileageLog,
+  type OdometerPhoto,
+  type InsertOdometerPhoto,
   type Asset,
   type InsertAsset,
   type AssetCcaHistory,
@@ -37,6 +39,7 @@ import {
   questionnaireResponses,
   vehicles,
   vehicleMileageLogs,
+  odometerPhotos,
   assets,
   assetCcaHistory,
   leaseContracts,
@@ -104,6 +107,12 @@ export interface IStorage {
   createVehicleMileageLog(logData: InsertVehicleMileageLog): Promise<VehicleMileageLog>;
   updateVehicleMileageLog(id: string, logData: Partial<InsertVehicleMileageLog>): Promise<VehicleMileageLog | undefined>;
   deleteVehicleMileageLog(id: string): Promise<boolean>;
+
+  getOdometerPhotos(vehicleId: string, userId: string): Promise<OdometerPhoto[]>;
+  getOdometerPhotoById(id: string): Promise<OdometerPhoto | undefined>;
+  createOdometerPhoto(photoData: InsertOdometerPhoto): Promise<OdometerPhoto>;
+  updateOdometerPhoto(id: string, photoData: Partial<InsertOdometerPhoto>): Promise<OdometerPhoto | undefined>;
+  deleteOdometerPhoto(id: string): Promise<boolean>;
 
   updateExpenseCategory(userId: string, oldCategory: string, newCategory: string): Promise<number>;
   getProvincialBracketBreakdown(income: number, province: string): Array<{ bracket: string; rate: number; tax: number }>;
@@ -1044,11 +1053,15 @@ export class DatabaseStorage implements IStorage {
       .orderBy(desc(vehicleMileageLogs.date), desc(vehicleMileageLogs.createdAt));
   }
 
-  async calculateVehicleBusinessUsePercentage(vehicleId: string, userId: string, taxYear: string): Promise<number> {
+  async calculateVehicleBusinessUsePercentage(vehicleId: string, userId: string, taxYear: string, enableInterpolation: boolean = false): Promise<number> {
     const vehicle = await this.getVehicleById(vehicleId);
     if (!vehicle) {
       return 100; // Default if vehicle not found
     }
+    
+    // Get user to check mileage logging style
+    const user = await this.getUser(userId);
+    const isOdometerStyle = user?.mileageLoggingStyle === "odometer";
     
     const logs = await this.getVehicleMileageLogs(vehicleId, userId);
     
@@ -1060,10 +1073,15 @@ export class DatabaseStorage implements IStorage {
       return logDate >= yearStart && logDate <= yearEnd;
     });
 
+    if (yearLogs.length === 0) {
+      return 100; // Default to 100% if no logs
+    }
+
     // Calculate business mileage from logs
     let businessMileage = 0;
     const sortedLogs = [...yearLogs].sort((a, b) => a.date.localeCompare(b.date));
     
+    // Calculate business mileage between consecutive logs
     for (let i = 1; i < sortedLogs.length; i++) {
       const prevReading = parseFloat(sortedLogs[i - 1].odometerReading.toString());
       const currReading = parseFloat(sortedLogs[i].odometerReading.toString());
@@ -1074,13 +1092,38 @@ export class DatabaseStorage implements IStorage {
       }
     }
 
-    // Get total annual mileage from vehicle record
-    const totalAnnualMileage = vehicle.totalAnnualMileage 
-      ? parseFloat(vehicle.totalAnnualMileage.toString()) 
-      : null;
+    // Get total annual mileage (priority: photos > logs > legacy field)
+    let totalAnnualMileage: number | null = null;
     
+    // Try photos first
+    totalAnnualMileage = await this.calculateTotalMileageFromPhotos(vehicleId, userId, taxYear);
+    
+    // Fall back to logs if no photos
+    if (totalAnnualMileage === null) {
+      totalAnnualMileage = await this.calculateTotalMileageFromLogs(vehicleId, userId, taxYear);
+    }
+    
+    // Last resort: legacy totalAnnualMileage field (backward compatibility)
+    if (totalAnnualMileage === null && vehicle.totalAnnualMileage) {
+      totalAnnualMileage = parseFloat(vehicle.totalAnnualMileage.toString());
+    }
+
+    // If odometer method with interpolation enabled, we need to account for personal use between business logs
+    // The total mileage from photos/logs includes both business and personal
+    // Interpolation helps identify personal use periods between business logs
+    if (isOdometerStyle && enableInterpolation) {
+      // For interpolation, we calculate total as: business mileage + interpolated personal mileage
+      // Interpolated personal = total from photos/logs - business mileage
+      // This assumes any mileage not logged as business is personal
+      if (totalAnnualMileage !== null) {
+        const interpolatedPersonalMileage = Math.max(0, totalAnnualMileage - businessMileage);
+        // The total is already correct from photos/logs, so we just use it as is
+        // The interpolation is implicit - any mileage not in business logs is personal
+      }
+    }
+
     if (!totalAnnualMileage || totalAnnualMileage === 0) {
-      return 100; // Default to 100% if not entered
+      return 100; // Default to 100% if no total mileage available
     }
 
     return (businessMileage / totalAnnualMileage) * 100;
@@ -1111,6 +1154,106 @@ export class DatabaseStorage implements IStorage {
   async deleteVehicleMileageLog(id: string): Promise<boolean> {
     const result = await db.delete(vehicleMileageLogs).where(eq(vehicleMileageLogs.id, id)).returning();
     return result.length > 0;
+  }
+
+  async getOdometerPhotos(vehicleId: string, userId: string): Promise<OdometerPhoto[]> {
+    return await db
+      .select()
+      .from(odometerPhotos)
+      .where(and(eq(odometerPhotos.vehicleId, vehicleId), eq(odometerPhotos.userId, userId)))
+      .orderBy(desc(odometerPhotos.photoDate), desc(odometerPhotos.uploadedAt));
+  }
+
+  async getOdometerPhotoById(id: string): Promise<OdometerPhoto | undefined> {
+    const [record] = await db.select().from(odometerPhotos).where(eq(odometerPhotos.id, id));
+    return record || undefined;
+  }
+
+  async createOdometerPhoto(photoData: InsertOdometerPhoto): Promise<OdometerPhoto> {
+    const [record] = await db
+      .insert(odometerPhotos)
+      .values(photoData)
+      .returning();
+    return record;
+  }
+
+  async updateOdometerPhoto(id: string, photoData: Partial<InsertOdometerPhoto>): Promise<OdometerPhoto | undefined> {
+    const [record] = await db
+      .update(odometerPhotos)
+      .set(photoData)
+      .where(eq(odometerPhotos.id, id))
+      .returning();
+    return record || undefined;
+  }
+
+  async deleteOdometerPhoto(id: string): Promise<boolean> {
+    const result = await db.delete(odometerPhotos).where(eq(odometerPhotos.id, id)).returning();
+    return result.length > 0;
+  }
+
+  /**
+   * Calculate total mileage from odometer photos for a given tax year
+   * Returns the difference between first and last photo with mileage values
+   */
+  async calculateTotalMileageFromPhotos(vehicleId: string, userId: string, taxYear: string): Promise<number | null> {
+    const photos = await this.getOdometerPhotos(vehicleId, userId);
+    
+    // Filter photos for the tax year
+    const yearStart = `${taxYear}-01-01`;
+    const yearEnd = `${taxYear}-12-31`;
+    const yearPhotos = photos.filter(photo => {
+      const photoDate = photo.photoDate;
+      return photoDate >= yearStart && photoDate <= yearEnd && photo.mileage !== null;
+    });
+
+    if (yearPhotos.length < 2) {
+      return null; // Need at least 2 photos with mileage to calculate
+    }
+
+    // Sort by date
+    const sortedPhotos = [...yearPhotos].sort((a, b) => a.photoDate.localeCompare(b.photoDate));
+    const firstPhoto = sortedPhotos[0];
+    const lastPhoto = sortedPhotos[sortedPhotos.length - 1];
+
+    if (!firstPhoto.mileage || !lastPhoto.mileage) {
+      return null;
+    }
+
+    const firstMileage = parseFloat(firstPhoto.mileage.toString());
+    const lastMileage = parseFloat(lastPhoto.mileage.toString());
+    
+    return Math.max(0, lastMileage - firstMileage);
+  }
+
+  /**
+   * Calculate total mileage from mileage logs for a given tax year
+   * Works for both odometer and trip_distance logging styles
+   */
+  async calculateTotalMileageFromLogs(vehicleId: string, userId: string, taxYear: string): Promise<number | null> {
+    const logs = await this.getVehicleMileageLogs(vehicleId, userId);
+    
+    // Filter logs for the tax year
+    const yearStart = `${taxYear}-01-01`;
+    const yearEnd = `${taxYear}-12-31`;
+    const yearLogs = logs.filter(log => {
+      const logDate = log.date;
+      return logDate >= yearStart && logDate <= yearEnd;
+    });
+
+    if (yearLogs.length === 0) {
+      return null;
+    }
+
+    // Sort by date
+    const sortedLogs = [...yearLogs].sort((a, b) => a.date.localeCompare(b.date));
+    
+    // For odometer method: calculate from first to last reading
+    // For trip_distance method: sum all distances between consecutive readings
+    // Both methods store cumulative odometer readings, so we can use the same logic
+    const firstReading = parseFloat(sortedLogs[0].odometerReading.toString());
+    const lastReading = parseFloat(sortedLogs[sortedLogs.length - 1].odometerReading.toString());
+    
+    return Math.max(0, lastReading - firstReading);
   }
 
   async updateExpenseCategory(userId: string, oldCategory: string, newCategory: string): Promise<number> {

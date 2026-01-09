@@ -3,6 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
+import { useLocation } from "wouter";
 import { Search, Plus, Trash2, Edit2, Car, RotateCcw } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
@@ -72,11 +73,21 @@ const createMileageLogFormSchema = (isOdometerStyle: boolean) => z.object({
 type MileageLogFormData = z.input<ReturnType<typeof createMileageLogFormSchema>>;
 
 export default function VehicleMileagePage() {
+  const [location] = useLocation();
   const [selectedVehicleId, setSelectedVehicleId] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingLogId, setEditingLogId] = useState<string | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const { toast } = useToast();
+
+  // Get vehicleId from URL query params
+  useEffect(() => {
+    const params = new URLSearchParams(location.split("?")[1]);
+    const vehicleIdFromUrl = params.get("vehicleId");
+    if (vehicleIdFromUrl) {
+      setSelectedVehicleId(vehicleIdFromUrl);
+    }
+  }, [location]);
 
   const { data: vehicles = [], isLoading: vehiclesLoading } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
@@ -373,12 +384,14 @@ export default function VehicleMileagePage() {
     .filter((log) => log.isBusinessUse)
     .reduce((sum, log) => sum + log.distance, 0);
 
-  // Auto-select first vehicle if available and none selected
+  // Auto-select first vehicle if available and none selected (only if no vehicleId in URL)
   useEffect(() => {
-    if (vehicles.length > 0 && !selectedVehicleId && !vehiclesLoading) {
+    const params = new URLSearchParams(location.split("?")[1]);
+    const vehicleIdFromUrl = params.get("vehicleId");
+    if (vehicles.length > 0 && !selectedVehicleId && !vehiclesLoading && !vehicleIdFromUrl) {
       setSelectedVehicleId(vehicles[0].id);
     }
-  }, [vehicles, selectedVehicleId, vehiclesLoading]);
+  }, [vehicles, selectedVehicleId, vehiclesLoading, location]);
 
   return (
     <div className="space-y-6">

@@ -1,13 +1,23 @@
-import { useState, useRef } from "react";
+import { useState, useRef, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Link } from "wouter";
-import { Car, Plus, Edit, Trash2, Info, Upload, X, Image as ImageIcon } from "lucide-react";
+import { Car, Plus, Edit, Trash2, Info, Upload, X, Image as ImageIcon, Calendar, ChevronLeft, ChevronRight, Grid3x3, Gauge, List, AlertCircle } from "lucide-react";
+import exifr from "exifr";
+import {
+  Carousel,
+  CarouselContent,
+  CarouselItem,
+  CarouselNext,
+  CarouselPrevious,
+  type CarouselApi,
+} from "@/components/ui/carousel";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Badge } from "@/components/ui/badge";
+import { Alert, AlertTitle, AlertDescription } from "@/components/ui/alert";
 import { Input } from "@/components/ui/input";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Switch } from "@/components/ui/switch";
@@ -17,6 +27,7 @@ import {
   DialogContent,
   DialogHeader,
   DialogTitle,
+  DialogDescription,
   DialogTrigger,
   DialogFooter,
 } from "@/components/ui/dialog";
@@ -29,6 +40,7 @@ import {
   FormMessage,
   FormDescription,
 } from "@/components/ui/form";
+import { Label } from "@/components/ui/label";
 import {
   Tooltip,
   TooltipContent,
@@ -55,7 +67,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { type Vehicle, type Asset, type LeaseContract } from "@shared/schema";
+import { type Vehicle, type Asset, type LeaseContract, type OdometerPhoto } from "@shared/schema";
+import { formatDate } from "@/lib/format";
 
 // Vehicle form schema
 const vehicleFormSchema = z.object({
@@ -67,7 +80,6 @@ const vehicleFormSchema = z.object({
   claimsCca: z.boolean().default(false),
   ccaClass: z.enum(["Class 10", "Class 10.1"]).optional(),
   currentMileage: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
-  totalAnnualMileage: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
   purchasedThisYear: z.boolean().default(false),
   purchasePrice: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
   isLeased: z.boolean().default(false).optional(),
@@ -93,6 +105,155 @@ const vehicleFormSchema = z.object({
 });
 
 type VehicleFormData = z.input<typeof vehicleFormSchema>;
+
+// Component to show reminder banner for vehicles missing photos
+function VehiclePhotoReminder({ 
+  vehicle, 
+  shouldShow, 
+  onDismiss, 
+  onUpload 
+}: { 
+  vehicle: Vehicle; 
+  shouldShow: boolean; 
+  onDismiss: () => void;
+  onUpload: () => void;
+}) {
+  const { data: photos = [] } = useQuery<OdometerPhoto[]>({
+    queryKey: ["/api/vehicles", vehicle.id, "odometer-photos"],
+    queryFn: async () => {
+      const response = await fetch(`/api/vehicles/${vehicle.id}/odometer-photos`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+  });
+
+  if (photos.length > 0 || !shouldShow) {
+    return null;
+  }
+
+  return (
+    <Alert className="mb-4">
+      <AlertCircle className="h-4 w-4" />
+      <AlertTitle>Upload Odometer Photo for {vehicle.name}</AlertTitle>
+      <AlertDescription className="flex items-center justify-between">
+        <span>
+          Upload a photo of your odometer to help calculate business use percentage accurately.
+        </span>
+        <div className="flex gap-2 ml-4">
+          <Button
+            variant="outline"
+            size="sm"
+            onClick={onUpload}
+          >
+            Upload Photo
+          </Button>
+          <Button
+            variant="ghost"
+            size="sm"
+            onClick={onDismiss}
+          >
+            <X className="h-4 w-4" />
+          </Button>
+        </div>
+      </AlertDescription>
+    </Alert>
+  );
+}
+
+// Component to fetch and display photos for a vehicle in the list
+function VehiclePhotosPreview({ vehicle, onOpenGallery }: { vehicle: Vehicle; onOpenGallery: (vehicle: Vehicle, index?: number) => void }) {
+  const currentYear = new Date().getFullYear().toString();
+  const currentYearStart = `${currentYear}-01-01`;
+  
+  const { data: photos = [] } = useQuery<OdometerPhoto[]>({
+    queryKey: ["/api/vehicles", vehicle.id, "odometer-photos"],
+    queryFn: async () => {
+      const response = await fetch(`/api/vehicles/${vehicle.id}/odometer-photos`);
+      if (!response.ok) return [];
+      return response.json();
+    },
+  });
+
+  // Check photo status for current year
+  const currentYearPhotos = photos.filter(photo => photo.photoDate >= currentYearStart);
+  const hasCurrentYearPhotos = currentYearPhotos.length > 0;
+  const hasAnyPhotos = photos.length > 0;
+
+  return (
+    <div 
+      className="mt-3 pt-3 border-t cursor-pointer hover:bg-muted/50 rounded p-2 -m-2 transition-colors"
+      onClick={() => onOpenGallery(vehicle)}
+    >
+      <div className="flex items-center justify-between mb-2">
+        <div className="flex items-center gap-2">
+          <span className="text-sm text-muted-foreground">Odometer Photos:</span>
+          {hasCurrentYearPhotos ? (
+            <Badge variant="outline" className="text-xs bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300">
+              {currentYearPhotos.length} photo{currentYearPhotos.length !== 1 ? 's' : ''} this year
+            </Badge>
+          ) : hasAnyPhotos ? (
+            <Badge variant="outline" className="text-xs bg-yellow-50 text-yellow-700 dark:bg-yellow-950 dark:text-yellow-300">
+              Needs {currentYear} photo
+            </Badge>
+          ) : (
+            <Badge variant="outline" className="text-xs bg-red-50 text-red-700 dark:bg-red-950 dark:text-red-300">
+              No photos
+            </Badge>
+          )}
+        </div>
+        <Button
+          type="button"
+          variant="ghost"
+          size="sm"
+          className="h-7 text-xs"
+          onClick={(e) => {
+            e.stopPropagation();
+            onOpenGallery(vehicle);
+          }}
+        >
+          <Grid3x3 className="h-3 w-3 mr-1" />
+          {photos.length > 0 ? `View Gallery (${photos.length})` : "View Gallery"}
+        </Button>
+      </div>
+      {photos.length > 0 ? (
+        <div className="flex gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
+          {photos.slice(0, 3).map((photo, index) => (
+            <div key={photo.id} className="relative group">
+              <img
+                src={photo.photoUrl}
+                alt={`Odometer photo from ${formatDate(photo.photoDate)}`}
+                className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80"
+                onClick={(e) => {
+                  e.stopPropagation();
+                  onOpenGallery(vehicle, index);
+                }}
+              />
+              <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 text-center rounded-b">
+                <div>{formatDate(photo.photoDate)}</div>
+                {photo.mileage && (
+                  <div className="opacity-90">{parseFloat(photo.mileage).toLocaleString('en-CA', { maximumFractionDigits: 2 })} km</div>
+                )}
+              </div>
+            </div>
+          ))}
+          {photos.length > 3 && (
+            <div 
+              className="relative w-20 h-20 rounded border bg-muted flex items-center justify-center cursor-pointer hover:opacity-80" 
+              onClick={(e) => {
+                e.stopPropagation();
+                onOpenGallery(vehicle);
+              }}
+            >
+              <span className="text-xs font-medium">+{photos.length - 3}</span>
+            </div>
+          )}
+        </div>
+      ) : (
+        <p className="text-xs text-muted-foreground">Click to upload photos</p>
+      )}
+    </div>
+  );
+}
 
 function MileageLoggingStyleSetting() {
   const { toast } = useToast();
@@ -172,9 +333,24 @@ export default function VehiclesPage() {
   const [isVehicleDialogOpen, setIsVehicleDialogOpen] = useState(false);
   const [editingVehicle, setEditingVehicle] = useState<Vehicle | null>(null);
   const [uploadingPhotoType, setUploadingPhotoType] = useState<string | null>(null);
+  const [galleryOpen, setGalleryOpen] = useState(false);
+  const [galleryVehicle, setGalleryVehicle] = useState<Vehicle | null>(null);
+  const [galleryViewMode, setGalleryViewMode] = useState<"grid" | "carousel" | "list">("list");
+  const [carouselApi, setCarouselApi] = useState<CarouselApi>();
+  const [initialCarouselIndex, setInitialCarouselIndex] = useState(0);
+  const [dateSelectDialogOpen, setDateSelectDialogOpen] = useState(false);
+  const [pendingPhotoUpload, setPendingPhotoUpload] = useState<{ vehicleId: string; file: File; extractedDate?: Date } | null>(null);
+  const [selectedDate, setSelectedDate] = useState<string>(new Date().toISOString().split('T')[0]);
+  const [selectedMileage, setSelectedMileage] = useState<string>("");
+  const [showInitialPhotoPrompt, setShowInitialPhotoPrompt] = useState(false);
+  const [newlyCreatedVehicleId, setNewlyCreatedVehicleId] = useState<string | null>(null);
+  const [dismissedReminders, setDismissedReminders] = useState<Record<string, number>>({});
+  const [showYearStartPrompt, setShowYearStartPrompt] = useState(false);
+  const [vehiclesNeedingYearStartPhoto, setVehiclesNeedingYearStartPhoto] = useState<Vehicle[]>([]);
   const initialPhotoInputRef = useRef<HTMLInputElement>(null);
   const startOfYearPhotoInputRef = useRef<HTMLInputElement>(null);
   const endOfYearPhotoInputRef = useRef<HTMLInputElement>(null);
+  const initialPhotoPromptInputRef = useRef<HTMLInputElement>(null);
   const { toast } = useToast();
 
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
@@ -248,15 +424,20 @@ export default function VehiclesPage() {
         });
       }
       
-      return vehicle;
+      return vehicle as Vehicle;
     },
-    onSuccess: () => {
+    onSuccess: async (vehicle) => {
       queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
       queryClient.invalidateQueries({ queryKey: ["/api/lease-contracts"] });
       queryClient.invalidateQueries({ queryKey: ["/api/assets"] });
       setIsVehicleDialogOpen(false);
       vehicleForm.reset();
       setEditingVehicle(null);
+      
+      // Show photo upload prompt for newly created vehicle
+      setNewlyCreatedVehicleId(vehicle.id);
+      setShowInitialPhotoPrompt(true);
+      
       toast({
         title: "Vehicle added",
         description: "Your vehicle has been saved successfully.",
@@ -359,13 +540,43 @@ export default function VehiclesPage() {
     },
   });
 
+  // Fetch odometer photos for gallery vehicle
+  const { data: odometerPhotos = [], refetch: refetchPhotos } = useQuery<OdometerPhoto[]>({
+    queryKey: ["/api/vehicles", galleryVehicle?.id, "odometer-photos"],
+    queryFn: async () => {
+      if (!galleryVehicle) return [];
+      const response = await fetch(`/api/vehicles/${galleryVehicle.id}/odometer-photos`);
+      if (!response.ok) throw new Error("Failed to fetch photos");
+      return response.json();
+    },
+    enabled: !!galleryVehicle && galleryOpen,
+  });
+
+  // Fetch odometer photos for editing vehicle
+  const { data: editingVehiclePhotos = [] } = useQuery<OdometerPhoto[]>({
+    queryKey: ["/api/vehicles", editingVehicle?.id, "odometer-photos"],
+    queryFn: async () => {
+      if (!editingVehicle) return [];
+      const response = await fetch(`/api/vehicles/${editingVehicle.id}/odometer-photos`);
+      if (!response.ok) throw new Error("Failed to fetch photos");
+      return response.json();
+    },
+    enabled: !!editingVehicle && isVehicleDialogOpen,
+  });
+
   const uploadPhotoMutation = useMutation({
-    mutationFn: async ({ vehicleId, photoType, file }: { vehicleId: string; photoType: string; file: File }) => {
+    mutationFn: async ({ vehicleId, file, photoDate, mileage, notes }: { vehicleId: string; file: File; photoDate: string; mileage?: string; notes?: string }) => {
       const formData = new FormData();
       formData.append("file", file);
-      formData.append("photoType", photoType);
+      formData.append("photoDate", photoDate);
+      if (mileage && mileage.trim() !== "") {
+        formData.append("mileage", mileage);
+      }
+      if (notes) {
+        formData.append("notes", notes);
+      }
       
-      const response = await fetch(`/api/vehicles/${vehicleId}/odometer-photo`, {
+      const response = await fetch(`/api/vehicles/${vehicleId}/odometer-photos`, {
         method: "POST",
         body: formData,
       });
@@ -377,9 +588,16 @@ export default function VehiclesPage() {
       
       return response.json();
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+    onSuccess: async () => {
+      await queryClient.invalidateQueries({ queryKey: ["/api/vehicles"] });
+      if (galleryVehicle) {
+        await refetchPhotos();
+      }
       setUploadingPhotoType(null);
+      setDateSelectDialogOpen(false);
+      setPendingPhotoUpload(null);
+      setSelectedMileage("");
+      
       toast({
         title: "Photo uploaded",
         description: "Odometer photo has been uploaded successfully.",
@@ -387,6 +605,9 @@ export default function VehiclesPage() {
     },
     onError: (error: Error) => {
       setUploadingPhotoType(null);
+      setDateSelectDialogOpen(false);
+      setPendingPhotoUpload(null);
+      setSelectedMileage("");
       toast({
         title: "Error",
         description: error.message || "Failed to upload photo. Please try again.",
@@ -395,19 +616,169 @@ export default function VehiclesPage() {
     },
   });
 
-  const handlePhotoUpload = (vehicleId: string, photoType: string, file: File) => {
-    setUploadingPhotoType(photoType);
-    uploadPhotoMutation.mutate({ vehicleId, photoType, file });
+  const deletePhotoMutation = useMutation({
+    mutationFn: async ({ vehicleId, photoId }: { vehicleId: string; photoId: string }) => {
+      const response = await fetch(`/api/vehicles/${vehicleId}/odometer-photos/${photoId}`, {
+        method: "DELETE",
+      });
+      if (!response.ok) {
+        const errorData = await response.json();
+        throw new Error(errorData.error || "Failed to delete photo");
+      }
+    },
+    onSuccess: async () => {
+      if (galleryVehicle) {
+        await refetchPhotos();
+      }
+      toast({
+        title: "Photo deleted",
+        description: "Odometer photo has been deleted.",
+      });
+    },
+    onError: (error: Error) => {
+      toast({
+        title: "Error",
+        description: error.message || "Failed to delete photo. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handlePhotoUpload = async (vehicleId: string, file: File) => {
+    // Try to extract date from EXIF data
+    let extractedDate: Date | undefined;
+    try {
+      const exifData = await exifr.parse(file, {
+        pick: ['DateTimeOriginal', 'CreateDate', 'ModifyDate']
+      });
+      
+      if (exifData?.DateTimeOriginal) {
+        extractedDate = new Date(exifData.DateTimeOriginal);
+      } else if (exifData?.CreateDate) {
+        extractedDate = new Date(exifData.CreateDate);
+      } else if (exifData?.ModifyDate) {
+        extractedDate = new Date(exifData.ModifyDate);
+      }
+    } catch (error) {
+      console.log("EXIF extraction failed:", error);
+    }
+
+    // If date was extracted, use it; otherwise show dialog
+    if (extractedDate && !isNaN(extractedDate.getTime())) {
+      const dateString = extractedDate.toISOString().split('T')[0];
+      setSelectedDate(dateString);
+      setUploadingPhotoType("uploading");
+      uploadPhotoMutation.mutate({ vehicleId, file, photoDate: dateString });
+    } else {
+      // Show dialog to select date
+      setSelectedDate(new Date().toISOString().split('T')[0]);
+      setSelectedMileage("");
+      setPendingPhotoUpload({ vehicleId, file, extractedDate });
+      setDateSelectDialogOpen(true);
+    }
   };
 
-  const handlePhotoInputChange = (vehicleId: string, photoType: string, event: React.ChangeEvent<HTMLInputElement>) => {
+  const handlePhotoInputChange = async (vehicleId: string, event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
     if (file) {
-      handlePhotoUpload(vehicleId, photoType, file);
+      await handlePhotoUpload(vehicleId, file);
     }
-    // Reset input so same file can be selected again
     event.target.value = "";
   };
+
+  const handleDateSelectConfirm = () => {
+    if (pendingPhotoUpload) {
+      setUploadingPhotoType("uploading");
+      uploadPhotoMutation.mutate({
+        vehicleId: pendingPhotoUpload.vehicleId,
+        file: pendingPhotoUpload.file,
+        photoDate: selectedDate,
+        mileage: selectedMileage.trim() !== "" ? selectedMileage : undefined,
+      });
+    }
+  };
+
+  // Get current tax year
+  const currentYear = new Date().getFullYear().toString();
+  const currentYearStart = `${currentYear}-01-01`;
+
+  // Load dismissed reminders from localStorage on mount
+  useEffect(() => {
+    const stored = localStorage.getItem("odometerPhotoReminders");
+    if (stored) {
+      try {
+        setDismissedReminders(JSON.parse(stored));
+      } catch (e) {
+        console.error("Failed to parse dismissed reminders", e);
+      }
+    }
+  }, []);
+
+  // Helper to check if reminder should be shown for a vehicle
+  const shouldShowReminder = (vehicleId: string): boolean => {
+    const dismissedTime = dismissedReminders[vehicleId];
+    if (!dismissedTime) return true; // Never dismissed, show it
+    const hoursSinceDismissal = (Date.now() - dismissedTime) / (1000 * 60 * 60);
+    return hoursSinceDismissal >= 24; // Show again after 24 hours
+  };
+
+  // Dismiss reminder for a vehicle
+  const dismissReminder = (vehicleId: string) => {
+    const updated = { ...dismissedReminders, [vehicleId]: Date.now() };
+    setDismissedReminders(updated);
+    localStorage.setItem("odometerPhotoReminders", JSON.stringify(updated));
+  };
+
+  // Check for vehicles needing year-start photos
+  useEffect(() => {
+    const checkYearStartPhotos = async () => {
+      const vehiclesNeedingPhotos: Vehicle[] = [];
+      
+      for (const vehicle of vehicles) {
+        try {
+          const response = await fetch(`/api/vehicles/${vehicle.id}/odometer-photos`);
+          if (!response.ok) continue;
+          const photos: OdometerPhoto[] = await response.json();
+          
+          // Check if vehicle has no photos for current year
+          const currentYearPhotos = photos.filter(photo => photo.photoDate >= currentYearStart);
+          
+          if (currentYearPhotos.length === 0) {
+            // Check if there are any photos at all (from previous years)
+            if (photos.length === 0 || photos[0].photoDate < currentYearStart) {
+              vehiclesNeedingPhotos.push(vehicle);
+            }
+          }
+        } catch (e) {
+          console.error(`Failed to check photos for vehicle ${vehicle.id}`, e);
+        }
+      }
+      
+      if (vehiclesNeedingPhotos.length > 0) {
+        setVehiclesNeedingYearStartPhoto(vehiclesNeedingPhotos);
+        // Check if we should show the prompt (not dismissed today)
+        const dismissedKey = `yearStartPrompt_${currentYear}`;
+        const dismissedTime = dismissedReminders[dismissedKey];
+        const shouldShow = !dismissedTime || (Date.now() - dismissedTime) >= 24 * 60 * 60 * 1000;
+        if (shouldShow) {
+          setShowYearStartPrompt(true);
+        }
+      }
+    };
+
+    if (vehicles.length > 0) {
+      checkYearStartPhotos();
+    }
+  }, [vehicles, currentYear, dismissedReminders, currentYearStart]);
+
+  // Scroll carousel to initial index when API is ready
+  useEffect(() => {
+    if (!carouselApi || galleryViewMode !== "carousel") {
+      return;
+    }
+
+    carouselApi.scrollTo(initialCarouselIndex);
+  }, [carouselApi, initialCarouselIndex, galleryViewMode]);
 
   const handleEditVehicle = (vehicle: Vehicle) => {
     setEditingVehicle(vehicle);
@@ -420,7 +791,6 @@ export default function VehiclesPage() {
       claimsCca: vehicle.claimsCca || false,
       ccaClass: (vehicle as any).ccaClass || undefined,
       currentMileage: (vehicle as any).currentMileage?.toString() || "",
-      totalAnnualMileage: (vehicle as any).totalAnnualMileage?.toString() || "",
       purchasedThisYear: (vehicle as any).purchasedThisYear || false,
       purchasePrice: (vehicle as any).purchasePrice?.toString() || "",
     });
@@ -575,33 +945,6 @@ export default function VehiclesPage() {
                   />
                   <FormField
                     control={vehicleForm.control}
-                    name="totalAnnualMileage"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Total Annual Mileage (km)</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              placeholder="e.g., 25000"
-                              value={field.value || ""}
-                              className="pr-12"
-                              data-testid="input-vehicle-total-annual-mileage"
-                            />
-                            <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">km</span>
-                          </div>
-                        </FormControl>
-                        <FormDescription>
-                          Enter the total kilometers driven in the tax year. Business use percentage will be calculated from your logged business trips.
-                        </FormDescription>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={vehicleForm.control}
                     name="purchasedThisYear"
                     render={({ field }) => (
                       <FormItem className="flex flex-row items-center justify-between rounded-lg border p-6">
@@ -706,154 +1049,32 @@ export default function VehiclesPage() {
                     <div className="space-y-4 pt-4 border-t">
                       <FormLabel className="text-base">Odometer Photos</FormLabel>
                       <FormDescription>
-                        Upload photos of your odometer for record keeping. These are optional but recommended for tax purposes.
+                        Upload and manage photos of your odometer for record keeping. These are optional but recommended for tax purposes.
                       </FormDescription>
                       
-                      <div className="space-y-3">
-                        {/* Initial Odometer Photo */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <FormLabel className="text-sm">Initial Odometer Photo</FormLabel>
-                            {editingVehicle.initialOdometerPhotoUrl && (
-                              <Badge variant="outline" className="text-xs">Uploaded</Badge>
-                            )}
-                          </div>
-                          {editingVehicle.initialOdometerPhotoUrl ? (
-                            <div className="relative">
-                              <img
-                                src={editingVehicle.initialOdometerPhotoUrl}
-                                alt="Initial odometer"
-                                className="w-full h-32 object-cover rounded-md border"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="absolute top-2 right-2"
-                                onClick={() => {
-                                  initialPhotoInputRef.current?.click();
-                                }}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="w-full"
-                              onClick={() => initialPhotoInputRef.current?.click()}
-                              disabled={uploadingPhotoType === "initial"}
-                            >
-                              <Upload className="mr-2 h-4 w-4" />
-                              {uploadingPhotoType === "initial" ? "Uploading..." : "Upload Initial Photo"}
-                            </Button>
-                          )}
-                          <input
-                            ref={initialPhotoInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => handlePhotoInputChange(editingVehicle.id, "initial", e)}
-                          />
+                      <Button
+                        type="button"
+                        variant="outline"
+                        className="w-full"
+                        onClick={() => {
+                          setGalleryVehicle(editingVehicle);
+                          setGalleryOpen(true);
+                          setGalleryViewMode("grid");
+                        }}
+                      >
+                        <Grid3x3 className="mr-2 h-4 w-4" />
+                        {editingVehiclePhotos.length > 0
+                          ? `View Odometer Gallery (${editingVehiclePhotos.length} photos)`
+                          : "No photos yet - Click to upload"}
+                      </Button>
+                      
+                      {editingVehiclePhotos.length > 0 && (
+                        <div className="flex gap-2 flex-wrap">
+                          <Badge variant="secondary">
+                            {editingVehiclePhotos.length} photo{editingVehiclePhotos.length !== 1 ? 's' : ''}
+                          </Badge>
                         </div>
-
-                        {/* Start of Year Odometer Photo */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <FormLabel className="text-sm">Start of Year Photo</FormLabel>
-                            {editingVehicle.startOfYearOdometerPhotoUrl && (
-                              <Badge variant="outline" className="text-xs">Uploaded</Badge>
-                            )}
-                          </div>
-                          {editingVehicle.startOfYearOdometerPhotoUrl ? (
-                            <div className="relative">
-                              <img
-                                src={editingVehicle.startOfYearOdometerPhotoUrl}
-                                alt="Start of year odometer"
-                                className="w-full h-32 object-cover rounded-md border"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="absolute top-2 right-2"
-                                onClick={() => {
-                                  startOfYearPhotoInputRef.current?.click();
-                                }}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="w-full"
-                              onClick={() => startOfYearPhotoInputRef.current?.click()}
-                              disabled={uploadingPhotoType === "startOfYear"}
-                            >
-                              <Upload className="mr-2 h-4 w-4" />
-                              {uploadingPhotoType === "startOfYear" ? "Uploading..." : "Upload Start of Year Photo"}
-                            </Button>
-                          )}
-                          <input
-                            ref={startOfYearPhotoInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => handlePhotoInputChange(editingVehicle.id, "startOfYear", e)}
-                          />
-                        </div>
-
-                        {/* End of Year Odometer Photo */}
-                        <div className="space-y-2">
-                          <div className="flex items-center justify-between">
-                            <FormLabel className="text-sm">End of Year Photo</FormLabel>
-                            {editingVehicle.endOfYearOdometerPhotoUrl && (
-                              <Badge variant="outline" className="text-xs">Uploaded</Badge>
-                            )}
-                          </div>
-                          {editingVehicle.endOfYearOdometerPhotoUrl ? (
-                            <div className="relative">
-                              <img
-                                src={editingVehicle.endOfYearOdometerPhotoUrl}
-                                alt="End of year odometer"
-                                className="w-full h-32 object-cover rounded-md border"
-                              />
-                              <Button
-                                type="button"
-                                variant="ghost"
-                                size="icon"
-                                className="absolute top-2 right-2"
-                                onClick={() => {
-                                  endOfYearPhotoInputRef.current?.click();
-                                }}
-                              >
-                                <Edit className="h-4 w-4" />
-                              </Button>
-                            </div>
-                          ) : (
-                            <Button
-                              type="button"
-                              variant="outline"
-                              className="w-full"
-                              onClick={() => endOfYearPhotoInputRef.current?.click()}
-                              disabled={uploadingPhotoType === "endOfYear"}
-                            >
-                              <Upload className="mr-2 h-4 w-4" />
-                              {uploadingPhotoType === "endOfYear" ? "Uploading..." : "Upload End of Year Photo"}
-                            </Button>
-                          )}
-                          <input
-                            ref={endOfYearPhotoInputRef}
-                            type="file"
-                            accept="image/*"
-                            className="hidden"
-                            onChange={(e) => handlePhotoInputChange(editingVehicle.id, "endOfYear", e)}
-                          />
-                        </div>
-                      </div>
+                      )}
                     </div>
                   )}
                 </form>
@@ -885,9 +1106,477 @@ export default function VehiclesPage() {
             </DialogFooter>
           </DialogContent>
         </Dialog>
+
+        {/* Initial Photo Upload Prompt Dialog */}
+        <Dialog open={showInitialPhotoPrompt} onOpenChange={(open) => {
+          setShowInitialPhotoPrompt(open);
+          if (!open) {
+            setNewlyCreatedVehicleId(null);
+          }
+        }}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Upload Initial Odometer Photo</DialogTitle>
+              <DialogDescription>
+                We recommend uploading a photo of your odometer to help calculate your business use percentage. 
+                This photo will document your starting mileage for the tax year.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <p className="text-sm text-muted-foreground">
+                You can skip this for now, but we'll remind you to upload a photo later. 
+                Photos help ensure accurate tax calculations.
+              </p>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setShowInitialPhotoPrompt(false);
+                  setNewlyCreatedVehicleId(null);
+                }}
+              >
+                Skip for now
+              </Button>
+              <Button
+                type="button"
+                onClick={() => {
+                  if (newlyCreatedVehicleId && initialPhotoPromptInputRef.current) {
+                    initialPhotoPromptInputRef.current.click();
+                  }
+                }}
+              >
+                Upload Photo
+              </Button>
+              <input
+                ref={initialPhotoPromptInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={(e) => {
+                  if (newlyCreatedVehicleId && e.target.files?.[0]) {
+                    handlePhotoInputChange(newlyCreatedVehicleId, e);
+                    setShowInitialPhotoPrompt(false);
+                  }
+                  e.target.value = "";
+                }}
+              />
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Date Selection Dialog for Odometer Photos */}
+        <Dialog open={dateSelectDialogOpen} onOpenChange={setDateSelectDialogOpen}>
+          <DialogContent>
+            <DialogHeader>
+              <DialogTitle>Select Date for Odometer Photo</DialogTitle>
+              <DialogDescription>
+                Choose the date when this odometer photo was taken. If a date was detected from the photo metadata, it will be pre-filled.
+              </DialogDescription>
+            </DialogHeader>
+            <div className="space-y-4 py-4">
+              <div className="space-y-2">
+                <Label htmlFor="photo-date-input">Photo Date</Label>
+                {pendingPhotoUpload?.extractedDate && (
+                  <p className="text-sm text-muted-foreground">
+                    <Calendar className="inline h-4 w-4 mr-1" />
+                    Detected date {formatDate(pendingPhotoUpload.extractedDate.toISOString().split('T')[0])} from photo metadata
+                  </p>
+                )}
+                <Input
+                  id="photo-date-input"
+                  type="date"
+                  value={selectedDate}
+                  onChange={(e) => setSelectedDate(e.target.value)}
+                  className="w-full"
+                  max={new Date().toISOString().split('T')[0]}
+                />
+                <p className="text-xs text-muted-foreground">
+                  Select the date this odometer photo was taken
+                </p>
+              </div>
+              <div className="space-y-2">
+                <Label htmlFor="photo-mileage-input" className="text-base font-medium">
+                  Odometer Reading <span className="text-destructive">*</span>
+                </Label>
+                <Input
+                  id="photo-mileage-input"
+                  type="number"
+                  value={selectedMileage}
+                  onChange={(e) => setSelectedMileage(e.target.value)}
+                  className="w-full"
+                  placeholder="Enter mileage shown in photo"
+                  min="0"
+                  step="0.01"
+                  required
+                />
+                <p className="text-xs text-muted-foreground">
+                  <strong>Required for tax calculations.</strong> Enter the odometer reading displayed in this photo. 
+                  This is used to calculate your total annual mileage and business use percentage.
+                </p>
+                {selectedMileage && parseFloat(selectedMileage) <= 0 && (
+                  <p className="text-xs text-destructive">
+                    Please enter a valid mileage reading greater than 0.
+                  </p>
+                )}
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                type="button"
+                variant="outline"
+                onClick={() => {
+                  setDateSelectDialogOpen(false);
+                  setPendingPhotoUpload(null);
+                  setSelectedMileage("");
+                }}
+              >
+                Cancel
+              </Button>
+              <Button
+                type="button"
+                onClick={handleDateSelectConfirm}
+                disabled={uploadingPhotoType !== null || !selectedMileage || parseFloat(selectedMileage) <= 0}
+              >
+                {uploadingPhotoType ? "Uploading..." : "Upload Photo"}
+              </Button>
+              {(!selectedMileage || parseFloat(selectedMileage) <= 0) && (
+                <p className="text-xs text-destructive text-center">
+                  Mileage is required to upload photo
+                </p>
+              )}
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
+        {/* Odometer Photo Gallery Dialog */}
+        <Dialog open={galleryOpen} onOpenChange={setGalleryOpen}>
+          <DialogContent className="max-w-4xl max-h-[90vh] overflow-hidden flex flex-col">
+            <DialogHeader>
+              <div className="flex items-center justify-between">
+                <DialogTitle>
+                  {galleryVehicle?.name} - Odometer Photos
+                </DialogTitle>
+                <div className="flex gap-2">
+                  <Button
+                    type="button"
+                    variant={galleryViewMode === "list" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setGalleryViewMode("list")}
+                  >
+                    <List className="h-4 w-4 mr-1" />
+                    List
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={galleryViewMode === "grid" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setGalleryViewMode("grid")}
+                  >
+                    <Grid3x3 className="h-4 w-4 mr-1" />
+                    Grid
+                  </Button>
+                  <Button
+                    type="button"
+                    variant={galleryViewMode === "carousel" ? "default" : "outline"}
+                    size="sm"
+                    onClick={() => setGalleryViewMode("carousel")}
+                  >
+                    <ChevronLeft className="h-4 w-4 mr-1" />
+                    <ChevronRight className="h-4 w-4 mr-1" />
+                    Carousel
+                  </Button>
+                </div>
+              </div>
+            </DialogHeader>
+            
+            {/* Upload Section */}
+            {galleryVehicle && (
+              <div className="flex gap-2 p-4 border-b">
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={() => initialPhotoInputRef.current?.click()}
+                  disabled={uploadingPhotoType !== null}
+                >
+                  <Upload className="h-4 w-4 mr-2" />
+                  {uploadingPhotoType ? "Uploading..." : "Upload Photo"}
+                </Button>
+                <input
+                  ref={initialPhotoInputRef}
+                  type="file"
+                  accept="image/*"
+                  className="hidden"
+                  onChange={(e) => {
+                    if (galleryVehicle && e.target.files?.[0]) {
+                      handlePhotoInputChange(galleryVehicle.id, e);
+                    }
+                    e.target.value = "";
+                  }}
+                />
+              </div>
+            )}
+            
+            <div className="flex-1 overflow-auto">
+              {galleryVehicle && (
+                <>
+                  {galleryViewMode === "list" ? (
+                    <div className="p-4">
+                      {odometerPhotos.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="font-medium mb-2">No photos yet</p>
+                          <p className="text-sm">Upload your first odometer photo to get started</p>
+                        </div>
+                      ) : (
+                        <div className="space-y-2">
+                          {odometerPhotos
+                            .sort((a, b) => new Date(b.photoDate).getTime() - new Date(a.photoDate).getTime())
+                            .map((photo) => (
+                              <div 
+                                key={photo.id} 
+                                className="flex items-center gap-4 p-3 border rounded-lg hover:bg-muted/50 cursor-pointer group"
+                                onClick={() => window.open(photo.photoUrl, "_blank")}
+                              >
+                                <img
+                                  src={photo.photoUrl}
+                                  alt={`Odometer photo from ${formatDate(photo.photoDate)}`}
+                                  className="w-20 h-20 object-cover rounded border flex-shrink-0"
+                                />
+                                <div className="flex-1 min-w-0">
+                                  <div className="flex items-center gap-3">
+                                    <div className="font-medium text-sm">
+                                      {formatDate(photo.photoDate)}
+                                    </div>
+                                    {photo.mileage && (
+                                      <div className="text-sm text-muted-foreground">
+                                        {parseFloat(photo.mileage).toLocaleString('en-CA', { maximumFractionDigits: 2 })} km
+                                      </div>
+                                    )}
+                                  </div>
+                                  {photo.notes && (
+                                    <div className="text-xs text-muted-foreground mt-1 truncate">
+                                      {photo.notes}
+                                    </div>
+                                  )}
+                                </div>
+                                <Button
+                                  variant="ghost"
+                                  size="icon"
+                                  className="h-8 w-8 flex-shrink-0 opacity-0 group-hover:opacity-100 transition-opacity"
+                                  onClick={(e) => {
+                                    e.stopPropagation();
+                                    if (galleryVehicle) {
+                                      deletePhotoMutation.mutate({ vehicleId: galleryVehicle.id, photoId: photo.id });
+                                    }
+                                  }}
+                                >
+                                  <Trash2 className="h-4 w-4" />
+                                </Button>
+                              </div>
+                            ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : galleryViewMode === "grid" ? (
+                    <div className="p-4">
+                      {odometerPhotos.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="font-medium mb-2">No photos yet</p>
+                          <p className="text-sm">Upload your first odometer photo to get started</p>
+                        </div>
+                      ) : (
+                        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                          {odometerPhotos.map((photo) => (
+                            <div key={photo.id} className="relative group border rounded-lg overflow-hidden">
+                              <img
+                                src={photo.photoUrl}
+                                alt={`Odometer photo from ${formatDate(photo.photoDate)}`}
+                                className="w-full h-64 object-contain bg-muted cursor-pointer hover:opacity-90"
+                                onClick={() => window.open(photo.photoUrl, "_blank")}
+                              />
+                              <div className="absolute bottom-0 left-0 right-0 bg-black/70 text-white p-2">
+                                <div className="flex items-center justify-between">
+                                  <div className="text-xs">
+                                    <div className="font-medium">{formatDate(photo.photoDate)}</div>
+                                    {photo.mileage && (
+                                      <div className="opacity-90 mt-0.5">
+                                        {parseFloat(photo.mileage).toLocaleString('en-CA', { maximumFractionDigits: 2 })} km
+                                      </div>
+                                    )}
+                                    {photo.notes && (
+                                      <div className="text-xs opacity-80 mt-1">{photo.notes}</div>
+                                    )}
+                                  </div>
+                                  <Button
+                                    variant="ghost"
+                                    size="icon"
+                                    className="h-6 w-6 text-white hover:bg-white/20"
+                                    onClick={(e) => {
+                                      e.stopPropagation();
+                                      if (galleryVehicle) {
+                                        deletePhotoMutation.mutate({ vehicleId: galleryVehicle.id, photoId: photo.id });
+                                      }
+                                    }}
+                                  >
+                                    <Trash2 className="h-3 w-3" />
+                                  </Button>
+                                </div>
+                              </div>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  ) : (
+                    <div className="p-4">
+                      {odometerPhotos.length === 0 ? (
+                        <div className="text-center py-12 text-muted-foreground">
+                          <ImageIcon className="h-12 w-12 mx-auto mb-4 opacity-50" />
+                          <p className="font-medium mb-2">No photos yet</p>
+                          <p className="text-sm">Upload your first odometer photo to get started</p>
+                        </div>
+                      ) : (
+                        <Carousel 
+                          setApi={setCarouselApi} 
+                          className="w-full"
+                          opts={{ startIndex: initialCarouselIndex }}
+                        >
+                          <CarouselContent>
+                            {odometerPhotos.map((photo, index) => (
+                              <CarouselItem key={photo.id}>
+                                <div className="relative flex items-center justify-center h-[60vh] bg-muted rounded-lg overflow-hidden">
+                                  <img
+                                    src={photo.photoUrl}
+                                    alt={`Odometer photo from ${formatDate(photo.photoDate)}`}
+                                    className="max-w-full max-h-full object-contain"
+                                  />
+                                  <div className="absolute bottom-4 left-4 right-4 bg-black/70 text-white p-3 rounded">
+                                    <div className="flex items-center justify-between">
+                                      <div>
+                                        <p className="text-sm font-medium">{formatDate(photo.photoDate)}</p>
+                                        {photo.mileage && (
+                                          <p className="text-sm opacity-90 mt-0.5">
+                                            {parseFloat(photo.mileage).toLocaleString('en-CA', { maximumFractionDigits: 2 })} km
+                                          </p>
+                                        )}
+                                        {photo.notes && (
+                                          <p className="text-xs opacity-80 mt-1">{photo.notes}</p>
+                                        )}
+                                      </div>
+                                      <div className="flex gap-2">
+                                        <Button
+                                          variant="secondary"
+                                          size="sm"
+                                          onClick={() => window.open(photo.photoUrl, "_blank")}
+                                        >
+                                          Open Full Size
+                                        </Button>
+                                        <Button
+                                          variant="destructive"
+                                          size="sm"
+                                          onClick={() => {
+                                            if (galleryVehicle) {
+                                              deletePhotoMutation.mutate({ vehicleId: galleryVehicle.id, photoId: photo.id });
+                                            }
+                                          }}
+                                        >
+                                          <Trash2 className="h-4 w-4" />
+                                        </Button>
+                                      </div>
+                                    </div>
+                                  </div>
+                                </div>
+                              </CarouselItem>
+                            ))}
+                          </CarouselContent>
+                          {odometerPhotos.length > 1 && (
+                            <>
+                              <CarouselPrevious />
+                              <CarouselNext />
+                            </>
+                          )}
+                        </Carousel>
+                      )}
+                    </div>
+                  )}
+                </>
+              )}
+            </div>
+          </DialogContent>
+        </Dialog>
       </div>
 
       <MileageLoggingStyleSetting />
+
+      {/* Year-Start Photo Prompt */}
+      {showYearStartPrompt && vehiclesNeedingYearStartPhoto.length > 0 && (
+        <Alert className="mb-4 border-blue-200 bg-blue-50 dark:bg-blue-950 dark:border-blue-800">
+          <AlertCircle className="h-4 w-4 text-blue-600 dark:text-blue-400" />
+          <AlertTitle className="text-blue-900 dark:text-blue-100">
+            New Tax Year - Upload Odometer Photos
+          </AlertTitle>
+          <AlertDescription className="text-blue-800 dark:text-blue-200">
+            <div className="space-y-2">
+              <p>
+                It's a new tax year! Please upload odometer photos for the following vehicles to ensure accurate calculations:
+              </p>
+              <ul className="list-disc list-inside space-y-1 ml-2">
+                {vehiclesNeedingYearStartPhoto.map(vehicle => (
+                  <li key={vehicle.id}>{vehicle.name}</li>
+                ))}
+              </ul>
+              <div className="flex gap-2 mt-3">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  onClick={() => {
+                    if (vehiclesNeedingYearStartPhoto.length > 0) {
+                      const firstVehicle = vehiclesNeedingYearStartPhoto[0];
+                      setGalleryVehicle(firstVehicle);
+                      setGalleryOpen(true);
+                      setGalleryViewMode("grid");
+                    }
+                  }}
+                >
+                  Upload Photos
+                </Button>
+                <Button
+                  variant="ghost"
+                  size="sm"
+                  onClick={() => {
+                    const dismissedKey = `yearStartPrompt_${currentYear}`;
+                    const updated = { ...dismissedReminders, [dismissedKey]: Date.now() };
+                    setDismissedReminders(updated);
+                    localStorage.setItem("odometerPhotoReminders", JSON.stringify(updated));
+                    setShowYearStartPrompt(false);
+                  }}
+                >
+                  Remind me later
+                </Button>
+              </div>
+            </div>
+          </AlertDescription>
+        </Alert>
+      )}
+
+      {/* Reminder Banner for Vehicles Missing Photos */}
+      {vehicles.map((vehicle) => (
+        <VehiclePhotoReminder
+          key={vehicle.id}
+          vehicle={vehicle}
+          shouldShow={shouldShowReminder(vehicle.id)}
+          onDismiss={() => dismissReminder(vehicle.id)}
+          onUpload={() => {
+            setGalleryVehicle(vehicle);
+            setGalleryOpen(true);
+            setGalleryViewMode("grid");
+          }}
+        />
+      ))}
 
       <Card>
         <CardHeader>
@@ -1010,54 +1699,39 @@ export default function VehiclesPage() {
                       })()}
                       
                       {/* Odometer Photos Display */}
-                      {(vehicle.initialOdometerPhotoUrl || vehicle.startOfYearOdometerPhotoUrl || vehicle.endOfYearOdometerPhotoUrl) && (
-                        <div className="mt-3 pt-3 border-t">
-                          <span className="text-sm text-muted-foreground mb-2 block">Odometer Photos:</span>
-                          <div className="flex gap-2 flex-wrap">
-                            {vehicle.initialOdometerPhotoUrl && (
-                              <div className="relative group">
-                                <img
-                                  src={vehicle.initialOdometerPhotoUrl}
-                                  alt="Initial odometer"
-                                  className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80"
-                                  onClick={() => window.open(vehicle.initialOdometerPhotoUrl!, "_blank")}
-                                />
-                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 text-center rounded-b">
-                                  Initial
-                                </div>
-                              </div>
-                            )}
-                            {vehicle.startOfYearOdometerPhotoUrl && (
-                              <div className="relative group">
-                                <img
-                                  src={vehicle.startOfYearOdometerPhotoUrl}
-                                  alt="Start of year odometer"
-                                  className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80"
-                                  onClick={() => window.open(vehicle.startOfYearOdometerPhotoUrl!, "_blank")}
-                                />
-                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 text-center rounded-b">
-                                  Start
-                                </div>
-                              </div>
-                            )}
-                            {vehicle.endOfYearOdometerPhotoUrl && (
-                              <div className="relative group">
-                                <img
-                                  src={vehicle.endOfYearOdometerPhotoUrl}
-                                  alt="End of year odometer"
-                                  className="w-20 h-20 object-cover rounded border cursor-pointer hover:opacity-80"
-                                  onClick={() => window.open(vehicle.endOfYearOdometerPhotoUrl!, "_blank")}
-                                />
-                                <div className="absolute bottom-0 left-0 right-0 bg-black/60 text-white text-xs p-1 text-center rounded-b">
-                                  End
-                                </div>
-                              </div>
-                            )}
-                          </div>
-                        </div>
-                      )}
+                      <VehiclePhotosPreview
+                        vehicle={vehicle}
+                        onOpenGallery={(vehicle, index) => {
+                          setGalleryVehicle(vehicle);
+                          if (index !== undefined) {
+                            setInitialCarouselIndex(index);
+                            setGalleryViewMode("carousel");
+                          } else {
+                            setGalleryViewMode("grid");
+                          }
+                          setGalleryOpen(true);
+                        }}
+                      />
                     </div>
                     <div className="flex items-center gap-2 ml-4">
+                      <TooltipProvider>
+                        <Tooltip>
+                          <TooltipTrigger asChild>
+                            <Link href={`/vehicle-mileage?vehicleId=${vehicle.id}`}>
+                              <Button
+                                variant="ghost"
+                                size="icon"
+                                data-testid={`button-view-mileage-${vehicle.id}`}
+                              >
+                                <Gauge className="h-4 w-4" />
+                              </Button>
+                            </Link>
+                          </TooltipTrigger>
+                          <TooltipContent>
+                            <p>View Odometer Records</p>
+                          </TooltipContent>
+                        </Tooltip>
+                      </TooltipProvider>
                       <Button
                         variant="ghost"
                         size="icon"

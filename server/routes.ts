@@ -10,6 +10,7 @@ import { setupAuth, isAuthenticated } from "./auth";
 import { eq, desc, asc } from "drizzle-orm";
 import { processReceiptOCR, type OCRResult } from "./veryfi-ocr";
 import { normalizePaystubOCR, normalizedPaystubToIncomeData, classifyDocument } from "./paystub-normalizer";
+import exifr from "exifr";
 
 // Logging function to avoid circular dependency (disabled for production)
 function logRoute(message: string, source = "routes") {
@@ -1516,23 +1517,8 @@ export async function registerRoutes(
     try {
       const userId = getUserId(req);
       const vehicleRecords = await storage.getVehicles(userId);
-      
-      // Handle year transitions: copy end-of-year photos to start-of-year for new tax year
-      const currentYear = new Date().getFullYear();
-      for (const vehicle of vehicleRecords) {
-        const photoYear = vehicle.odometerPhotoYear ? parseInt(vehicle.odometerPhotoYear.toString()) : null;
-        if (photoYear !== null && photoYear < currentYear && vehicle.endOfYearOdometerPhotoUrl) {
-          // Year has changed, copy end-of-year photo to start-of-year
-          await storage.updateVehicle(vehicle.id, {
-            startOfYearOdometerPhotoUrl: vehicle.endOfYearOdometerPhotoUrl,
-            endOfYearOdometerPhotoUrl: null,
-            odometerPhotoYear: currentYear.toString(),
-          });
-        }
-      }
-      
-      // Fetch updated vehicles after year transitions
-      const updatedVehicles = await storage.getVehicles(userId);
+      // Return vehicles (year transitions no longer needed with new photo system)
+      const updatedVehicles = vehicleRecords;
       res.json(updatedVehicles);
     } catch (error) {
       res.status(500).json({ error: "Failed to get vehicles" });
@@ -1645,12 +1631,6 @@ export async function registerRoutes(
       if (req.body.mileageAtBeginningOfYear !== undefined) cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
       if (req.body.totalAnnualMileage !== undefined) cleanedData.totalAnnualMileage = req.body.totalAnnualMileage !== null && req.body.totalAnnualMileage !== undefined ? String(req.body.totalAnnualMileage) : null;
       
-      // Handle photo URL fields
-      if (req.body.initialOdometerPhotoUrl !== undefined) cleanedData.initialOdometerPhotoUrl = req.body.initialOdometerPhotoUrl || null;
-      if (req.body.startOfYearOdometerPhotoUrl !== undefined) cleanedData.startOfYearOdometerPhotoUrl = req.body.startOfYearOdometerPhotoUrl || null;
-      if (req.body.endOfYearOdometerPhotoUrl !== undefined) cleanedData.endOfYearOdometerPhotoUrl = req.body.endOfYearOdometerPhotoUrl || null;
-      if (req.body.odometerPhotoYear !== undefined) cleanedData.odometerPhotoYear = req.body.odometerPhotoYear ? String(req.body.odometerPhotoYear) : null;
-      
       const updated = await storage.updateVehicle(req.params.id, cleanedData);
       
       // Sync vehicle to asset for CCA tracking
@@ -1680,8 +1660,8 @@ export async function registerRoutes(
     }
   });
 
-  // POST /api/vehicles/:id/odometer-photo - upload odometer photo
-  app.post("/api/vehicles/:id/odometer-photo", isAuthenticated, upload.single("file"), async (req: any, res) => {
+  // POST /api/vehicles/:id/odometer-photos - upload odometer photo
+  app.post("/api/vehicles/:id/odometer-photos", isAuthenticated, upload.single("file"), async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.id);
@@ -1692,33 +1672,124 @@ export async function registerRoutes(
         return res.status(403).json({ error: "Access denied" });
       }
 
-      const { photoType } = req.body; // initial, startOfYear, or endOfYear
-      if (!photoType || !["initial", "startOfYear", "endOfYear"].includes(photoType)) {
-        return res.status(400).json({ error: "Invalid photoType. Must be 'initial', 'startOfYear', or 'endOfYear'" });
-      }
-
       if (!req.file) {
         return res.status(400).json({ error: "No file uploaded" });
       }
 
-      const photoUrl = `/uploads/${req.file.filename}`;
-      const currentYear = new Date().getFullYear();
-      const updateData: any = {};
+      const { photoDate: providedDate, notes, mileage } = req.body;
 
-      if (photoType === "initial") {
-        updateData.initialOdometerPhotoUrl = photoUrl;
-      } else if (photoType === "startOfYear") {
-        updateData.startOfYearOdometerPhotoUrl = photoUrl;
-        updateData.odometerPhotoYear = currentYear.toString();
-      } else if (photoType === "endOfYear") {
-        updateData.endOfYearOdometerPhotoUrl = photoUrl;
-        updateData.odometerPhotoYear = currentYear.toString();
+      // Try to extract date from EXIF data
+      let photoDate: Date | null = null;
+      
+      try {
+        const exifData = await exifr.parse(req.file.path, {
+          pick: ['DateTimeOriginal', 'CreateDate', 'ModifyDate']
+        });
+        
+        if (exifData?.DateTimeOriginal) {
+          photoDate = new Date(exifData.DateTimeOriginal);
+        } else if (exifData?.CreateDate) {
+          photoDate = new Date(exifData.CreateDate);
+        } else if (exifData?.ModifyDate) {
+          photoDate = new Date(exifData.ModifyDate);
+        }
+      } catch (exifError) {
+        // EXIF extraction failed, continue with fallback
+        console.log("EXIF extraction failed:", exifError);
       }
 
-      const updated = await storage.updateVehicle(req.params.id, updateData);
-      res.json(updated);
+      // Use provided date, EXIF date, or default to today
+      let finalDate: Date;
+      if (providedDate) {
+        finalDate = new Date(providedDate);
+      } else if (photoDate && !isNaN(photoDate.getTime())) {
+        finalDate = photoDate;
+      } else {
+        finalDate = new Date();
+      }
+
+      // Format date as YYYY-MM-DD
+      const photoDateString = finalDate.toISOString().split('T')[0];
+
+      const photoUrl = `/uploads/${req.file.filename}`;
+      
+      // Parse mileage if provided
+      const mileageValue = mileage && mileage.trim() !== '' ? mileage : null;
+      
+      const photo = await storage.createOdometerPhoto({
+        vehicleId: vehicle.id,
+        userId: userId,
+        photoUrl: photoUrl,
+        photoDate: photoDateString,
+        mileage: mileageValue,
+        notes: notes || null,
+      });
+      
+      res.json({
+        ...photo,
+        photoMetadata: {
+          photoDate: photoDate ? photoDate.toISOString() : null,
+          dateUsed: photoDateString,
+        }
+      });
     } catch (error) {
+      console.error("Error uploading odometer photo:", error);
       res.status(500).json({ error: "Failed to upload odometer photo" });
+    }
+  });
+
+  // GET /api/vehicles/:id/odometer-photos - get odometer photos for a vehicle
+  app.get("/api/vehicles/:id/odometer-photos", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.id);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const photos = await storage.getOdometerPhotos(req.params.id, userId);
+      res.json(photos);
+    } catch (error) {
+      console.error("Error fetching odometer photos:", error);
+      res.status(500).json({ error: "Failed to fetch odometer photos" });
+    }
+  });
+
+  // DELETE /api/vehicles/:id/odometer-photos/:photoId - delete an odometer photo
+  app.delete("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (req: any, res) => {
+    try {
+      const userId = getUserId(req);
+      const vehicle = await storage.getVehicleById(req.params.id);
+      if (!vehicle) {
+        return res.status(404).json({ error: "Vehicle not found" });
+      }
+      if (vehicle.userId !== userId) {
+        return res.status(403).json({ error: "Access denied" });
+      }
+
+      const photo = await storage.getOdometerPhotoById(req.params.photoId);
+      if (!photo || photo.userId !== userId || photo.vehicleId !== vehicle.id) {
+        return res.status(404).json({ error: "Photo not found" });
+      }
+
+      // Delete the file from disk
+      const filePath = path.join(process.cwd(), "uploads", path.basename(photo.photoUrl));
+      try {
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+      } catch (fileError) {
+        console.error("Error deleting photo file:", fileError);
+      }
+
+      await storage.deleteOdometerPhoto(req.params.photoId);
+      res.json({ success: true });
+    } catch (error) {
+      console.error("Error deleting odometer photo:", error);
+      res.status(500).json({ error: "Failed to delete odometer photo" });
     }
   });
 

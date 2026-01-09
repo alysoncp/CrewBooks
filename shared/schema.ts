@@ -311,10 +311,6 @@ export const vehicles = pgTable("vehicles", {
   mileageEstimate: boolean("mileage_estimate").default(false),
   purchasedThisYear: boolean("purchased_this_year").default(false),
   purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }),
-  initialOdometerPhotoUrl: text("initial_odometer_photo_url"),
-  startOfYearOdometerPhotoUrl: text("start_of_year_odometer_photo_url"),
-  endOfYearOdometerPhotoUrl: text("end_of_year_odometer_photo_url"),
-  odometerPhotoYear: numeric("odometer_photo_year", { precision: 4, scale: 0 }),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });
@@ -322,6 +318,22 @@ export const vehicles = pgTable("vehicles", {
 export const insertVehicleSchema = createInsertSchema(vehicles).omit({ id: true, createdAt: true, updatedAt: true });
 export type InsertVehicle = z.infer<typeof insertVehicleSchema>;
 export type Vehicle = typeof vehicles.$inferSelect;
+
+// Odometer Photos Table - Store dated odometer photos for vehicles
+export const odometerPhotos = pgTable("odometer_photos", {
+  id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
+  vehicleId: varchar("vehicle_id").notNull(),
+  userId: varchar("user_id").notNull(),
+  photoUrl: text("photo_url").notNull(),
+  photoDate: date("photo_date").notNull(), // Date the photo was taken (from EXIF or user input)
+  mileage: numeric("mileage", { precision: 12, scale: 2 }), // Odometer reading shown in the photo
+  uploadedAt: timestamp("uploaded_at").defaultNow(),
+  notes: text("notes"),
+});
+
+export const insertOdometerPhotoSchema = createInsertSchema(odometerPhotos).omit({ id: true, uploadedAt: true });
+export type InsertOdometerPhoto = z.infer<typeof insertOdometerPhotoSchema>;
+export type OdometerPhoto = typeof odometerPhotos.$inferSelect;
 
 // Vehicle Mileage Logs Table - Track mileage entries over time
 export const vehicleMileageLogs = pgTable("vehicle_mileage_logs", {
