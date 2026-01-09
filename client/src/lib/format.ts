@@ -167,7 +167,6 @@ export function getPersonalExpenseCategoryLabel(category: string): string {
     rrsp_contributions: 'RRSP Contributions',
     disability_supports: 'Disability Supports',
     employment_expenses: 'Employment Expenses',
-    legal_fees: 'Legal Fees',
     investment_counsel_fees: 'Investment Counsel Fees',
     tuition: 'Tuition',
   };

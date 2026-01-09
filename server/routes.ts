@@ -1757,6 +1757,48 @@ export async function registerRoutes(
       res.status(500).json({ error: "Failed to fetch odometer photos" });
     }
   });
+  
+// PATCH /api/vehicles/:id/odometer-photos/:photoId - update an odometer photo
+app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (req: any, res) => {
+  try {
+    const userId = getUserId(req);
+    const vehicle = await storage.getVehicleById(req.params.id);
+    if (!vehicle) {
+      return res.status(404).json({ error: "Vehicle not found" });
+    }
+    if (vehicle.userId !== userId) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+
+    const photo = await storage.getOdometerPhotoById(req.params.photoId);
+    if (!photo || photo.userId !== userId || photo.vehicleId !== vehicle.id) {
+      return res.status(404).json({ error: "Photo not found" });
+    }
+
+    // Prepare update data
+    const updateData: any = {};
+    if (req.body.photoDate !== undefined) {
+      updateData.photoDate = req.body.photoDate;
+    }
+    if (req.body.mileage !== undefined) {
+      // Convert mileage to string if provided (schema expects string for numeric columns)
+      updateData.mileage = req.body.mileage !== null && req.body.mileage !== undefined ? String(req.body.mileage) : null;
+    }
+    if (req.body.notes !== undefined) {
+      updateData.notes = req.body.notes || null;
+    }
+
+    const updated = await storage.updateOdometerPhoto(req.params.photoId, updateData);
+    if (!updated) {
+      return res.status(404).json({ error: "Photo not found" });
+    }
+
+    res.json(updated);
+  } catch (error) {
+    console.error("Error updating odometer photo:", error);
+    res.status(500).json({ error: "Failed to update odometer photo" });
+  }
+});
 
   // DELETE /api/vehicles/:id/odometer-photos/:photoId - delete an odometer photo
   app.delete("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (req: any, res) => {
