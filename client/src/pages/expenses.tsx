@@ -62,11 +62,8 @@ import { queryClient, apiRequest } from "@/lib/queryClient";
 import { SELF_EMPLOYMENT_EXPENSE_CATEGORIES, EXPENSE_TYPES, PERSONAL_EXPENSE_CATEGORIES, HOME_OFFICE_LIVING_CATEGORIES, VEHICLE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaxYear } from "@/components/tax-year-provider";
-import React from "react";
 import { Link, useLocation } from "wouter";
-import { Settings, ArrowLeft } from "lucide-react";
-
-// Vehicle and home office subcategories are now regular categories, no longer needed as constants
+import { Settings } from "lucide-react";
 
 type ExpenseCategoryTuple = typeof SELF_EMPLOYMENT_EXPENSE_CATEGORIES;
 

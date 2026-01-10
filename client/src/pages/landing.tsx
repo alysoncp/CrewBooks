@@ -6,14 +6,14 @@ import { DollarSign, FileText, Calculator, TrendingUp, Shield, Camera } from "lu
 import { useState } from "react";
 import { useQueryClient } from "@tanstack/react-query";
 import { useToast } from "@/hooks/use-toast";
-import { useLocation } from "wouter"; // Add this import
+import { useLocation } from "wouter";
 
 export default function Landing() {
   const [email, setEmail] = useState("");
   const [isLoading, setIsLoading] = useState(false);
   const queryClient = useQueryClient();
   const { toast } = useToast();
-  const [, setLocation] = useLocation(); // Add this
+  const [, setLocation] = useLocation();
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -64,8 +64,6 @@ export default function Landing() {
       setIsLoading(false);
     }
   };
-
-  // ... rest of your component stays the same
 
   const features = [
     {

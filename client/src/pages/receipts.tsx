@@ -1,6 +1,6 @@
-import { useState, useCallback, useEffect } from "react";
+import { useState, useCallback } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Upload, Trash2, Image, X, ZoomIn, FileImage, Scan, Receipt as ReceiptIcon, Loader2, Lock, Sparkles, Link2 } from "lucide-react";
+import { Upload, Trash2, Image, X, ZoomIn, FileImage, Scan, Lock, Sparkles, Link2 } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
