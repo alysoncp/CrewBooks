@@ -1,12 +1,14 @@
 import { useQuery } from "@tanstack/react-query";
-import { useMemo } from "react";
+import { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { TrendingUp, TrendingDown, DollarSign, Receipt, Calculator, Percent } from "lucide-react";
 import { formatCurrency, formatPercent, getCategoryLabel, getYearFromDateString } from "@/lib/format";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
-import type { Income, Expense, TaxCalculation } from "@shared/schema";
+import type { Income, Expense, TaxCalculation, User, Vehicle } from "@shared/schema";
+import { HOME_OFFICE_LIVING_CATEGORIES } from "@shared/schema";
 import { useTaxYear } from "@/components/tax-year-provider";
+import { useAuth } from "@/hooks/useAuth";
 
 interface DashboardData {
   income: Income[];
@@ -84,9 +86,20 @@ function StatCard({
 
 export default function Dashboard() {
   const { taxYear } = useTaxYear();
+  const { user } = useAuth();
   
   const { data, isLoading } = useQuery<DashboardData>({
     queryKey: ["/api/dashboard"],
+  });
+
+  // Fetch user profile for home office percentage
+  const { data: userProfile } = useQuery<User>({
+    queryKey: ["/api/user/profile"],
+  });
+
+  // Fetch vehicles for business use percentage calculations
+  const { data: vehicles = [] } = useQuery<Vehicle[]>({
+    queryKey: ["/api/vehicles"],
   });
 
   // Filter income and expenses by selected year
@@ -167,6 +180,151 @@ export default function Dashboard() {
       .slice(0, 8);
   }, [filteredBusinessExpenses]);
 
+  // Get unique vehicle IDs from vehicle expenses
+  const vehicleIdsInExpenses = useMemo(() => {
+    const ids = new Set<string>();
+    if (!filteredExpenses) return [];
+    
+    filteredExpenses.forEach((expense) => {
+      const expenseType = (expense as any).expenseType || "self_employment";
+      if (expenseType === "vehicle" && (expense as any).vehicleId) {
+        const vehicleId = (expense as any).vehicleId;
+        if (vehicleId) {
+          ids.add(vehicleId);
+        }
+      }
+    });
+    
+    return Array.from(ids);
+  }, [filteredExpenses]);
+
+  // Fetch business use percentages for vehicles used in expenses
+  const [vehicleBusinessUseMap, setVehicleBusinessUseMap] = useState<Map<string, number>>(new Map());
+  
+  useEffect(() => {
+    const fetchVehiclePercentages = async () => {
+      const map = new Map<string, number>();
+      const promises = vehicleIdsInExpenses.map(async (vehicleId: string) => {
+        try {
+          const response = await fetch(`/api/vehicles/${vehicleId}/business-use-percentage?taxYear=${taxYear}`);
+          if (response.ok) {
+            const data = await response.json();
+            map.set(vehicleId, data.businessUsePercentage || 100);
+          } else {
+            map.set(vehicleId, 100); // Default to 100% if fetch fails
+          }
+        } catch (error) {
+          map.set(vehicleId, 100); // Default to 100% on error
+        }
+      });
+      
+      await Promise.all(promises);
+      setVehicleBusinessUseMap(map);
+    };
+    
+    if (vehicleIdsInExpenses.length > 0) {
+      fetchVehiclePercentages();
+    } else {
+      setVehicleBusinessUseMap(new Map());
+    }
+  }, [vehicleIdsInExpenses, taxYear]);
+
+  // Helper function to calculate deductible amount and deductible GST for an expense
+  const calculateDeductible = useMemo(() => {
+    return (item: Expense, vehicleBusinessUseMap: Map<string, number>) => {
+      if (!item.isTaxDeductible) {
+        return { deductibleAmount: 0, deductibleGst: 0 };
+      }
+
+      const expenseType = (item as any).expenseType || "self_employment";
+      const baseCost = item.baseCost ? parseFloat(item.baseCost.toString()) : 0;
+      const pstAmount = item.pstAmount ? parseFloat(item.pstAmount.toString()) : 0;
+      const gstAmount = item.gstAmount ? parseFloat(item.gstAmount.toString()) : 0;
+
+      if (expenseType === "personal") {
+        return { deductibleAmount: 0, deductibleGst: 0 };
+      }
+
+      if (expenseType === "home_office_living") {
+        // Home Office/Living expenses: apply home office percentage if set
+        let deductibleAmount = baseCost + pstAmount;
+        let deductibleGst = gstAmount;
+        if (userProfile?.homeOfficePercentage) {
+          const percentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+          deductibleAmount = deductibleAmount * percentage;
+          deductibleGst = deductibleGst * percentage;
+        }
+        return { deductibleAmount, deductibleGst };
+      }
+
+      if (expenseType === "vehicle") {
+        // Vehicle expenses: use business use percentage from odometer entries
+        const vehicleId = (item as any).vehicleId;
+        let businessPercentage = 1.0; // Default to 100% if no vehicle or percentage found
+        
+        if (vehicleId && vehicleBusinessUseMap.has(vehicleId)) {
+          businessPercentage = vehicleBusinessUseMap.get(vehicleId)! / 100;
+        }
+        
+        const deductibleAmount = (baseCost + pstAmount) * businessPercentage;
+        const deductibleGst = gstAmount * businessPercentage;
+        return { deductibleAmount, deductibleGst };
+      }
+
+      if (expenseType === "self_employment") {
+        // Self-Employment expenses: fully deductible
+        return { deductibleAmount: baseCost + pstAmount, deductibleGst: gstAmount };
+      }
+
+      if (expenseType === "mixed") {
+        const businessPercentage = (item as any).businessUsePercentage 
+          ? parseFloat((item as any).businessUsePercentage.toString()) / 100 
+          : 0;
+        
+        // Only business portion of base cost + proportional PST is deductible
+        const businessBaseCost = baseCost * businessPercentage;
+        const businessPstAmount = pstAmount * businessPercentage;
+        let deductibleAmount = businessBaseCost + businessPstAmount;
+        let deductibleGst = gstAmount * businessPercentage;
+        
+        // Apply home office percentage if applicable for home office/living categories
+        if (HOME_OFFICE_LIVING_CATEGORIES.includes(item.category as any) && userProfile?.homeOfficePercentage) {
+          const homeOfficePercentage = parseFloat(userProfile.homeOfficePercentage.toString()) / 100;
+          deductibleAmount = deductibleAmount * homeOfficePercentage;
+          deductibleGst = deductibleGst * homeOfficePercentage;
+        }
+        
+        return { deductibleAmount, deductibleGst };
+      }
+
+      // Default: treat as business expense (fully deductible)
+      return { deductibleAmount: baseCost + pstAmount, deductibleGst: gstAmount };
+    };
+  }, [userProfile]);
+
+  // Calculate deductible expenses and deductible GST
+  const { deductibleExpenses, deductibleGstCredits } = useMemo(() => {
+    let deductibleSum = 0;
+    let deductibleGstSum = 0;
+    
+    // Create a temporary map with default 100% for vehicles (for summary calculations)
+    const tempVehicleMap = new Map<string, number>();
+    vehicles.forEach(vehicle => {
+      if (vehicle.id) {
+        // For summary, use 100% as default - actual calculation happens with fetched percentages
+        tempVehicleMap.set(vehicle.id, 100);
+      }
+    });
+    
+    filteredExpenses.forEach((item) => {
+      const result = calculateDeductible(item, vehicleBusinessUseMap.size > 0 ? vehicleBusinessUseMap : tempVehicleMap);
+      deductibleSum += result.deductibleAmount;
+      deductibleGstSum += result.deductibleGst;
+    });
+    
+    return { deductibleExpenses: deductibleSum, deductibleGstCredits: deductibleGstSum };
+  }, [filteredExpenses, calculateDeductible, vehicles, vehicleBusinessUseMap]);
+
   // Recalculate totals from filtered data
   const totalIncome = filteredIncome.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
   const totalExpenses = filteredExpenses.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
@@ -197,7 +355,7 @@ export default function Dashboard() {
         <p className="text-muted-foreground">Your financial overview for {taxYear}</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-5">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6">
         <StatCard
           title="Total Income"
           value={formatCurrency(totalIncome)}
@@ -215,6 +373,15 @@ export default function Dashboard() {
           trend="neutral"
           isLoading={isLoading}
           testId="stat-business-expenses"
+        />
+        <StatCard
+          title="Deductible Expenses"
+          value={formatCurrency(deductibleExpenses)}
+          subtitle="Tax deductible amount"
+          icon={Percent}
+          trend="neutral"
+          isLoading={isLoading}
+          testId="stat-deductible-expenses"
         />
         <StatCard
           title="Personal Expenses"

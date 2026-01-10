@@ -1578,6 +1578,7 @@ export async function registerRoutes(
       cleanedData.currentMileage = req.body.currentMileage !== null && req.body.currentMileage !== undefined ? String(req.body.currentMileage) : null;
       cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
       cleanedData.totalAnnualMileage = req.body.totalAnnualMileage !== null && req.body.totalAnnualMileage !== undefined ? String(req.body.totalAnnualMileage) : null;
+      cleanedData.estimatedYearlyMileage = req.body.estimatedYearlyMileage !== null && req.body.estimatedYearlyMileage !== undefined ? String(req.body.estimatedYearlyMileage) : null;
       
       // Validate with schema
       const data = insertVehicleSchema.parse(cleanedData);
@@ -1630,6 +1631,7 @@ export async function registerRoutes(
       if (req.body.currentMileage !== undefined) cleanedData.currentMileage = req.body.currentMileage !== null && req.body.currentMileage !== undefined ? String(req.body.currentMileage) : null;
       if (req.body.mileageAtBeginningOfYear !== undefined) cleanedData.mileageAtBeginningOfYear = req.body.mileageAtBeginningOfYear !== null && req.body.mileageAtBeginningOfYear !== undefined ? String(req.body.mileageAtBeginningOfYear) : null;
       if (req.body.totalAnnualMileage !== undefined) cleanedData.totalAnnualMileage = req.body.totalAnnualMileage !== null && req.body.totalAnnualMileage !== undefined ? String(req.body.totalAnnualMileage) : null;
+      if (req.body.estimatedYearlyMileage !== undefined) cleanedData.estimatedYearlyMileage = req.body.estimatedYearlyMileage !== null && req.body.estimatedYearlyMileage !== undefined ? String(req.body.estimatedYearlyMileage) : null;
       
       const updated = await storage.updateVehicle(req.params.id, cleanedData);
       
@@ -2423,8 +2425,10 @@ function calculateMonthlyData(
 /**
  * Calculate deductible amount for an expense
  * Only business portion + proportional PST is deductible
+ * For vehicle expenses, business use percentage should be calculated from odometer entries
+ * Note: This function should be called with the business use percentage already calculated for vehicle expenses
  */
-function calculateDeductibleAmount(expense: any, user?: any): number {
+async function calculateDeductibleAmount(expense: any, user?: any, userId?: string, taxYear?: string): Promise<number> {
   if (!expense.isTaxDeductible) {
     return 0;
   }
@@ -2447,8 +2451,29 @@ function calculateDeductibleAmount(expense: any, user?: any): number {
     return deductibleAmount;
   }
 
-  if (expenseType === "vehicle" || expenseType === "self_employment") {
-    // Vehicle and Self-Employment expenses: fully deductible
+  if (expenseType === "vehicle") {
+    // Vehicle expenses: use business use percentage from odometer entries
+    let businessPercentage = 1.0; // Default to 100% if calculation fails
+    
+    if (expense.vehicleId && userId && taxYear) {
+      try {
+        const calculatedPercentage = await storage.calculateVehicleBusinessUsePercentage(
+          expense.vehicleId,
+          userId,
+          taxYear
+        );
+        businessPercentage = Math.min(100, Math.max(0, calculatedPercentage)) / 100;
+      } catch (error) {
+        // If calculation fails, default to 100%
+        businessPercentage = 1.0;
+      }
+    }
+    
+    return (baseCost + pstAmount) * businessPercentage;
+  }
+
+  if (expenseType === "self_employment") {
+    // Self-Employment expenses: fully deductible
     return baseCost + pstAmount;
   }
 

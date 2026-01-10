@@ -308,6 +308,7 @@ export const vehicles = pgTable("vehicles", {
   currentMileage: numeric("current_mileage", { precision: 12, scale: 2 }),
   mileageAtBeginningOfYear: numeric("mileage_at_beginning_of_year", { precision: 12, scale: 2 }),
   totalAnnualMileage: numeric("total_annual_mileage", { precision: 12, scale: 2 }),
+  estimatedYearlyMileage: numeric("estimated_yearly_mileage", { precision: 12, scale: 2 }),
   mileageEstimate: boolean("mileage_estimate").default(false),
   purchasedThisYear: boolean("purchased_this_year").default(false),
   purchasePrice: numeric("purchase_price", { precision: 10, scale: 2 }),

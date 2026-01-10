@@ -80,6 +80,7 @@ const vehicleFormSchema = z.object({
   claimsCca: z.boolean().default(false),
   ccaClass: z.enum(["Class 10", "Class 10.1"]).optional(),
   currentMileage: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
+  estimatedYearlyMileage: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
   purchasedThisYear: z.boolean().default(false),
   purchasePrice: z.string().optional().transform((val) => val ? parseFloat(val) : undefined),
   isLeased: z.boolean().default(false).optional(),
@@ -377,6 +378,7 @@ export default function VehiclesPage() {
       claimsCca: false,
       ccaClass: undefined,
       currentMileage: "",
+      estimatedYearlyMileage: "",
       purchasedThisYear: false,
       purchasePrice: "",
     },
@@ -791,6 +793,7 @@ export default function VehiclesPage() {
       claimsCca: vehicle.claimsCca || false,
       ccaClass: (vehicle as any).ccaClass || undefined,
       currentMileage: (vehicle as any).currentMileage?.toString() || "",
+      estimatedYearlyMileage: (vehicle as any).estimatedYearlyMileage?.toString() || "",
       purchasedThisYear: (vehicle as any).purchasedThisYear || false,
       purchasePrice: (vehicle as any).purchasePrice?.toString() || "",
     });
@@ -943,6 +946,34 @@ export default function VehiclesPage() {
                       </FormItem>
                     )}
                   />
+                  {!vehicleForm.watch("usedExclusivelyForBusiness") && (
+                    <FormField
+                      control={vehicleForm.control}
+                      name="estimatedYearlyMileage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Estimated Yearly Mileage (km)</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.01"
+                                placeholder="0"
+                                value={field.value || ""}
+                                className="pr-12"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">km</span>
+                            </div>
+                          </FormControl>
+                          <FormDescription>
+                            Estimated total kilometers you'll drive this year. Used to calculate business use percentage until actual odometer data is available.
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
                   <FormField
                     control={vehicleForm.control}
                     name="purchasedThisYear"

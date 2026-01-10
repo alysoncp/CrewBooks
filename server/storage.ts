@@ -1094,18 +1094,75 @@ export class DatabaseStorage implements IStorage {
 
     // Get total annual mileage (priority: photos > logs > legacy field)
     let totalAnnualMileage: number | null = null;
+    let hasCompleteYearData = false;
     
     // Try photos first
     totalAnnualMileage = await this.calculateTotalMileageFromPhotos(vehicleId, userId, taxYear);
     
+    // Check if photos cover the full year (have photos at start and end of year)
+    if (totalAnnualMileage !== null) {
+      const photos = await this.getOdometerPhotos(vehicleId, userId);
+      const yearStart = `${taxYear}-01-01`;
+      const yearEnd = `${taxYear}-12-31`;
+      const yearPhotos = photos.filter(photo => {
+        const photoDate = photo.photoDate;
+        return photoDate >= yearStart && photoDate <= yearEnd && photo.mileage !== null;
+      });
+      
+      if (yearPhotos.length >= 2) {
+        const sortedPhotos = [...yearPhotos].sort((a, b) => a.photoDate.localeCompare(b.photoDate));
+        const firstPhotoDate = sortedPhotos[0].photoDate;
+        const lastPhotoDate = sortedPhotos[sortedPhotos.length - 1].photoDate;
+        // Consider it complete if we have photos near the start and end of the year
+        hasCompleteYearData = firstPhotoDate <= `${taxYear}-01-31` && lastPhotoDate >= `${taxYear}-12-01`;
+      }
+    }
+    
     // Fall back to logs if no photos
     if (totalAnnualMileage === null) {
       totalAnnualMileage = await this.calculateTotalMileageFromLogs(vehicleId, userId, taxYear);
+      
+      // Check if logs cover the full year
+      if (totalAnnualMileage !== null && yearLogs.length > 0) {
+        const firstLogDate = sortedLogs[0].date;
+        const lastLogDate = sortedLogs[sortedLogs.length - 1].date;
+        // Consider it complete if logs span most of the year
+        hasCompleteYearData = firstLogDate <= `${taxYear}-02-28` && lastLogDate >= `${taxYear}-11-01`;
+      }
     }
     
     // Last resort: legacy totalAnnualMileage field (backward compatibility)
     if (totalAnnualMileage === null && vehicle.totalAnnualMileage) {
       totalAnnualMileage = parseFloat(vehicle.totalAnnualMileage.toString());
+      hasCompleteYearData = true; // Assume legacy field represents complete year
+    }
+
+    // If we don't have complete year data but have business mileage logs and estimated yearly mileage,
+    // use estimated mileage to calculate percentage proportionally
+    if (!hasCompleteYearData && businessMileage > 0 && yearLogs.length > 0 && vehicle.estimatedYearlyMileage) {
+      const estimatedYearlyMileage = parseFloat(vehicle.estimatedYearlyMileage.toString());
+      
+      if (estimatedYearlyMileage > 0) {
+        // Calculate the date range of available logs
+        const firstLogDate = new Date(sortedLogs[0].date);
+        const lastLogDate = new Date(sortedLogs[sortedLogs.length - 1].date);
+        
+        // Use current date if we're still in the tax year, otherwise use year end
+        const currentDate = new Date();
+        const yearEndDate = new Date(`${taxYear}-12-31`);
+        const periodEndDate = currentDate < yearEndDate ? currentDate : yearEndDate;
+        
+        // Calculate days elapsed from start of year to period end
+        const yearStartDate = new Date(`${taxYear}-01-01`);
+        const daysElapsed = Math.max(1, Math.ceil((periodEndDate.getTime() - yearStartDate.getTime()) / (1000 * 60 * 60 * 24)) + 1);
+        
+        // Calculate estimated mileage for the period
+        const estimatedMileageForPeriod = estimatedYearlyMileage * (daysElapsed / 365);
+        
+        if (estimatedMileageForPeriod > 0) {
+          return (businessMileage / estimatedMileageForPeriod) * 100;
+        }
+      }
     }
 
     // If odometer method with interpolation enabled, we need to account for personal use between business logs
@@ -1123,6 +1180,14 @@ export class DatabaseStorage implements IStorage {
     }
 
     if (!totalAnnualMileage || totalAnnualMileage === 0) {
+      // If no total mileage but we have estimated mileage and business logs, use estimated
+      if (businessMileage > 0 && vehicle.estimatedYearlyMileage) {
+        const estimatedYearlyMileage = parseFloat(vehicle.estimatedYearlyMileage.toString());
+        if (estimatedYearlyMileage > 0) {
+          // Use estimated yearly mileage as total
+          return (businessMileage / estimatedYearlyMileage) * 100;
+        }
+      }
       return 100; // Default to 100% if no total mileage available
     }
 
