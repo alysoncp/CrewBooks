@@ -19,6 +19,7 @@ import {
   Package,
   Car,
   HelpCircle,
+  Info,
 } from "lucide-react";
 import {
   Sidebar,
@@ -348,6 +349,18 @@ export function AppSidebar() {
         <SidebarGroup>
           <SidebarGroupContent>
             <SidebarMenu>
+              <SidebarMenuItem>
+                <SidebarMenuButton
+                  asChild
+                  isActive={location === "/about"}
+                  data-testid="nav-about"
+                >
+                  <Link href="/about">
+                    <Info className="h-4 w-4" />
+                    <span>About</span>
+                  </Link>
+                </SidebarMenuButton>
+              </SidebarMenuItem>
               <SidebarMenuItem>
                 <SidebarMenuButton
                   asChild
