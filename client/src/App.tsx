@@ -29,6 +29,7 @@ import VehicleMileagePage from "@/pages/vehicle-mileage";
 import VehiclesPage from "@/pages/vehicles";
 import AssetsPage from "@/pages/assets";
 import LeasesPage from "@/pages/leases";
+import HelpPage from "@/pages/help";
 
 function AuthenticatedRouter() {
   return (
@@ -50,6 +51,7 @@ function AuthenticatedRouter() {
       <Route path="/profile" component={ProfilePage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/paystubs" component={PaystubsPage} />
+      <Route path="/help" component={HelpPage} />
       <Route component={NotFound} />
     </Switch>
   );
