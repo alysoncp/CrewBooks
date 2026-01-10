@@ -355,7 +355,7 @@ export default function Dashboard() {
         <p className="text-muted-foreground">Your financial overview for {taxYear}</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-6">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
         <StatCard
           title="Total Income"
           value={formatCurrency(totalIncome)}
@@ -366,13 +366,13 @@ export default function Dashboard() {
           testId="stat-total-income"
         />
         <StatCard
-          title="Business Expenses"
-          value={formatCurrency(totalBusinessExpenses)}
+          title="Total Expenses"
+          value={formatCurrency(totalExpenses)}
           subtitle="Year to date"
           icon={Receipt}
           trend="neutral"
           isLoading={isLoading}
-          testId="stat-business-expenses"
+          testId="stat-total-expenses"
         />
         <StatCard
           title="Deductible Expenses"
@@ -384,47 +384,14 @@ export default function Dashboard() {
           testId="stat-deductible-expenses"
         />
         <StatCard
-          title="Personal Expenses"
-          value={formatCurrency(totalPersonalExpenses)}
-          subtitle="Year to date"
-          icon={Receipt}
-          trend="neutral"
-          isLoading={isLoading}
-          testId="stat-personal-expenses"
-        />
-        <StatCard
-          title="Net Income"
+          title="Net Cash Flow"
           value={formatCurrency(netIncome)}
-          subtitle="After deductions"
+          subtitle="Income minus expenses"
           icon={TrendingUp}
           trend={netIncome > 0 ? "up" : "down"}
           isLoading={isLoading}
           testId="stat-net-income"
         />
-        <Card className="lg:col-span-1">
-          <CardHeader className="flex flex-row items-center justify-between gap-4 pb-2">
-            <CardTitle className="text-sm font-medium text-muted-foreground">{taxLabel}</CardTitle>
-            <div className="flex h-9 w-9 items-center justify-center rounded-lg bg-muted">
-              <Calculator className="h-4 w-4 text-muted-foreground" />
-            </div>
-          </CardHeader>
-          <CardContent>
-            {isLoading ? (
-              <Skeleton className="h-8 w-32" />
-            ) : (
-              <>
-                <div className="flex items-baseline gap-2">
-                  <span className={`font-mono text-2xl font-semibold ${taxValueColor}`} data-testid="stat-tax-owed">
-                    {formatCurrency(Math.abs(totalTaxOwed))}
-                  </span>
-                </div>
-                <p className="mt-1 text-sm text-muted-foreground">
-                  {`${formatPercent(effectiveRate)} effective rate`}
-                </p>
-              </>
-            )}
-          </CardContent>
-        </Card>
       </div>
 
       <div className="grid gap-6 lg:grid-cols-3">

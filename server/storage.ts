@@ -546,8 +546,12 @@ export class DatabaseStorage implements IStorage {
     const totalExpensesWithCCAAndLease = totalExpenses + ccaDeduction + leaseDeduction;
     const netIncome = Math.max(0, grossIncome - totalExpensesWithCCAAndLease);
 
-    const federalTax = this.calculateFederalTax(netIncome);
-    const provincialTax = this.calculateProvincialTax(netIncome, user?.province || "BC");
+    // Apply basic personal amount deduction (~$15,000) before calculating tax
+    const basicPersonalAmount = 15000;
+    const taxableIncome = Math.max(0, netIncome - basicPersonalAmount);
+
+    const federalTax = this.calculateFederalTax(taxableIncome);
+    const provincialTax = this.calculateProvincialTax(taxableIncome, user?.province || "BC");
     const cppContribution = this.calculateCPP(netIncome, currentTaxYear);
     const totalIncomeTax = federalTax + provincialTax;
     const totalOwed = totalIncomeTax + cppContribution;
@@ -593,9 +597,8 @@ export class DatabaseStorage implements IStorage {
       prevLimit = bracket.limit;
     }
 
-    const basicPersonalAmount = 15705;
-    const basicCredit = basicPersonalAmount * 0.15;
-    return Math.max(0, tax - basicCredit);
+    // Basic personal amount is now applied as a deduction before this function is called
+    return Math.max(0, tax);
   }
 
   private calculateProvincialTax(income: number, province: string): number {
@@ -720,12 +723,8 @@ export class DatabaseStorage implements IStorage {
       prevLimit = bracket.limit;
     }
 
-    // Basic personal amount credit - using Ontario's as default for consistency
-    // Note: Each province has its own basic personal amount, but for simplicity
-    // we use a standard approach. This can be refined later if needed.
-    const basicPersonalAmount = 11865;
-    const basicCredit = basicPersonalAmount * (brackets[0]?.rate || 0.0505);
-    return Math.max(0, tax - basicCredit);
+    // Basic personal amount is now applied as a deduction before this function is called
+    return Math.max(0, tax);
   }
 
   /**
@@ -763,6 +762,7 @@ export class DatabaseStorage implements IStorage {
     const maxCPPContribution = maxContributoryEarnings * selfEmployedRate;
 
     const pensionableEarnings = Math.min(income, maxPensionableEarnings);
+    // CPP has its own basic personal exemption (currently $3,500) - apply it here
     const contributionBase = Math.max(0, pensionableEarnings - basicExemption);
     const calculatedCPP = contributionBase * selfEmployedRate;
     
