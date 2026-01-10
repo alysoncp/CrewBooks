@@ -1374,7 +1374,10 @@ export async function registerRoutes(
         });
       }
 
-      const summary = await storage.calculateGstHst(userId);
+      // Get tax year from query parameter, default to current year if not provided
+      const taxYear = req.query.taxYear || new Date().getFullYear().toString();
+
+      const summary = await storage.calculateGstHst(userId, taxYear);
       res.json(summary);
     } catch (error) {
       res.status(500).json({ error: "Failed to calculate GST/HST" });

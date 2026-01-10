@@ -8,14 +8,25 @@ import { useAuth } from "@/hooks/useAuth";
 import { formatCurrency } from "@/lib/format";
 import { Link } from "wouter";
 import { Button } from "@/components/ui/button";
+import { useTaxYear } from "@/components/tax-year-provider";
 import type { GstHstSummary } from "@shared/schema";
 
 export default function GstHstPage() {
   const { user, isLoading: authLoading } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
+  const { taxYear } = useTaxYear();
 
   const { data: gstHstData, isLoading, error } = useQuery<GstHstSummary>({
-    queryKey: ["/api/gst-hst"],
+    queryKey: ["/api/gst-hst", taxYear.toString()],
+    queryFn: async ({ queryKey }) => {
+      const response = await fetch(`/api/gst-hst?taxYear=${queryKey[1]}`, {
+        credentials: "include",
+      });
+      if (!response.ok) {
+        throw new Error("Failed to fetch GST/HST data");
+      }
+      return response.json();
+    },
     enabled: hasGstNumber,
   });
 

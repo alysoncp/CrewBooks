@@ -85,7 +85,7 @@ export interface IStorage {
     scenarios: DividendSalaryScenario[];
     optimalScenario: DividendSalaryScenario;
   }>;
-  calculateGstHst(userId: string): Promise<GstHstSummary>;
+  calculateGstHst(userId: string, taxYear?: string): Promise<GstHstSummary>;
 
   getQuestionnaires(userId: string): Promise<TaxQuestionnaire[]>;
   getQuestionnaireById(id: string): Promise<TaxQuestionnaire | undefined>;
@@ -854,17 +854,71 @@ export class DatabaseStorage implements IStorage {
     return Math.max(0, taxOnGrossedUp - credit);
   }
 
-  async calculateGstHst(userId: string): Promise<GstHstSummary> {
+  async calculateGstHst(userId: string, taxYear?: string): Promise<GstHstSummary> {
+    const currentYear = taxYear || new Date().getFullYear().toString();
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:858',message:'calculateGstHst entry',data:{currentYear,taxYear,userId},timestamp:Date.now(),sessionId:'debug-session',runId:'post-fix',hypothesisId:'E'})}).catch(()=>{});
+    // #endregion
+
     const incomeRecords = await this.getIncome(userId);
     const expenseRecords = await this.getExpenses(userId);
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:861',message:'All income records fetched',data:{totalIncomeRecords:incomeRecords.length,incomeRecords:incomeRecords.map(i=>({id:i.id,date:i.date,dateType:typeof i.date,dateStr:String(i.date),gstHstCollected:i.gstHstCollected}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
 
-    const gstHstCollected = incomeRecords.reduce(
-      (sum, i) => sum + (i.gstHstCollected ? parseFloat(i.gstHstCollected) : 0),
+    // Filter income records by tax year - extract year from date string (YYYY-MM-DD format)
+    const yearIncomeRecords = incomeRecords.filter((i) => {
+      if (!i.date) return false;
+      // Extract year from date string (format: YYYY-MM-DD)
+      const dateStr = i.date.toString();
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:867',message:'Date filtering check',data:{incomeId:i.id,dateStr,dateType:typeof i.date,rawDate:i.date},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+      // #endregion
+      const yearMatch = dateStr.match(/^(\d{4})-/);
+      if (!yearMatch) {
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:870',message:'Year match failed',data:{incomeId:i.id,dateStr},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'A'})}).catch(()=>{});
+        // #endregion
+        return false;
+      }
+      const incomeYear = yearMatch[1];
+      const matches = incomeYear === currentYear;
+      // #region agent log
+      fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:873',message:'Year comparison result',data:{incomeId:i.id,incomeYear,currentYear,matches,gstHstCollected:i.gstHstCollected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+      // #endregion
+      return matches;
+    });
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:875',message:'Filtered income records',data:{filteredCount:yearIncomeRecords.length,filteredRecords:yearIncomeRecords.map(i=>({id:i.id,date:i.date,gstHstCollected:i.gstHstCollected}))},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'B'})}).catch(()=>{});
+    // #endregion
+
+    // Filter expense records by tax year - extract year from date string (YYYY-MM-DD format)
+    const yearExpenseRecords = expenseRecords.filter((e) => {
+      if (!e.date) return false;
+      // Extract year from date string (format: YYYY-MM-DD)
+      const dateStr = e.date.toString();
+      const yearMatch = dateStr.match(/^(\d{4})-/);
+      if (!yearMatch) return false;
+      const expenseYear = yearMatch[1];
+      return expenseYear === currentYear;
+    });
+
+    const gstHstCollected = yearIncomeRecords.reduce(
+      (sum, i) => {
+        const gstValue = i.gstHstCollected ? parseFloat(i.gstHstCollected) : 0;
+        // #region agent log
+        fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:888',message:'GST collected accumulation',data:{incomeId:i.id,gstHstCollected:i.gstHstCollected,gstValue,currentSum:sum,newSum:sum+gstValue},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+        // #endregion
+        return sum + gstValue;
+      },
       0
     );
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:894',message:'Total GST collected from income',data:{gstHstCollected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
 
     // Use gstAmount for Input Tax Credits (GST amount calculated from expense breakdown)
-    let inputTaxCredits = expenseRecords.reduce(
+    let inputTaxCredits = yearExpenseRecords.reduce(
       (sum, e) => {
         const gstAmount = e.gstAmount ? parseFloat(e.gstAmount.toString()) : 0;
         return sum + gstAmount;
@@ -874,7 +928,6 @@ export class DatabaseStorage implements IStorage {
 
     // Add GST/HST from asset purchases (Input Tax Credits)
     const userAssets = await this.getAssets(userId);
-    const currentYear = new Date().getFullYear().toString();
     for (const asset of userAssets) {
       const purchaseYear = new Date(asset.purchaseDate).getFullYear().toString();
       // Only include GST from assets purchased in the current tax year
@@ -903,16 +956,26 @@ export class DatabaseStorage implements IStorage {
       if (asset.disposalDate) {
         const disposalYear = new Date(asset.disposalDate).getFullYear().toString();
         if (disposalYear === currentYear && asset.disposalGst) {
-          assetDisposalGst += parseFloat(asset.disposalGst.toString());
+          const disposalGstValue = parseFloat(asset.disposalGst.toString());
+          assetDisposalGst += disposalGstValue;
+          // #region agent log
+          fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:930',message:'Asset disposal GST added',data:{assetId:asset.id,disposalDate:asset.disposalDate,disposalYear,currentYear,disposalGst:asset.disposalGst,disposalGstValue,totalAssetDisposalGst:assetDisposalGst},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+          // #endregion
         }
       }
     }
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:936',message:'Total asset disposal GST',data:{assetDisposalGst,totalAssets:userAssets.length},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'C'})}).catch(()=>{});
+    // #endregion
 
     const finalGstHstCollected = gstHstCollected + assetDisposalGst;
+    // #region agent log
+    fetch('http://127.0.0.1:7242/ingest/b6b99a64-dfde-48f8-95da-efaab67ee43b',{method:'POST',headers:{'Content-Type':'application/json'},body:JSON.stringify({location:'storage.ts:940',message:'Final GST collected calculation',data:{gstHstCollected,assetDisposalGst,finalGstHstCollected},timestamp:Date.now(),sessionId:'debug-session',runId:'run1',hypothesisId:'D'})}).catch(()=>{});
+    // #endregion
 
     const transactionsWithGstHst = 
-      incomeRecords.filter((i) => i.gstHstCollected && parseFloat(i.gstHstCollected) > 0).length +
-      expenseRecords.filter((e) => {
+      yearIncomeRecords.filter((i) => i.gstHstCollected && parseFloat(i.gstHstCollected) > 0).length +
+      yearExpenseRecords.filter((e) => {
         const gstAmount = e.gstAmount ? parseFloat(e.gstAmount.toString()) : 0;
         return gstAmount > 0;
       }).length +
