@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Trash2, FileText, Search, DollarSign, Receipt, TrendingUp, Pencil } from "lucide-react";
+import { Plus, Trash2, FileText, Search, DollarSign, Receipt, TrendingUp, Pencil, Upload, Image, X, Scan, Camera } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -52,6 +52,8 @@ import {
 } from "@/components/ui/alert-dialog";
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
+import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getIncomeTypeLabel, getIncomeCategoryLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
 import { queryClient, apiRequest } from "@/lib/queryClient";
@@ -115,9 +117,11 @@ const INCOME_CATEGORY_OPTIONS = [
 ];
 
 export default function IncomePage() {
+  const [isInitialDialogOpen, setIsInitialDialogOpen] = useState(false);
   const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isPaystubUploadDialogOpen, setIsPaystubUploadDialogOpen] = useState(false);
   const [editingIncome, setEditingIncome] = useState<Income | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
   const [incomeCategoryFilter, setIncomeCategoryFilter] = useState<string>("all");
@@ -125,6 +129,9 @@ export default function IncomePage() {
   const [customAccountingOffice, setCustomAccountingOffice] = useState("");
   const [paystubIdForIncome, setPaystubIdForIncome] = useState<string | null>(null);
   const [paystubImageUrl, setPaystubImageUrl] = useState<string | null>(null);
+  const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
+  const [paystubNotes, setPaystubNotes] = useState("");
+  const [scanWithOCR, setScanWithOCR] = useState(false);
   const { taxYear } = useTaxYear();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -277,6 +284,99 @@ export default function IncomePage() {
     },
   });
 
+  const paystubUploadMutation = useMutation({
+    mutationFn: async (files: File[]) => {
+      const formData = new FormData();
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+      formData.append("notes", paystubNotes);
+      formData.append("scanWithOCR", scanWithOCR.toString());
+      
+      const response = await fetch("/api/paystubs/upload", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error("Upload failed");
+      }
+      
+      return response.json();
+    },
+    onSuccess: (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
+      
+      // If OCR was enabled and we got data, redirect to income creation
+      if (scanWithOCR && data && Array.isArray(data) && data.length > 0) {
+        const firstPaystub = data[0];
+        
+        if (firstPaystub.id) {
+          setIsPaystubUploadDialogOpen(false);
+          setPreviewFiles([]);
+          setPaystubNotes("");
+          setScanWithOCR(false);
+          
+          // Set up for income creation from paystub
+          setPaystubIdForIncome(firstPaystub.id);
+          if (firstPaystub.imageUrl) {
+            setPaystubImageUrl(firstPaystub.imageUrl);
+          }
+          
+          // If we have income data from OCR, populate the form
+          if (firstPaystub.incomeData && firstPaystub.ocrStatus === "completed") {
+            const incomeData = firstPaystub.incomeData;
+            form.setValue("incomeCategory", incomeData.incomeCategory || INCOME_CATEGORIES.FILM_TV);
+            form.setValue("date", incomeData.date || getTodayLocalDateString());
+            form.setValue("amount", incomeData.amount?.toString() || "");
+            form.setValue("grossPay", incomeData.grossPay?.toString() || "");
+            form.setValue("incomeType", incomeData.incomeType || "");
+            form.setValue("productionName", incomeData.productionName || "");
+            form.setValue("accountingOffice", incomeData.accountingOffice || "");
+            setSelectedCategory(incomeData.incomeCategory || INCOME_CATEGORIES.FILM_TV);
+            setIsCategoryDialogOpen(false);
+            setIsDialogOpen(true);
+            
+            toast({
+              title: "Paystub scanned",
+              description: "Review and confirm the extracted income data.",
+            });
+          } else {
+            // No OCR data, just open category selection
+            setIsCategoryDialogOpen(true);
+            toast({
+              title: "Paystub uploaded",
+              description: "Create an income entry for this paystub.",
+            });
+          }
+          return;
+        }
+      }
+      
+      // Fallback: just close dialog
+      setIsPaystubUploadDialogOpen(false);
+      setPreviewFiles([]);
+      setPaystubNotes("");
+      setScanWithOCR(false);
+      toast({
+        title: "Paystubs uploaded",
+        description: "Your paystubs have been saved successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to upload paystubs. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handlePaystubUpload = () => {
+    if (previewFiles.length === 0) return;
+    paystubUploadMutation.mutate(previewFiles.map((p) => p.file));
+  };
+
   const [deletingIncomeId, setDeletingIncomeId] = useState<string | null>(null);
   const [linkedPaystubs, setLinkedPaystubs] = useState<any[]>([]);
   const [deleteLinkedPaystubs, setDeleteLinkedPaystubs] = useState(false);
@@ -393,7 +493,50 @@ export default function IncomePage() {
     form.reset();
     setCustomAccountingOffice("");
     setSelectedCategory(null);
-    setIsCategoryDialogOpen(true);
+    setIsInitialDialogOpen(true);
+  };
+
+  const handleInitialDialogSelect = (mode: 'upload' | 'manual' | 'cancel') => {
+    setIsInitialDialogOpen(false);
+    if (mode === 'upload') {
+      setIsPaystubUploadDialogOpen(true);
+    } else if (mode === 'manual') {
+      setIsCategoryDialogOpen(true);
+    }
+  };
+
+  const handlePaystubFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newPreviews = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setPreviewFiles((prev) => [...prev, ...newPreviews]);
+  };
+
+  const handleRemovePreview = (index: number) => {
+    setPreviewFiles((prev) => {
+      const newPreviews = [...prev];
+      URL.revokeObjectURL(newPreviews[index].preview);
+      newPreviews.splice(index, 1);
+      return newPreviews;
+    });
+  };
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    const newPreviews = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setPreviewFiles((prev) => [...prev, ...newPreviews]);
+  };
+
+  const handleDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
   };
 
   // Check for paystubId and category in URL params
@@ -702,6 +845,169 @@ export default function IncomePage() {
           </DialogContent>
         </Dialog>
 
+        {/* Initial Selection Dialog */}
+        <Dialog 
+          open={isInitialDialogOpen && !editingIncome} 
+          onOpenChange={(open) => {
+            setIsInitialDialogOpen(open);
+            if (!open && !editingIncome) {
+              setSelectedCategory(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Income</DialogTitle>
+              <p className="text-sm text-muted-foreground mt-2">
+                How would you like to add income?
+              </p>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Button
+                variant="outline"
+                className="w-full justify-start h-auto py-4 px-4"
+                onClick={() => handleInitialDialogSelect('upload')}
+              >
+                <div className="flex items-center gap-3">
+                  <Camera className="h-5 w-5" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Upload a paystub</span>
+                    <span className="text-xs text-muted-foreground">Choose from gallery</span>
+                  </div>
+                </div>
+              </Button>
+              <Button
+                variant="outline"
+                className="w-full justify-start h-auto py-4 px-4"
+                onClick={() => handleInitialDialogSelect('manual')}
+              >
+                <div className="flex items-center gap-3">
+                  <Pencil className="h-5 w-5" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Manual entry</span>
+                    <span className="text-xs text-muted-foreground">Enter details manually</span>
+                  </div>
+                </div>
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => handleInitialDialogSelect('cancel')}
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+
+        {/* Paystub Upload Dialog */}
+        <Dialog 
+          open={isPaystubUploadDialogOpen} 
+          onOpenChange={(open) => {
+            setIsPaystubUploadDialogOpen(open);
+            if (!open) {
+              setPreviewFiles([]);
+              setPaystubNotes("");
+              setScanWithOCR(false);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Upload Paystub</DialogTitle>
+            </DialogHeader>
+            <div className="space-y-4">
+              <div
+                className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-6 transition-colors hover:border-muted-foreground/50"
+                onDrop={handleDrop}
+                onDragOver={handleDragOver}
+                onClick={() => document.getElementById("paystub-file-input-income")?.click()}
+                data-testid="dropzone-paystub-income"
+              >
+                <Image className="mb-4 h-10 w-10 text-muted-foreground" />
+                <p className="text-sm text-muted-foreground">
+                  Drag and drop images here, or click to select
+                </p>
+                <p className="mt-1 text-xs text-muted-foreground">
+                  Supports: JPG, PNG, HEIC
+                </p>
+                <Input
+                  id="paystub-file-input-income"
+                  type="file"
+                  accept="image/*"
+                  multiple
+                  className="hidden"
+                  onChange={handlePaystubFileChange}
+                  data-testid="input-file-paystub-income"
+                />
+              </div>
+
+              {previewFiles.length > 0 && (
+                <div className="grid grid-cols-3 gap-4">
+                  {previewFiles.map((item, index) => (
+                    <div key={index} className="group relative aspect-square">
+                      <img
+                        src={item.preview}
+                        alt={`Preview ${index + 1}`}
+                        className="h-full w-full rounded-lg object-cover"
+                      />
+                      <Button
+                        variant="destructive"
+                        size="icon"
+                        className="absolute right-1 top-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation();
+                          handleRemovePreview(index);
+                        }}
+                        data-testid={`button-remove-preview-income-${index}`}
+                      >
+                        <X className="h-3 w-3" />
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              <div>
+                <label className="mb-2 block text-sm font-medium">Notes (optional)</label>
+                <Textarea
+                  placeholder="Add notes about this paystub..."
+                  value={paystubNotes}
+                  onChange={(e) => setPaystubNotes(e.target.value)}
+                  data-testid="input-paystub-notes-income"
+                />
+              </div>
+
+              <div className="flex items-center space-x-2 rounded-lg border p-4">
+                <Switch
+                  id="scan-ocr-paystub-income"
+                  checked={scanWithOCR}
+                  onCheckedChange={setScanWithOCR}
+                  data-testid="switch-scan-ocr-paystub-income"
+                />
+                <Label htmlFor="scan-ocr-paystub-income" className="cursor-pointer">
+                  <div className="flex items-center gap-2">
+                    <Scan className="h-4 w-4" />
+                    <span>Scan with OCR</span>
+                  </div>
+                  <p className="text-xs text-muted-foreground mt-1">
+                    Automatically extract paystub details using Veryfi OCR
+                  </p>
+                </Label>
+              </div>
+            </div>
+            <DialogFooter>
+              <Button
+                onClick={handlePaystubUpload}
+                disabled={previewFiles.length === 0 || paystubUploadMutation.isPending}
+                data-testid="button-submit-paystub-income"
+              >
+                {paystubUploadMutation.isPending ? "Uploading..." : `Upload ${previewFiles.length} Paystub${previewFiles.length !== 1 ? "s" : ""}`}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+
         {/* Add Income Button - separate from dialogs */}
         <Button 
           data-testid="button-add-income"
@@ -750,40 +1056,56 @@ export default function IncomePage() {
             <div className="overflow-y-auto flex-1 pr-2">
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
-                  {/* Hidden category field */}
+                  {/* Income Type (Category) - Always visible at top */}
                   <FormField
                     control={form.control}
                     name="incomeCategory"
-                    render={({ field }) => <input type="hidden" {...field} />}
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Income Type</FormLabel>
+                        <Select 
+                          onValueChange={(value) => {
+                            field.onChange(value);
+                            setSelectedCategory(value);
+                          }} 
+                          value={field.value || selectedCategory || ""}
+                          disabled={!!editingIncome}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-income-category">
+                              <SelectValue placeholder="Select income type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {INCOME_CATEGORY_OPTIONS.map((option) => (
+                              <SelectItem key={option.value} value={option.value}>
+                                {option.label}
+                              </SelectItem>
+                            ))}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
                   />
-                  {(editingIncome || selectedCategory) && (
-                    <>
-                      {/* Category display for editing */}
-                      {editingIncome && (
-                        <div className="mb-2">
-                          <p className="text-sm text-muted-foreground">
-                            Category: <span className="font-medium">{getIncomeCategoryLabel(form.watch("incomeCategory") || INCOME_CATEGORIES.FILM_TV)}</span>
-                          </p>
-                        </div>
-                      )}
-                      
-                      {/* Common Fields */}
-                      <FormField
-                        control={form.control}
-                        name="date"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Date</FormLabel>
-                            <FormControl>
-                              <Input {...field} type="date" data-testid="input-income-date" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="grossPay"
+                  
+                  {/* Common Fields - Always visible once category is selected */}
+                  <FormField
+                    control={form.control}
+                    name="date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="date" data-testid="input-income-date" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="grossPay"
                     render={({ field }) => (
                       <FormItem>
                         <FormLabel>Gross Pay (Optional)</FormLabel>
@@ -805,40 +1127,40 @@ export default function IncomePage() {
                       </FormItem>
                     )}
                   />
-                      <FormField
-                        control={form.control}
-                        name="amount"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT ? "Net Pay" : "Net Income"}</FormLabel>
-                            <FormControl>
-                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                <Input
-                                  {...field}
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  placeholder="0.00"
-                                  className="pl-7 font-mono"
-                                  data-testid="input-income-amount"
-                                />
-                              </div>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
+                  <FormField
+                    control={form.control}
+                    name="amount"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>{form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT ? "Net Pay" : "Net Income"}</FormLabel>
+                        <FormControl>
+                          <div className="relative">
+                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                            <Input
+                              {...field}
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              placeholder="0.00"
+                              className="pl-7 font-mono"
+                              data-testid="input-income-amount"
+                            />
+                          </div>
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
 
                       {/* Film/TV Income Fields */}
-                      {(form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV || !form.watch("incomeCategory")) && (
+                      {form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV && (
                         <>
                           <FormField
                             control={form.control}
                             name="incomeType"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Income Type</FormLabel>
+                                <FormLabel>Show Type</FormLabel>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                   <FormControl>
                                     <SelectTrigger data-testid="select-income-type">
@@ -1109,7 +1431,7 @@ export default function IncomePage() {
                       )}
 
                       {/* Film/TV Specific Deductions */}
-                      {(form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV || !form.watch("incomeCategory")) && (
+                      {form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV && (
                         <>
                           <FormField
                             control={form.control}
@@ -1257,8 +1579,6 @@ export default function IncomePage() {
                           />
                         </>
                       )}
-                    </>
-                  )}
                 </form>
               </Form>
             </div>
