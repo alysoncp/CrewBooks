@@ -58,11 +58,11 @@ export default function GstHstPage() {
             </div>
             <h3 className="text-lg font-medium">GST/HST Registration Required</h3>
             <p className="mt-2 max-w-sm text-muted-foreground">
-              To access GST/HST tracking, add your GST/HST registration number in your profile settings.
+              To access GST/HST tracking, enable GST/HST registration in your profile settings.
             </p>
             <Link href="/profile">
               <Button className="mt-6" data-testid="button-add-gst-number">
-                Add GST Number
+                Enable GST/HST Registration
               </Button>
             </Link>
           </CardContent>

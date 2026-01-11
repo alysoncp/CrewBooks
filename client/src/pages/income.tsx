@@ -136,7 +136,7 @@ export default function IncomePage() {
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
 
-  // Check if user's UBCP status allows Retirement/Insurance fields
+  // Check if user's UBCP status allows Retirement/Insurance/Pension fields
   const showRetirementAndInsurance = useMemo(() => {
     if (!user?.unionAffiliations) return true; // Show if no union affiliations
     
@@ -1521,30 +1521,32 @@ export default function IncomePage() {
                               </FormItem>
                             )}
                           />
-                          <FormField
-                            control={form.control}
-                            name="pension"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Pension (Optional)</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-income-pension"
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                          {showRetirementAndInsurance && (
+                            <FormField
+                              control={form.control}
+                              name="pension"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Pension (Optional)</FormLabel>
+                                  <FormControl>
+                                    <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                      <Input
+                                        {...field}
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        className="pl-7 font-mono"
+                                        data-testid="input-income-pension"
+                                      />
+                                    </div>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          )}
                           {showRetirementAndInsurance && (
                             <FormField
                               control={form.control}
