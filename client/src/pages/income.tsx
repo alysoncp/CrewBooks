@@ -1683,9 +1683,6 @@ export default function IncomePage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Income History</CardTitle>
-              <CardDescription>
-                Total for {taxYear}: <span className="font-mono font-semibold">{formatCurrency(totalNetIncome)}</span>
-              </CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <div className="relative w-full sm:w-64">
