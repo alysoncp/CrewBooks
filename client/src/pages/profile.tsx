@@ -55,7 +55,6 @@ const profileFormSchema = z.object({
   agentName: z.string().optional().or(z.literal("")),
   agentCommission: z.string().optional().or(z.literal("")),
   hasGstNumber: z.boolean(),
-  gstNumber: z.string().optional().or(z.literal("")),
   hasRegularEmployment: z.boolean(),
   hasHomeOffice: z.boolean(),
   homeOfficePercentage: z.string().optional().or(z.literal("")),
@@ -101,7 +100,6 @@ export default function ProfilePage() {
       agentName: "",
       agentCommission: "",
       hasGstNumber: false,
-      gstNumber: "",
       hasRegularEmployment: false,
       hasHomeOffice: false,
       homeOfficePercentage: "",
@@ -117,7 +115,6 @@ export default function ProfilePage() {
           agentName: user.agentName || "",
           agentCommission: user.agentCommission || "",
           hasGstNumber: user.hasGstNumber || false,
-          gstNumber: user.gstNumber || "",
           hasRegularEmployment: user.hasRegularEmployment || false,
           hasHomeOffice: user.hasHomeOffice || false,
           homeOfficePercentage: user.homeOfficePercentage ? user.homeOfficePercentage.toString() : "",
@@ -613,27 +610,6 @@ export default function ProfilePage() {
                   </FormItem>
                 )}
               />
-
-              {watchedHasGstNumber && (
-                <FormField
-                  control={form.control}
-                  name="gstNumber"
-                  render={({ field }) => (
-                    <FormItem>
-                      <FormLabel>GST/HST Number</FormLabel>
-                      <FormControl>
-                        <Input
-                          {...field}
-                          placeholder="123456789RT0001"
-                          data-testid="input-gst-number"
-                        />
-                      </FormControl>
-                      <FormDescription>Your GST/HST registration number (enables GST/HST tracking)</FormDescription>
-                      <FormMessage />
-                    </FormItem>
-                  )}
-                />
-              )}
             </CardContent>
           </Card>
         </form>

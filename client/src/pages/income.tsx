@@ -136,6 +136,20 @@ export default function IncomePage() {
   const { user } = useAuth();
   const hasGstNumber = user?.hasGstNumber === true;
 
+  // Check if user's UBCP status allows Retirement/Insurance/Pension fields
+  const showRetirementAndInsurance = useMemo(() => {
+    if (!user?.unionAffiliations) return true; // Show if no union affiliations
+    
+    const ubcpAffiliation = user.unionAffiliations.find(
+      (affiliation: { unionId: string; level: string }) => affiliation.unionId === "ubcp"
+    );
+    
+    if (!ubcpAffiliation) return true; // Show if no UBCP affiliation
+    
+    // Only show for "full" members, hide for "apprentice" and "background"
+    return ubcpAffiliation.level === "full";
+  }, [user?.unionAffiliations]);
+
   const { data: incomeList, isLoading } = useQuery<Income[]>({
     queryKey: ["/api/income"],
   });
@@ -1433,30 +1447,32 @@ export default function IncomePage() {
                               </FormItem>
                             )}
                           />
-                          <FormField
-                            control={form.control}
-                            name="retirement"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Retirement (Optional)</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-income-retirement"
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                          {showRetirementAndInsurance && (
+                            <FormField
+                              control={form.control}
+                              name="retirement"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Retirement (Optional)</FormLabel>
+                                  <FormControl>
+                                    <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                      <Input
+                                        {...field}
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        className="pl-7 font-mono"
+                                        data-testid="input-income-retirement"
+                                      />
+                                    </div>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          )}
                           <FormField
                             control={form.control}
                             name="labour"
@@ -1505,54 +1521,58 @@ export default function IncomePage() {
                               </FormItem>
                             )}
                           />
-                          <FormField
-                            control={form.control}
-                            name="pension"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Pension (Optional)</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-income-pension"
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name="insurance"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Insurance (Optional)</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-income-insurance"
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
+                          {showRetirementAndInsurance && (
+                            <FormField
+                              control={form.control}
+                              name="pension"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Pension (Optional)</FormLabel>
+                                  <FormControl>
+                                    <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                      <Input
+                                        {...field}
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        className="pl-7 font-mono"
+                                        data-testid="input-income-pension"
+                                      />
+                                    </div>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          )}
+                          {showRetirementAndInsurance && (
+                            <FormField
+                              control={form.control}
+                              name="insurance"
+                              render={({ field }) => (
+                                <FormItem>
+                                  <FormLabel>Insurance (Optional)</FormLabel>
+                                  <FormControl>
+                                    <div className="relative">
+                                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                      <Input
+                                        {...field}
+                                        type="number"
+                                        step="0.01"
+                                        min="0"
+                                        placeholder="0.00"
+                                        className="pl-7 font-mono"
+                                        data-testid="input-income-insurance"
+                                      />
+                                    </div>
+                                  </FormControl>
+                                  <FormMessage />
+                                </FormItem>
+                              )}
+                            />
+                          )}
                         </>
                       )}
                     </>
