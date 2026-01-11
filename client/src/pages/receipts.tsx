@@ -1,6 +1,9 @@
-import { useState, useCallback } from "react";
+import { useState, useCallback, useMemo, useEffect } from "react";
 import { useQuery, useMutation } from "@tanstack/react-query";
-import { Upload, Trash2, Image, X, ZoomIn, FileImage, Scan, Lock, Sparkles, Link2 } from "lucide-react";
+import { useForm } from "react-hook-form";
+import { zodResolver } from "@hookform/resolvers/zod";
+import { z } from "zod";
+import { Upload, Trash2, Image, X, ZoomIn, FileImage, Scan, Lock, Sparkles, Link2, Camera, Pencil, Plus } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Skeleton } from "@/components/ui/skeleton";
@@ -30,10 +33,9 @@ import {
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { formatDate, formatCurrency, getCategoryLabel } from "@/lib/format";
-import type { Receipt, Expense } from "@shared/schema";
+import type { Receipt, Expense, User } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
-import { Link, useLocation } from "wouter";
+import { Link } from "wouter";
 import {
   Select,
   SelectContent,
@@ -41,6 +43,18 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import {
+  Form,
+  FormControl,
+  FormField,
+  FormItem,
+  FormLabel,
+  FormMessage,
+  FormDescription,
+} from "@/components/ui/form";
+import { useTaxYear } from "@/components/tax-year-provider";
+import { getTodayLocalDateString, getCategoryLabel, getExpenseTypeLabel, getPersonalExpenseCategoryLabel, formatCurrency, formatDate, getYearFromDateString } from "@/lib/format";
+import { SELF_EMPLOYMENT_EXPENSE_CATEGORIES, PERSONAL_EXPENSE_CATEGORIES, HOME_OFFICE_LIVING_CATEGORIES, VEHICLE_CATEGORIES, type Vehicle } from "@shared/schema";
 
 function LockedContent() {
   return (
@@ -62,19 +76,81 @@ function LockedContent() {
   );
 }
 
+const expenseFormSchema = z.object({
+  baseCost: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true;
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, { message: "Base cost must be a valid number" }),
+  total: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true;
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, { message: "Total must be a valid number" }),
+  gstAmount: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true;
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, { message: "GST amount must be a valid number" }),
+  pstAmount: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true;
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, { message: "PST amount must be a valid number" }),
+  gstIncluded: z.boolean().default(false),
+  pstIncluded: z.boolean().default(false),
+  date: z.string().min(1, "Date is required"),
+  title: z.string().optional(),
+  category: z.string().min(1, "Category is required"),
+  subcategory: z.string().optional(),
+  vehicleId: z.string().optional(),
+  vendor: z.string().optional(),
+  description: z.string().optional(),
+  isTaxDeductible: z.boolean().default(true),
+  expenseType: z.enum(["home_office_living", "vehicle", "self_employment", "personal", "mixed"]).default("self_employment"),
+  businessUsePercentage: z.string().optional().refine((val) => {
+    if (!val || val.trim() === "") return true;
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0 && num <= 100;
+  }, { message: "Business use percentage must be between 0 and 100" }),
+}).refine((data) => {
+  if (data.expenseType === "vehicle" && !data.vehicleId) return false;
+  return true;
+}, { message: "Please select a vehicle", path: ["vehicleId"] })
+.refine((data) => {
+  const baseCost = data.baseCost ? parseFloat(data.baseCost) : null;
+  const total = data.total ? parseFloat(data.total) : null;
+  return (baseCost !== null && !isNaN(baseCost) && baseCost > 0) || (total !== null && !isNaN(total) && total > 0);
+}, { message: "Please enter either base cost or total amount", path: ["baseCost"] })
+.refine((data) => {
+  if (data.expenseType === "mixed") {
+    const percentage = data.businessUsePercentage ? parseFloat(data.businessUsePercentage) : null;
+    return percentage !== null && !isNaN(percentage) && percentage >= 0 && percentage <= 100;
+  }
+  return true;
+}, { message: "Business use percentage is required for mixed expenses (0-100%)", path: ["businessUsePercentage"] });
+
+type ExpenseFormData = z.input<typeof expenseFormSchema>;
+
 export default function ReceiptsPage() {
-  const [isDialogOpen, setIsDialogOpen] = useState(false);
+  const [isInitialDialogOpen, setIsInitialDialogOpen] = useState(false);
+  const [isReceiptUploadDialogOpen, setIsReceiptUploadDialogOpen] = useState(false);
+  const [isExpenseDialogOpen, setIsExpenseDialogOpen] = useState(false);
   const [selectedImage, setSelectedImage] = useState<string | null>(null);
   const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
   const [notes, setNotes] = useState("");
   const [scanWithOCR, setScanWithOCR] = useState(false);
   const [linkingReceiptId, setLinkingReceiptId] = useState<string | null>(null);
+  const [receiptIdForExpense, setReceiptIdForExpense] = useState<string | null>(null);
+  const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
+  const [lastEditedField, setLastEditedField] = useState<"baseCost" | "total" | "gstAmount" | "pstAmount" | null>(null);
   const { toast } = useToast();
   const { user } = useAuth();
-  const [, setLocation] = useLocation();
+  const { taxYear } = useTaxYear();
+  const hasGstNumber = user?.hasGstNumber === true;
   
   const isBasicTier = user?.subscriptionTier === "basic";
-  const hasReceiptAccess = !isBasicTier; // Personal and Corporate have access
+  const hasReceiptAccess = !isBasicTier;
 
   const { data: receipts, isLoading } = useQuery<Receipt[]>({
     queryKey: ["/api/receipts"],
@@ -83,6 +159,276 @@ export default function ReceiptsPage() {
   const { data: expenses } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
   });
+
+  const { data: userProfile } = useQuery<User>({
+    queryKey: ["/api/user/profile"],
+  });
+
+  const { data: vehicles = [] } = useQuery<Vehicle[]>({
+    queryKey: ["/api/vehicles"],
+  });
+
+  const form = useForm<ExpenseFormData>({
+    resolver: zodResolver(expenseFormSchema),
+    mode: "onBlur",
+    defaultValues: {
+      baseCost: "",
+      total: "",
+      gstAmount: "",
+      pstAmount: "",
+      gstIncluded: true,
+      pstIncluded: true,
+      date: getTodayLocalDateString(),
+      title: "",
+      category: "",
+      vendor: "",
+      description: "",
+      isTaxDeductible: true,
+      expenseType: "self_employment",
+      businessUsePercentage: "",
+    },
+  });
+
+  const expenseType = form.watch("expenseType");
+
+  const customCategories = useMemo(() => {
+    if (userProfile?.enabledExpenseCategories) {
+      const allCategories = userProfile.enabledExpenseCategories as string[];
+      return allCategories.filter(cat => 
+        !SELF_EMPLOYMENT_EXPENSE_CATEGORIES.includes(cat as any) &&
+        !HOME_OFFICE_LIVING_CATEGORIES.includes(cat as any) &&
+        !VEHICLE_CATEGORIES.includes(cat as any)
+      );
+    }
+    return [];
+  }, [userProfile]);
+
+  const customPersonalCategories = useMemo(() => {
+    if (userProfile?.enabledPersonalExpenseCategories) {
+      const allCategories = userProfile.enabledPersonalExpenseCategories as string[];
+      return allCategories.filter(cat => !PERSONAL_EXPENSE_CATEGORIES.includes(cat as any));
+    }
+    return [];
+  }, [userProfile]);
+
+  const enabledCategories = useMemo(() => {
+    if (userProfile?.enabledExpenseCategories) {
+      return new Set(userProfile.enabledExpenseCategories as string[]);
+    }
+    return new Set(Array.from(SELF_EMPLOYMENT_EXPENSE_CATEGORIES));
+  }, [userProfile]);
+
+  const enabledPersonalCategories = useMemo(() => {
+    if (userProfile?.enabledPersonalExpenseCategories) {
+      return new Set(userProfile.enabledPersonalExpenseCategories as string[]);
+    }
+    return new Set(Array.from(PERSONAL_EXPENSE_CATEGORIES));
+  }, [userProfile]);
+
+  const availableCategories = useMemo(() => {
+    if (expenseType === "home_office_living") {
+      return Array.from(new Set([...HOME_OFFICE_LIVING_CATEGORIES]));
+    } else if (expenseType === "vehicle") {
+      return Array.from(new Set([...VEHICLE_CATEGORIES]));
+    } else if (expenseType === "self_employment") {
+      const filteredCustomCategories = customCategories.filter(cat => 
+        !HOME_OFFICE_LIVING_CATEGORIES.includes(cat as any) &&
+        !VEHICLE_CATEGORIES.includes(cat as any) &&
+        !PERSONAL_EXPENSE_CATEGORIES.includes(cat as any)
+      );
+      const enabledSelfEmployment = Array.from(SELF_EMPLOYMENT_EXPENSE_CATEGORIES).filter(cat => 
+        enabledCategories.has(cat)
+      );
+      return Array.from(new Set([...enabledSelfEmployment, ...filteredCustomCategories]));
+    } else if (expenseType === "personal") {
+      const enabledPersonal = Array.from(PERSONAL_EXPENSE_CATEGORIES).filter(cat => 
+        enabledPersonalCategories.has(cat)
+      );
+      return Array.from(new Set([...enabledPersonal, ...customPersonalCategories]));
+    } else if (expenseType === "mixed") {
+      const filteredCustomCategories = customCategories.filter(cat => 
+        !HOME_OFFICE_LIVING_CATEGORIES.includes(cat as any) &&
+        !VEHICLE_CATEGORIES.includes(cat as any) &&
+        !PERSONAL_EXPENSE_CATEGORIES.includes(cat as any)
+      );
+      const enabledSelfEmployment = Array.from(SELF_EMPLOYMENT_EXPENSE_CATEGORIES).filter(cat => 
+        enabledCategories.has(cat)
+      );
+      return Array.from(new Set([...enabledSelfEmployment, ...filteredCustomCategories]));
+    }
+    return [];
+  }, [customCategories, customPersonalCategories, expenseType, enabledCategories, enabledPersonalCategories]);
+
+  const baseCostValue = form.watch("baseCost");
+  const totalValue = form.watch("total");
+  const gstAmountValue = form.watch("gstAmount");
+  const pstAmountValue = form.watch("pstAmount");
+  const gstIncluded = form.watch("gstIncluded");
+  const pstIncluded = form.watch("pstIncluded");
+
+  useEffect(() => {
+    if (lastEditedField === "baseCost" && baseCostValue) {
+      const base = parseFloat(baseCostValue);
+      const gst = gstAmountValue ? parseFloat(gstAmountValue) : 0;
+      const pst = pstAmountValue ? parseFloat(pstAmountValue) : 0;
+      if (!isNaN(base) && base >= 0) {
+        const total = base + gst + pst;
+        form.setValue("total", total.toFixed(2), { shouldValidate: false });
+      }
+    }
+  }, [baseCostValue, gstAmountValue, pstAmountValue, lastEditedField, form]);
+
+  useEffect(() => {
+    if (lastEditedField === "total" && totalValue) {
+      const total = parseFloat(totalValue);
+      if (!isNaN(total) && total >= 0) {
+        if (gstIncluded && pstIncluded) {
+          const base = total / 1.12;
+          const gst = base * 0.05;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else if (gstIncluded) {
+          const base = total / 1.05;
+          const gst = base * 0.05;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        } else if (pstIncluded) {
+          const base = total / 1.07;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else {
+          const base = total;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        }
+      }
+    }
+  }, [totalValue, gstIncluded, pstIncluded, lastEditedField, form]);
+
+  useEffect(() => {
+    if (lastEditedField === "total" && totalValue && (gstIncluded || pstIncluded)) {
+      const total = parseFloat(totalValue);
+      if (!isNaN(total) && total >= 0) {
+        if (gstIncluded && pstIncluded) {
+          const base = total / 1.12;
+          const gst = base * 0.05;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else if (gstIncluded) {
+          const base = total / 1.05;
+          const gst = base * 0.05;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        } else if (pstIncluded) {
+          const base = total / 1.07;
+          const pst = base * 0.07;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
+        } else {
+          const base = total;
+          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
+          form.setValue("gstAmount", "", { shouldValidate: false });
+          form.setValue("pstAmount", "", { shouldValidate: false });
+        }
+      }
+    }
+  }, [gstIncluded, pstIncluded, totalValue, lastEditedField, form]);
+
+  useEffect(() => {
+    if ((lastEditedField === "gstAmount" || lastEditedField === "pstAmount") && baseCostValue) {
+      const base = parseFloat(baseCostValue);
+      const gst = gstAmountValue ? parseFloat(gstAmountValue) : 0;
+      const pst = pstAmountValue ? parseFloat(pstAmountValue) : 0;
+      if (!isNaN(base) && base >= 0) {
+        const total = base + gst + pst;
+        form.setValue("total", total.toFixed(2), { shouldValidate: false });
+      }
+    }
+  }, [gstAmountValue, pstAmountValue, baseCostValue, lastEditedField, form]);
+
+  const createExpenseMutation = useMutation({
+    mutationFn: async (data: ExpenseFormData) => {
+      let baseCost = data.baseCost ? parseFloat(data.baseCost) : 0;
+      let gstAmount = 0;
+      let pstAmount = 0;
+      let amount = 0;
+
+      if (data.gstIncluded && data.gstAmount) {
+        gstAmount = parseFloat(data.gstAmount);
+      }
+      if (data.pstIncluded && data.pstAmount) {
+        pstAmount = parseFloat(data.pstAmount);
+      }
+
+      if (data.total) {
+        amount = parseFloat(data.total);
+        if (!baseCost || baseCost === 0) {
+          baseCost = amount - gstAmount - pstAmount;
+        }
+      } else {
+        amount = baseCost + gstAmount + pstAmount;
+      }
+
+      const payload: any = {
+        amount: amount.toString(),
+        baseCost: baseCost.toString(),
+        gstAmount: gstAmount.toString(),
+        pstAmount: pstAmount.toString(),
+        date: data.date,
+        title: data.title,
+        category: data.category,
+        subcategory: data.subcategory,
+        vehicleId: data.vehicleId,
+        vendor: data.vendor,
+        description: data.description,
+        isTaxDeductible: data.isTaxDeductible,
+        expenseType: data.expenseType || "self_employment",
+        businessUsePercentage: data.businessUsePercentage ? data.businessUsePercentage.toString() : null,
+      };
+      
+      if (receiptIdForExpense) {
+        payload.linkedReceiptId = receiptIdForExpense;
+      }
+      
+      return apiRequest("POST", "/api/expenses", payload);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/expenses"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
+      setIsExpenseDialogOpen(false);
+      setLastEditedField(null);
+      form.reset();
+      setReceiptIdForExpense(null);
+      setReceiptImageUrl(null);
+      toast({
+        title: "Expense added",
+        description: receiptIdForExpense ? "Your expense has been created from the receipt." : "Your expense has been recorded successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to add expense. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const onSubmit = (data: ExpenseFormData) => {
+    createExpenseMutation.mutate(data);
+  };
 
   const uploadMutation = useMutation({
     mutationFn: async (files: File[]) => {
@@ -104,24 +450,126 @@ export default function ReceiptsPage() {
       
       return response.json();
     },
-    onSuccess: (data) => {
+    onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
       
-      // Always redirect to expenses page to create expense from receipt
+      // Close receipt upload dialog and clear state
+      setIsReceiptUploadDialogOpen(false);
+      setPreviewFiles([]);
+      setNotes("");
+      setScanWithOCR(false);
+      
+      // Always open expense dialog after upload, regardless of OCR status
       if (data && Array.isArray(data) && data.length > 0) {
         const firstReceipt = data[0];
         
         if (firstReceipt.id) {
-          // Close dialog and clear state
-          setIsDialogOpen(false);
-          setPreviewFiles([]);
-          setNotes("");
-          setScanWithOCR(false);
+          setReceiptIdForExpense(firstReceipt.id);
           
-          // Redirect to expenses page with receiptId to open expense dialog
-          setLocation(`/expenses?receiptId=${firstReceipt.id}`);
+          // Fetch receipt data to get image URL
+          try {
+            const receiptResponse = await fetch(`/api/receipts/${firstReceipt.id}`);
+            const receipt = await receiptResponse.json();
+            if (receipt?.imageUrl) {
+              setReceiptImageUrl(receipt.imageUrl);
+            }
+          } catch (error) {
+            // Ignore error, continue without image
+          }
           
-          // Show appropriate toast based on OCR status
+          // Try to fetch OCR data and pre-fill form (if available)
+          try {
+            const ocrResponse = await fetch(`/api/receipts/${firstReceipt.id}/ocr-to-expense`);
+            if (ocrResponse.ok) {
+              const ocrData = await ocrResponse.json();
+              
+              if (ocrData && !ocrData.error && ocrData.expenseData) {
+                if (ocrData.confidence && ocrData.confidence < 0.7) {
+                  toast({
+                    title: "Low confidence",
+                    description: "OCR results have low confidence. Please verify all fields before submitting.",
+                    variant: "default",
+                  });
+                }
+                
+                const ocrAmount = ocrData.expenseData.amount ? parseFloat(ocrData.expenseData.amount.toString()) : 0;
+                const ocrGstAmount = ocrData.expenseData.gstAmount ? parseFloat(ocrData.expenseData.gstAmount.toString()) : 0;
+                const ocrPstAmount = ocrData.expenseData.pstAmount ? parseFloat(ocrData.expenseData.pstAmount.toString()) : 0;
+                form.reset({
+                  baseCost: ocrData.expenseData.baseCost ? parseFloat(ocrData.expenseData.baseCost.toString()).toFixed(2) : "",
+                  total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
+                  gstAmount: ocrGstAmount > 0 ? ocrGstAmount.toFixed(2) : "",
+                  pstAmount: ocrPstAmount > 0 ? ocrPstAmount.toFixed(2) : "",
+                  gstIncluded: ocrGstAmount > 0,
+                  pstIncluded: ocrPstAmount > 0,
+                  date: ocrData.expenseData.date || getTodayLocalDateString(),
+                  title: ocrData.expenseData.title || "",
+                  category: ocrData.expenseData.category || "",
+                  vendor: ocrData.expenseData.vendor || "",
+                  description: ocrData.expenseData.description || "",
+                  isTaxDeductible: ocrData.expenseData.isTaxDeductible !== false,
+                  expenseType: "self_employment",
+                  businessUsePercentage: "",
+                });
+              } else {
+                form.reset({
+                  baseCost: "",
+                  total: "",
+                  gstAmount: "",
+                  pstAmount: "",
+                  gstIncluded: true,
+                  pstIncluded: true,
+                  date: getTodayLocalDateString(),
+                  title: "",
+                  category: "",
+                  vendor: "",
+                  description: "",
+                  isTaxDeductible: true,
+                  expenseType: "self_employment",
+                  businessUsePercentage: "",
+                });
+              }
+            } else {
+              form.reset({
+                baseCost: "",
+                total: "",
+                gstAmount: "",
+                pstAmount: "",
+                gstIncluded: true,
+                pstIncluded: true,
+                date: getTodayLocalDateString(),
+                title: "",
+                category: "",
+                vendor: "",
+                description: "",
+                isTaxDeductible: true,
+                expenseType: "self_employment",
+                businessUsePercentage: "",
+              });
+            }
+          } catch (error) {
+            form.reset({
+              baseCost: "",
+              total: "",
+              gstAmount: "",
+              pstAmount: "",
+              gstIncluded: true,
+              pstIncluded: true,
+              date: getTodayLocalDateString(),
+              title: "",
+              category: "",
+              vendor: "",
+              description: "",
+              isTaxDeductible: true,
+              expenseType: "self_employment",
+              businessUsePercentage: "",
+            });
+          }
+          
+          // Open expense dialog after form is reset
+          setTimeout(() => setIsExpenseDialogOpen(true), 0);
+          
+          // Show appropriate toast
           if (scanWithOCR && firstReceipt.expenseData && firstReceipt.ocrStatus === "completed") {
             toast({
               title: "Receipt scanned",
@@ -143,11 +591,6 @@ export default function ReceiptsPage() {
         }
       }
       
-      // Fallback: just close dialog if something went wrong
-      setIsDialogOpen(false);
-      setPreviewFiles([]);
-      setNotes("");
-      setScanWithOCR(false);
       toast({
         title: "Receipts uploaded",
         description: "Your receipts have been saved successfully.",
@@ -222,6 +665,22 @@ export default function ReceiptsPage() {
     },
   });
 
+  const handleAddExpenseClick = () => {
+    form.reset();
+    setReceiptIdForExpense(null);
+    setReceiptImageUrl(null);
+    setIsInitialDialogOpen(true);
+  };
+
+  const handleInitialDialogSelect = (mode: 'upload' | 'manual' | 'cancel') => {
+    setIsInitialDialogOpen(false);
+    if (mode === 'upload') {
+      setIsReceiptUploadDialogOpen(true);
+    } else if (mode === 'manual') {
+      setIsExpenseDialogOpen(true);
+    }
+  };
+
   const handleLinkReceipt = (receipt: Receipt) => {
     setLinkingReceiptId(receipt.id);
   };
@@ -265,6 +724,24 @@ export default function ReceiptsPage() {
     e.preventDefault();
   }, []);
 
+  // Filter receipts to only show those linked to expenses in the current tax year
+  const filteredReceipts = useMemo(() => {
+    if (!receipts || !expenses) return [];
+    
+    return receipts.filter((receipt) => {
+      // If receipt is not linked to an expense, exclude it (or include it if you want unlinked receipts)
+      if (!receipt.linkedExpenseId) return false;
+      
+      // Find the linked expense
+      const linkedExpense = expenses.find(exp => exp.id === receipt.linkedExpenseId);
+      if (!linkedExpense) return false;
+      
+      // Check if the expense date is in the current tax year
+      const expenseYear = getYearFromDateString(linkedExpense.date);
+      return expenseYear === taxYear;
+    });
+  }, [receipts, expenses, taxYear]);
+
   return (
     <div className="space-y-6">
       <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
@@ -273,17 +750,102 @@ export default function ReceiptsPage() {
           <p className="text-muted-foreground">Upload and manage your receipt photos</p>
         </div>
         {hasReceiptAccess && (
-          <Dialog open={isDialogOpen} onOpenChange={setIsDialogOpen}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-upload-receipt">
-                <Upload className="mr-2 h-4 w-4" />
-                Upload Receipts
+          <Button 
+            data-testid="button-add-expense"
+            onClick={handleAddExpenseClick}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Expense
+          </Button>
+        )}
+        {!hasReceiptAccess && (
+          <Link href="/pricing">
+            <Button data-testid="button-upgrade-receipts-header">
+              <Sparkles className="mr-2 h-4 w-4" />
+              Upgrade to Upload Receipts
+            </Button>
+          </Link>
+        )}
+      </div>
+
+      {/* Initial Selection Dialog */}
+      {hasReceiptAccess && (
+        <Dialog 
+          open={isInitialDialogOpen} 
+          onOpenChange={(open) => {
+            setIsInitialDialogOpen(open);
+            if (!open) {
+              setReceiptIdForExpense(null);
+              setReceiptImageUrl(null);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md">
+            <DialogHeader>
+              <DialogTitle>Add Expense</DialogTitle>
+              <p className="text-sm text-muted-foreground mt-2">
+                How would you like to add an expense?
+              </p>
+            </DialogHeader>
+            <div className="space-y-2 py-4">
+              <Button
+                variant="outline"
+                className="w-full justify-start h-auto py-4 px-4"
+                onClick={() => handleInitialDialogSelect('upload')}
+              >
+                <div className="flex items-center gap-3">
+                  <Camera className="h-5 w-5" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Upload Photo</span>
+                    <span className="text-xs text-muted-foreground">Choose from gallery</span>
+                  </div>
+                </div>
               </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-xl">
-              <DialogHeader>
-                <DialogTitle>Upload Receipts</DialogTitle>
-              </DialogHeader>
+              <Button
+                variant="outline"
+                className="w-full justify-start h-auto py-4 px-4"
+                onClick={() => handleInitialDialogSelect('manual')}
+              >
+                <div className="flex items-center gap-3">
+                  <Pencil className="h-5 w-5" />
+                  <div className="flex flex-col items-start">
+                    <span className="font-medium">Manual entry</span>
+                    <span className="text-xs text-muted-foreground">Enter details manually</span>
+                  </div>
+                </div>
+              </Button>
+              <Button
+                variant="ghost"
+                className="w-full"
+                onClick={() => handleInitialDialogSelect('cancel')}
+              >
+                Cancel
+              </Button>
+            </div>
+          </DialogContent>
+        </Dialog>
+      )}
+
+      {/* Receipt Upload Dialog */}
+      {hasReceiptAccess && (
+        <Dialog 
+          open={isReceiptUploadDialogOpen} 
+          onOpenChange={(open) => {
+            setIsReceiptUploadDialogOpen(open);
+            if (!open) {
+              setPreviewFiles([]);
+              setNotes("");
+              setScanWithOCR(false);
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-xl">
+            <DialogHeader>
+              <DialogTitle>Upload Receipt</DialogTitle>
+              <DialogDescription>
+                Upload a photo of your receipt to create an expense
+              </DialogDescription>
+            </DialogHeader>
               <div className="space-y-4">
                 <div
                   className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-6 transition-colors hover:border-muted-foreground/50"
@@ -376,21 +938,431 @@ export default function ReceiptsPage() {
             </DialogContent>
           </Dialog>
         )}
-        {!hasReceiptAccess && (
-          <Link href="/pricing">
-            <Button data-testid="button-upgrade-receipts-header">
-              <Sparkles className="mr-2 h-4 w-4" />
-              Upgrade to Upload Receipts
-            </Button>
-          </Link>
-        )}
-      </div>
+
+      {/* Expense Dialog */}
+      {hasReceiptAccess && (
+        <Dialog 
+          open={isExpenseDialogOpen} 
+          onOpenChange={(open) => {
+            setIsExpenseDialogOpen(open);
+            if (!open) {
+              setReceiptIdForExpense(null);
+              setReceiptImageUrl(null);
+              setLastEditedField(null);
+              form.reset();
+            }
+          }}
+        >
+          <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
+            <DialogHeader>
+              <DialogTitle>
+                {receiptIdForExpense 
+                  ? "Create Expense from Receipt" 
+                  : "Add Expense"}
+              </DialogTitle>
+              <DialogDescription>
+                {receiptIdForExpense 
+                  ? "Review and confirm the extracted expense data from your receipt." 
+                  : "Enter the details for your business expense."}
+              </DialogDescription>
+            </DialogHeader>
+            {receiptImageUrl && (
+              <div className="mb-4 rounded-lg border p-2">
+                <img
+                  src={receiptImageUrl}
+                  alt="Receipt"
+                  className="max-h-32 w-full object-contain rounded"
+                />
+              </div>
+            )}
+            <div className="overflow-y-auto flex-1 pr-2">
+              <Form {...form}>
+                <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <div className="space-y-4 rounded-lg border p-4">
+                    <div className="text-sm font-medium">Cost Breakdown</div>
+                    
+                    <FormField
+                      control={form.control}
+                      name="baseCost"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Base Cost</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                className="pl-7 font-mono"
+                                data-testid="input-expense-base-cost"
+                                onChange={(e) => {
+                                  field.onChange(e);
+                                  setLastEditedField("baseCost");
+                                }}
+                              />
+                            </div>
+                          </FormControl>
+                          <FormDescription>Cost before taxes</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+
+                    <div className="space-y-4">
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-3">
+                          <FormField
+                            control={form.control}
+                            name="gstIncluded"
+                            render={({ field: checkboxField }) => (
+                              <FormItem className="flex flex-row items-center space-x-2 space-y-0">
+                                <FormControl>
+                                  <Switch
+                                    checked={checkboxField.value}
+                                    onCheckedChange={(checked) => {
+                                      checkboxField.onChange(checked);
+                                      if (!checked) {
+                                        form.setValue("gstAmount", "");
+                                      }
+                                    }}
+                                    data-testid="switch-gst-included"
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <FormLabel className="!mt-0">GST Amount</FormLabel>
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name="gstAmount"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                  <Input
+                                    {...field}
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="0.00"
+                                    className="pl-7 font-mono"
+                                    data-testid="input-expense-gst-amount"
+                                    disabled={!gstIncluded}
+                                    onChange={(e) => {
+                                      field.onChange(e);
+                                      setLastEditedField("gstAmount");
+                                    }}
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+
+                      <div className="space-y-2">
+                        <div className="flex items-center space-x-3">
+                          <FormField
+                            control={form.control}
+                            name="pstIncluded"
+                            render={({ field: checkboxField }) => (
+                              <FormItem className="flex flex-row items-center space-x-2 space-y-0">
+                                <FormControl>
+                                  <Switch
+                                    checked={checkboxField.value}
+                                    onCheckedChange={(checked) => {
+                                      checkboxField.onChange(checked);
+                                      if (!checked) {
+                                        form.setValue("pstAmount", "");
+                                      }
+                                    }}
+                                    data-testid="switch-pst-included"
+                                  />
+                                </FormControl>
+                              </FormItem>
+                            )}
+                          />
+                          <FormLabel className="!mt-0">PST Amount</FormLabel>
+                        </div>
+                        <FormField
+                          control={form.control}
+                          name="pstAmount"
+                          render={({ field }) => (
+                            <FormItem>
+                              <FormControl>
+                                <div className="relative">
+                                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                  <Input
+                                    {...field}
+                                    type="number"
+                                    step="0.01"
+                                    min="0"
+                                    placeholder="0.00"
+                                    className="pl-7 font-mono"
+                                    data-testid="input-expense-pst-amount"
+                                    disabled={!pstIncluded}
+                                    onChange={(e) => {
+                                      field.onChange(e);
+                                      setLastEditedField("pstAmount");
+                                    }}
+                                  />
+                                </div>
+                              </FormControl>
+                              <FormMessage />
+                            </FormItem>
+                          )}
+                        />
+                      </div>
+                    </div>
+
+                    <FormField
+                      control={form.control}
+                      name="total"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Total</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                placeholder="0.00"
+                                className="pl-7 font-mono font-semibold"
+                                data-testid="input-expense-total"
+                                onChange={(e) => {
+                                  field.onChange(e);
+                                  setLastEditedField("total");
+                                }}
+                              />
+                            </div>
+                          </FormControl>
+                          <FormDescription>Total amount including taxes</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                  <FormField
+                    control={form.control}
+                    name="date"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Date</FormLabel>
+                        <FormControl>
+                          <Input {...field} type="date" data-testid="input-expense-date" />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="title"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Title</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="e.g., Office Supplies Purchase"
+                            data-testid="input-expense-title"
+                          />
+                        </FormControl>
+                        <FormDescription>
+                          A brief description of this expense
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="expenseType"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Expense Type</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-expense-type">
+                              <SelectValue placeholder="Select expense type" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            <SelectItem value="home_office_living">Home</SelectItem>
+                            <SelectItem value="vehicle">Vehicle</SelectItem>
+                            <SelectItem value="self_employment">Self-Employment</SelectItem>
+                            <SelectItem value="personal">Personal</SelectItem>
+                            <SelectItem value="mixed">Mixed (Personal & Self-Employment)</SelectItem>
+                          </SelectContent>
+                        </Select>
+                        <FormDescription>
+                          Select whether this expense is for business, personal use, or a mix of both
+                        </FormDescription>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="category"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Category</FormLabel>
+                        <Select 
+                          onValueChange={field.onChange} 
+                          value={field.value}
+                        >
+                          <FormControl>
+                            <SelectTrigger data-testid="select-expense-category">
+                              <SelectValue placeholder="Select category" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {availableCategories.map((category: string) => {
+                              let label = getCategoryLabel(category);
+                              if (expenseType === "personal") {
+                                if (PERSONAL_EXPENSE_CATEGORIES.includes(category as any)) {
+                                  label = getPersonalExpenseCategoryLabel(category);
+                                } else {
+                                  label = getPersonalExpenseCategoryLabel(category);
+                                }
+                              }
+                              return (
+                                <SelectItem key={category} value={category}>
+                                  {label}
+                                </SelectItem>
+                              );
+                            })}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  {expenseType === "mixed" && (
+                    <FormField
+                      control={form.control}
+                      name="businessUsePercentage"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Business Use Percentage</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.01"
+                                min="0"
+                                max="100"
+                                placeholder="0.00"
+                                className="pr-8 font-mono"
+                                data-testid="input-business-use-percentage"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+                            </div>
+                          </FormControl>
+                          <FormDescription>
+                            Enter the percentage of this expense that is for business use (0-100%)
+                          </FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  {expenseType === "vehicle" && (
+                    <FormField
+                      control={form.control}
+                      name="vehicleId"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Vehicle</FormLabel>
+                          <Select onValueChange={field.onChange} defaultValue={field.value}>
+                            <FormControl>
+                              <SelectTrigger>
+                                <SelectValue placeholder="Select vehicle" />
+                              </SelectTrigger>
+                            </FormControl>
+                            <SelectContent>
+                              {vehicles.length === 0 ? (
+                                <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                  No vehicles found. <Link href="/expenses/settings" className="text-primary underline">Add a vehicle</Link> in expense settings.
+                                </div>
+                              ) : (
+                                vehicles.map((vehicle) => (
+                                  <SelectItem key={vehicle.id} value={vehicle.id || ""}>
+                                    {vehicle.name}
+                                  </SelectItem>
+                                ))
+                              )}
+                            </SelectContent>
+                          </Select>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  )}
+
+                  <FormField
+                    control={form.control}
+                    name="vendor"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vendor</FormLabel>
+                        <FormControl>
+                          <Input
+                            {...field}
+                            placeholder="e.g., Best Buy, Air Canada"
+                            data-testid="input-expense-vendor"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                  <FormField
+                    control={form.control}
+                    name="description"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Notes</FormLabel>
+                        <FormControl>
+                          <Textarea
+                            {...field}
+                            placeholder="Additional details..."
+                            data-testid="input-expense-description"
+                          />
+                        </FormControl>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
+                </form>
+              </Form>
+            </div>
+            <DialogFooter className="mt-4">
+              <Button type="submit" disabled={createExpenseMutation.isPending} data-testid="button-submit-expense" onClick={form.handleSubmit(onSubmit)}>
+                {createExpenseMutation.isPending ? "Saving..." : "Save Expense"}
+              </Button>
+            </DialogFooter>
+          </DialogContent>
+        </Dialog>
+      )}
 
       <Card>
         <CardHeader>
           <CardTitle>Receipt Gallery</CardTitle>
           <CardDescription>
-            {receipts?.length || 0} receipt{(receipts?.length || 0) !== 1 ? "s" : ""} uploaded
+            {filteredReceipts.length} receipt{filteredReceipts.length !== 1 ? "s" : ""} linked to expenses in {taxYear}
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -402,19 +1374,19 @@ export default function ReceiptsPage() {
                 <Skeleton key={i} className="aspect-square rounded-lg" />
               ))}
             </div>
-          ) : !receipts || receipts.length === 0 ? (
+          ) : filteredReceipts.length === 0 ? (
             <div className="flex flex-col items-center justify-center py-12 text-center">
               <div className="mb-4 flex h-16 w-16 items-center justify-center rounded-full bg-muted">
                 <FileImage className="h-8 w-8 text-muted-foreground" />
               </div>
-              <h3 className="text-lg font-medium">No receipts uploaded</h3>
+              <h3 className="text-lg font-medium">No receipts for {taxYear}</h3>
               <p className="mt-1 text-muted-foreground">
-                Upload photos of your receipts and paystubs to keep them organized
+                No receipts linked to expenses in {taxYear}
               </p>
             </div>
           ) : (
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
-              {receipts.map((receipt) => (
+              {filteredReceipts.map((receipt) => (
                 <div key={receipt.id} className="group relative" data-testid={`card-receipt-${receipt.id}`}>
                   <div className="aspect-square overflow-hidden rounded-lg bg-muted">
                     <img
@@ -548,14 +1520,14 @@ export default function ReceiptsPage() {
               </SelectTrigger>
               <SelectContent>
                 <SelectItem value="none">No expense (unlink)</SelectItem>
-                {expenses?.map((expense) => (
+                {(expenses || []).map((expense) => (
                   <SelectItem key={expense.id} value={expense.id}>
                     {formatDate(expense.date)} - {expense.title || getCategoryLabel(expense.category)} - {formatCurrency(expense.amount)}
                   </SelectItem>
                 ))}
               </SelectContent>
             </Select>
-            {(!expenses || expenses.length === 0) && (
+            {expenses !== undefined && expenses.length === 0 && (
               <p className="text-sm text-muted-foreground">
                 No expenses found. Create an expense first.
               </p>

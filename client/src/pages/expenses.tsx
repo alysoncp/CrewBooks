@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Search, Receipt as ReceiptIcon, Plus, Trash2, Edit, Image as ImageIcon, X, AlertCircle } from "lucide-react";
+import { Search, Receipt as ReceiptIcon, Plus, Trash2, Edit, Image as ImageIcon, X, AlertCircle, Camera, Pencil, Scan } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -55,6 +55,7 @@ import {
 import { Badge } from "@/components/ui/badge";
 import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
+import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString, getYearFromDateString, getExpenseTypeLabel, getPersonalExpenseCategoryLabel } from "@/lib/format";
@@ -146,6 +147,8 @@ const expenseFormSchema = z.object({
 type ExpenseFormData = z.input<typeof expenseFormSchema>;
 
 export default function ExpensesPage() {
+  const [isInitialDialogOpen, setIsInitialDialogOpen] = useState(false);
+  const [isReceiptUploadDialogOpen, setIsReceiptUploadDialogOpen] = useState(false);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [editingExpense, setEditingExpense] = useState<Expense | null>(null);
   const [searchQuery, setSearchQuery] = useState("");
@@ -153,6 +156,9 @@ export default function ExpensesPage() {
   const [expenseTypeFilter, setExpenseTypeFilter] = useState<string>("all");
   const [receiptIdForExpense, setReceiptIdForExpense] = useState<string | null>(null);
   const [receiptImageUrl, setReceiptImageUrl] = useState<string | null>(null);
+  const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
+  const [receiptNotes, setReceiptNotes] = useState("");
+  const [scanWithOCR, setScanWithOCR] = useState(false);
   const { taxYear } = useTaxYear();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -773,6 +779,243 @@ export default function ExpensesPage() {
     }
   };
 
+  const handleAddExpenseClick = () => {
+    setEditingExpense(null);
+    form.reset();
+    setReceiptIdForExpense(null);
+    setReceiptImageUrl(null);
+    setIsInitialDialogOpen(true);
+  };
+
+  const handleInitialDialogSelect = (mode: 'upload' | 'manual' | 'cancel') => {
+    setIsInitialDialogOpen(false);
+    if (mode === 'upload') {
+      setIsReceiptUploadDialogOpen(true);
+    } else if (mode === 'manual') {
+      setIsDialogOpen(true);
+    }
+  };
+
+  const handleReceiptFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    const newPreviews = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setPreviewFiles((prev) => [...prev, ...newPreviews]);
+  };
+
+  const removeReceiptPreview = (index: number) => {
+    setPreviewFiles((prev) => {
+      const newPreviews = [...prev];
+      URL.revokeObjectURL(newPreviews[index].preview);
+      newPreviews.splice(index, 1);
+      return newPreviews;
+    });
+  };
+
+  const handleReceiptDrop = (e: React.DragEvent) => {
+    e.preventDefault();
+    const files = Array.from(e.dataTransfer.files).filter((f) =>
+      f.type.startsWith("image/")
+    );
+    const newPreviews = files.map((file) => ({
+      file,
+      preview: URL.createObjectURL(file),
+    }));
+    setPreviewFiles((prev) => [...prev, ...newPreviews]);
+  };
+
+  const handleReceiptDragOver = (e: React.DragEvent) => {
+    e.preventDefault();
+  };
+
+  const receiptUploadMutation = useMutation({
+    mutationFn: async (files: File[]) => {
+      const formData = new FormData();
+      files.forEach((file) => {
+        formData.append("files", file);
+      });
+      formData.append("notes", receiptNotes);
+      formData.append("scanWithOCR", scanWithOCR.toString());
+      
+      const response = await fetch("/api/receipts/upload", {
+        method: "POST",
+        body: formData,
+      });
+      
+      if (!response.ok) {
+        throw new Error("Upload failed");
+      }
+      
+      return response.json();
+    },
+    onSuccess: async (data) => {
+      queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
+      
+      // Close receipt upload dialog and clear state
+      setIsReceiptUploadDialogOpen(false);
+      setPreviewFiles([]);
+      setReceiptNotes("");
+      setScanWithOCR(false);
+      
+      // Always open expense dialog after upload, regardless of OCR status
+      if (data && Array.isArray(data) && data.length > 0) {
+        const firstReceipt = data[0];
+        
+        if (firstReceipt.id) {
+          setReceiptIdForExpense(firstReceipt.id);
+          
+          // Fetch receipt data to get image URL
+          try {
+            const receiptResponse = await fetch(`/api/receipts/${firstReceipt.id}`);
+            const receipt = await receiptResponse.json();
+            if (receipt?.imageUrl) {
+              setReceiptImageUrl(receipt.imageUrl);
+            }
+          } catch (error) {
+            // Ignore error, continue without image
+          }
+          
+          // Try to fetch OCR data and pre-fill form (if available)
+          try {
+            const ocrResponse = await fetch(`/api/receipts/${firstReceipt.id}/ocr-to-expense`);
+            if (ocrResponse.ok) {
+              const ocrData = await ocrResponse.json();
+              
+              if (ocrData && !ocrData.error && ocrData.expenseData) {
+                // Warn if confidence is low
+                if (ocrData.confidence && ocrData.confidence < 0.7) {
+                  toast({
+                    title: "Low confidence",
+                    description: "OCR results have low confidence. Please verify all fields before submitting.",
+                    variant: "default",
+                  });
+                }
+                
+                // Pre-fill form with OCR data
+                const ocrAmount = ocrData.expenseData.amount ? parseFloat(ocrData.expenseData.amount.toString()) : 0;
+                const ocrGstAmount = ocrData.expenseData.gstAmount ? parseFloat(ocrData.expenseData.gstAmount.toString()) : 0;
+                const ocrPstAmount = ocrData.expenseData.pstAmount ? parseFloat(ocrData.expenseData.pstAmount.toString()) : 0;
+                form.reset({
+                  baseCost: ocrData.expenseData.baseCost ? parseFloat(ocrData.expenseData.baseCost.toString()).toFixed(2) : "",
+                  total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
+                  gstAmount: ocrGstAmount > 0 ? ocrGstAmount.toFixed(2) : "",
+                  pstAmount: ocrPstAmount > 0 ? ocrPstAmount.toFixed(2) : "",
+                  gstIncluded: ocrGstAmount > 0,
+                  pstIncluded: ocrPstAmount > 0,
+                  date: ocrData.expenseData.date || getTodayLocalDateString(),
+                  title: ocrData.expenseData.title || "",
+                  category: ocrData.expenseData.category || "",
+                  vendor: ocrData.expenseData.vendor || "",
+                  description: ocrData.expenseData.description || "",
+                  isTaxDeductible: ocrData.expenseData.isTaxDeductible !== false,
+                  expenseType: "self_employment",
+                  businessUsePercentage: "",
+                });
+              } else {
+                // No OCR data available - reset to blank form
+                form.reset({
+                  baseCost: "",
+                  total: "",
+                  gstAmount: "",
+                  pstAmount: "",
+                  gstIncluded: true,
+                  pstIncluded: true,
+                  date: getTodayLocalDateString(),
+                  title: "",
+                  category: "",
+                  vendor: "",
+                  description: "",
+                  isTaxDeductible: true,
+                  expenseType: "self_employment",
+                  businessUsePercentage: "",
+                });
+              }
+            } else {
+              // OCR endpoint returned error - reset to blank form
+              form.reset({
+                baseCost: "",
+                total: "",
+                gstAmount: "",
+                pstAmount: "",
+                gstIncluded: true,
+                pstIncluded: true,
+                date: getTodayLocalDateString(),
+                title: "",
+                category: "",
+                vendor: "",
+                description: "",
+                isTaxDeductible: true,
+                expenseType: "self_employment",
+                businessUsePercentage: "",
+              });
+            }
+          } catch (error) {
+            // Error fetching OCR - reset to blank form
+            form.reset({
+              baseCost: "",
+              total: "",
+              gstAmount: "",
+              pstAmount: "",
+              gstIncluded: true,
+              pstIncluded: true,
+              date: getTodayLocalDateString(),
+              title: "",
+              category: "",
+              vendor: "",
+              description: "",
+              isTaxDeductible: true,
+              expenseType: "self_employment",
+              businessUsePercentage: "",
+            });
+          }
+          
+          // Open expense dialog after form is reset
+          setTimeout(() => setIsDialogOpen(true), 0);
+          
+          // Show appropriate toast based on OCR status
+          if (scanWithOCR && firstReceipt.expenseData && firstReceipt.ocrStatus === "completed") {
+            toast({
+              title: "Receipt scanned",
+              description: "Review and confirm the extracted expense data.",
+            });
+          } else if (scanWithOCR && firstReceipt.ocrError) {
+            toast({
+              title: "OCR processing failed",
+              description: "You can still create the expense manually.",
+              variant: "default",
+            });
+          } else {
+            toast({
+              title: "Receipt uploaded",
+              description: "Create an expense for this receipt.",
+            });
+          }
+          return;
+        }
+      }
+      
+      // Fallback: just show success toast
+      toast({
+        title: "Receipts uploaded",
+        description: "Your receipts have been saved successfully.",
+      });
+    },
+    onError: () => {
+      toast({
+        title: "Error",
+        description: "Failed to upload receipts. Please try again.",
+        variant: "destructive",
+      });
+    },
+  });
+
+  const handleReceiptUpload = () => {
+    if (previewFiles.length === 0) return;
+    receiptUploadMutation.mutate(previewFiles.map((p) => p.file));
+  };
+
   const handleDialogOpenChange = (open: boolean) => {
     setIsDialogOpen(open);
     if (!open) {
@@ -1030,14 +1273,186 @@ export default function ExpensesPage() {
               Expense Settings
             </Button>
           </Link>
-          <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
-            <DialogTrigger asChild>
-              <Button data-testid="button-add-expense">
-                <Plus className="mr-2 h-4 w-4" />
-                Add Expense
-              </Button>
-            </DialogTrigger>
-            <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
+          <Button 
+            data-testid="button-add-expense"
+            onClick={handleAddExpenseClick}
+          >
+            <Plus className="mr-2 h-4 w-4" />
+            Add Expense
+          </Button>
+        </div>
+      </div>
+
+      {/* Initial Selection Dialog */}
+      <Dialog 
+        open={isInitialDialogOpen && !editingExpense} 
+        onOpenChange={(open) => {
+          setIsInitialDialogOpen(open);
+          if (!open && !editingExpense) {
+            setReceiptIdForExpense(null);
+            setReceiptImageUrl(null);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-md">
+          <DialogHeader>
+            <DialogTitle>Add Expense</DialogTitle>
+            <p className="text-sm text-muted-foreground mt-2">
+              How would you like to add an expense?
+            </p>
+          </DialogHeader>
+          <div className="space-y-2 py-4">
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-4 px-4"
+              onClick={() => handleInitialDialogSelect('upload')}
+            >
+              <div className="flex items-center gap-3">
+                <Camera className="h-5 w-5" />
+                <div className="flex flex-col items-start">
+                  <span className="font-medium">Upload Photo</span>
+                  <span className="text-xs text-muted-foreground">Choose from gallery</span>
+                </div>
+              </div>
+            </Button>
+            <Button
+              variant="outline"
+              className="w-full justify-start h-auto py-4 px-4"
+              onClick={() => handleInitialDialogSelect('manual')}
+            >
+              <div className="flex items-center gap-3">
+                <Pencil className="h-5 w-5" />
+                <div className="flex flex-col items-start">
+                  <span className="font-medium">Manual entry</span>
+                  <span className="text-xs text-muted-foreground">Enter details manually</span>
+                </div>
+              </div>
+            </Button>
+            <Button
+              variant="ghost"
+              className="w-full"
+              onClick={() => handleInitialDialogSelect('cancel')}
+            >
+              Cancel
+            </Button>
+          </div>
+        </DialogContent>
+      </Dialog>
+
+      {/* Receipt Upload Dialog */}
+      <Dialog 
+        open={isReceiptUploadDialogOpen} 
+        onOpenChange={(open) => {
+          setIsReceiptUploadDialogOpen(open);
+          if (!open) {
+            setPreviewFiles([]);
+            setReceiptNotes("");
+            setScanWithOCR(false);
+          }
+        }}
+      >
+        <DialogContent className="sm:max-w-xl">
+          <DialogHeader>
+            <DialogTitle>Upload Receipt</DialogTitle>
+            <DialogDescription>
+              Upload a photo of your receipt to create an expense
+            </DialogDescription>
+          </DialogHeader>
+          <div className="space-y-4">
+            <div
+              className="flex min-h-40 cursor-pointer flex-col items-center justify-center rounded-lg border-2 border-dashed border-muted-foreground/25 p-6 transition-colors hover:border-muted-foreground/50"
+              onDrop={handleReceiptDrop}
+              onDragOver={handleReceiptDragOver}
+              onClick={() => document.getElementById("receipt-file-input")?.click()}
+              data-testid="dropzone-receipt"
+            >
+              <ImageIcon className="mb-4 h-10 w-10 text-muted-foreground" />
+              <p className="text-sm text-muted-foreground">
+                Drag and drop images here, or click to select
+              </p>
+              <p className="mt-1 text-xs text-muted-foreground">
+                Supports: JPG, PNG, HEIC
+              </p>
+              <Input
+                id="receipt-file-input"
+                type="file"
+                accept="image/*"
+                multiple
+                className="hidden"
+                onChange={handleReceiptFileChange}
+                data-testid="input-file-receipt"
+              />
+            </div>
+
+            {previewFiles.length > 0 && (
+              <div className="grid grid-cols-3 gap-4">
+                {previewFiles.map((item, index) => (
+                  <div key={index} className="group relative aspect-square">
+                    <img
+                      src={item.preview}
+                      alt={`Preview ${index + 1}`}
+                      className="h-full w-full rounded-lg object-cover"
+                    />
+                    <Button
+                      variant="destructive"
+                      size="icon"
+                      className="absolute right-1 top-1 h-6 w-6 opacity-0 transition-opacity group-hover:opacity-100"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        removeReceiptPreview(index);
+                      }}
+                      data-testid={`button-remove-preview-${index}`}
+                    >
+                      <X className="h-3 w-3" />
+                    </Button>
+                  </div>
+                ))}
+              </div>
+            )}
+
+            <div>
+              <label className="mb-2 block text-sm font-medium">Notes (optional)</label>
+              <Textarea
+                placeholder="Add notes about this receipt..."
+                value={receiptNotes}
+                onChange={(e) => setReceiptNotes(e.target.value)}
+                data-testid="input-receipt-notes"
+              />
+            </div>
+
+            <div className="flex items-center space-x-2 rounded-lg border p-4">
+              <Switch
+                id="scan-ocr-expense"
+                checked={scanWithOCR}
+                onCheckedChange={setScanWithOCR}
+                data-testid="switch-scan-ocr"
+              />
+              <Label htmlFor="scan-ocr-expense" className="cursor-pointer">
+                <div className="flex items-center gap-2">
+                  <Scan className="h-4 w-4" />
+                  <span>Scan with OCR</span>
+                </div>
+                <p className="text-xs text-muted-foreground mt-1">
+                  Automatically extract receipt details and open expense form
+                </p>
+              </Label>
+            </div>
+          </div>
+          <DialogFooter>
+            <Button
+              onClick={handleReceiptUpload}
+              disabled={previewFiles.length === 0 || receiptUploadMutation.isPending}
+              data-testid="button-submit-receipt"
+            >
+              {receiptUploadMutation.isPending ? "Uploading..." : `Upload ${previewFiles.length} Receipt${previewFiles.length !== 1 ? "s" : ""}`}
+            </Button>
+          </DialogFooter>
+        </DialogContent>
+      </Dialog>
+
+      {/* Expense Dialog */}
+      <Dialog open={isDialogOpen} onOpenChange={handleDialogOpenChange}>
+        <DialogContent className="sm:max-w-md max-h-[90vh] flex flex-col">
               <DialogHeader>
                 <DialogTitle>
                   {editingExpense 
@@ -1447,8 +1862,6 @@ export default function ExpensesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </div>
-      </div>
 
       <div className="grid gap-4 md:grid-cols-5">
         <Card className="md:col-span-2">
@@ -1488,7 +1901,6 @@ export default function ExpensesPage() {
           <div className="flex flex-col gap-4 sm:flex-row sm:items-center sm:justify-between">
             <div>
               <CardTitle>Expense History</CardTitle>
-              <CardDescription>All recorded business expenses for {taxYear}</CardDescription>
             </div>
             <div className="flex flex-wrap gap-2">
               <div className="relative w-full sm:w-64">
