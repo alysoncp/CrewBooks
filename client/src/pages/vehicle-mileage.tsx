@@ -62,6 +62,7 @@ import { type Vehicle, type VehicleMileageLog } from "@shared/schema";
 
 // Dynamic schema based on logging style
 const createMileageLogFormSchema = (isOdometerStyle: boolean) => z.object({
+  vehicleId: z.string().min(1, "Vehicle is required"),
   date: z.string().min(1, "Date is required"),
   tripTitle: z.string().optional(),
   odometerReading: z.string().min(1, isOdometerStyle ? "Odometer reading is required" : "Trip distance is required").transform((v) => parseFloat(v)),
@@ -119,6 +120,7 @@ export default function VehicleMileagePage() {
   const form = useForm<MileageLogFormData>({
     resolver: zodResolver(mileageLogFormSchema),
     defaultValues: {
+      vehicleId: selectedVehicleId || "",
       date: getTodayLocalDateString(),
       tripTitle: "",
       odometerReading: "",
@@ -128,11 +130,24 @@ export default function VehicleMileagePage() {
     },
   });
 
+  // Update form's vehicleId when selectedVehicleId changes
+  useEffect(() => {
+    if (selectedVehicleId) {
+      form.setValue("vehicleId", selectedVehicleId);
+    }
+  }, [selectedVehicleId, form]);
+
   const createMutation = useMutation({
     mutationFn: async (data: MileageLogFormData) => {
+      const vehicleId = data.vehicleId || selectedVehicleId;
+      if (!vehicleId) throw new Error("Vehicle is required");
+      
+      const selectedVehicle = vehicles.find(v => v.id === vehicleId);
+      if (!selectedVehicle) throw new Error("Vehicle not found");
+      
       if (isOdometerStyle) {
         // Odometer style: use the reading directly
-        return apiRequest("POST", `/api/vehicles/${selectedVehicleId}/mileage-logs`, {
+        return apiRequest("POST", `/api/vehicles/${vehicleId}/mileage-logs`, {
           date: data.date,
           odometerReading: data.odometerReading.toString(),
           description: data.tripTitle || "",
@@ -141,17 +156,21 @@ export default function VehicleMileagePage() {
       } else {
         // Trip distance style: calculate cumulative odometer reading from trip distance
         const tripDistance = parseFloat(data.odometerReading.toString());
+        // Fetch logs for the selected vehicle to calculate odometer reading
+        const response = await fetch(`/api/vehicles/${vehicleId}/mileage-logs`);
+        const vehicleLogs = response.ok ? await response.json() : [];
+        
         // Get the latest odometer reading from existing logs or vehicle starting mileage
-        const sortedLogs = [...mileageLogs].sort((a, b) => 
+        const sortedLogs = [...vehicleLogs].sort((a, b) => 
           new Date(a.date).getTime() - new Date(b.date).getTime()
         );
         const lastLog = sortedLogs.length > 0 ? sortedLogs[sortedLogs.length - 1] : null;
         const lastOdometer = lastLog 
           ? Number(lastLog.odometerReading) 
-          : (selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0);
+          : (selectedVehicle.currentMileage ? Number(selectedVehicle.currentMileage) : 0);
         const newOdometerReading = lastOdometer + tripDistance;
         
-        return apiRequest("POST", `/api/vehicles/${selectedVehicleId}/mileage-logs`, {
+        return apiRequest("POST", `/api/vehicles/${vehicleId}/mileage-logs`, {
           date: data.date,
           odometerReading: newOdometerReading.toString(),
           description: data.tripTitle || "",
@@ -159,10 +178,23 @@ export default function VehicleMileagePage() {
         });
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles", selectedVehicleId, "mileage-logs"] });
+    onSuccess: (_, variables) => {
+      const vehicleId = variables.vehicleId || selectedVehicleId;
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles", vehicleId, "mileage-logs"] });
+      // Update selectedVehicleId if it changed
+      if (vehicleId && vehicleId !== selectedVehicleId) {
+        setSelectedVehicleId(vehicleId);
+      }
       setIsDialogOpen(false);
-      form.reset();
+      form.reset({
+        vehicleId: vehicleId || "",
+        date: getTodayLocalDateString(),
+        tripTitle: "",
+        odometerReading: "",
+        description: "",
+        isBusinessUse: true,
+        isRepeatTrip: false,
+      });
       toast({
         title: "Mileage log added",
         description: "Your mileage entry has been recorded successfully.",
@@ -223,11 +255,24 @@ export default function VehicleMileagePage() {
         });
       }
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/vehicles", selectedVehicleId, "mileage-logs"] });
+    onSuccess: (_, variables) => {
+      const vehicleId = variables.data.vehicleId || selectedVehicleId;
+      queryClient.invalidateQueries({ queryKey: ["/api/vehicles", vehicleId, "mileage-logs"] });
+      // Update selectedVehicleId if it changed
+      if (vehicleId && vehicleId !== selectedVehicleId) {
+        setSelectedVehicleId(vehicleId);
+      }
       setIsDialogOpen(false);
       setEditingLogId(null);
-      form.reset();
+      form.reset({
+        vehicleId: vehicleId || "",
+        date: getTodayLocalDateString(),
+        tripTitle: "",
+        odometerReading: "",
+        description: "",
+        isBusinessUse: true,
+        isRepeatTrip: false,
+      });
       toast({
         title: "Mileage log updated",
         description: "Your mileage entry has been updated successfully.",
@@ -265,6 +310,17 @@ export default function VehicleMileagePage() {
   const handleEdit = (log: VehicleMileageLog) => {
     setEditingLogId(log.id);
     
+    // Find which vehicle this log belongs to
+    let logVehicleId = selectedVehicleId;
+    for (const vehicle of vehicles) {
+      // We need to check if this log belongs to this vehicle
+      // Since logs are fetched per vehicle, if we're editing a log, it belongs to selectedVehicleId
+      if (vehicle.id === selectedVehicleId) {
+        logVehicleId = vehicle.id;
+        break;
+      }
+    }
+    
     let readingValue: string;
     if (isOdometerStyle) {
       // Odometer style: use the reading directly
@@ -281,13 +337,15 @@ export default function VehicleMileagePage() {
         tripDistance = Number(log.odometerReading) - Number(prevLog.odometerReading);
       } else {
         // First log, use vehicle starting mileage
-        const startingMileage = selectedVehicle?.currentMileage ? Number(selectedVehicle.currentMileage) : 0;
+        const vehicleForLog = vehicles.find(v => v.id === logVehicleId);
+        const startingMileage = vehicleForLog?.currentMileage ? Number(vehicleForLog.currentMileage) : 0;
         tripDistance = Number(log.odometerReading) - startingMileage;
       }
       readingValue = tripDistance.toString();
     }
     
     form.reset({
+      vehicleId: logVehicleId || "",
       date: log.date,
       tripTitle: log.description || "",
       odometerReading: readingValue,
@@ -300,9 +358,11 @@ export default function VehicleMileagePage() {
   const handleAdd = () => {
     setEditingLogId(null);
     form.reset({
+      vehicleId: selectedVehicleId || "",
       date: getTodayLocalDateString(),
       tripTitle: "",
       odometerReading: "",
+      description: "",
       isBusinessUse: true,
       isRepeatTrip: false,
     });
@@ -335,9 +395,11 @@ export default function VehicleMileagePage() {
     }
     
     form.reset({
+      vehicleId: selectedVehicleId || "",
       date: getTodayLocalDateString(), // Use today's date for the repeat
       tripTitle: log.description || "",
       odometerReading: readingValue,
+      description: "",
       isBusinessUse: log.isBusinessUse ?? true,
       isRepeatTrip: true,
     });
@@ -435,6 +497,36 @@ export default function VehicleMileagePage() {
               </DialogHeader>
               <Form {...form}>
                 <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
+                  <FormField
+                    control={form.control}
+                    name="vehicleId"
+                    render={({ field }) => (
+                      <FormItem>
+                        <FormLabel>Vehicle</FormLabel>
+                        <Select onValueChange={field.onChange} value={field.value}>
+                          <FormControl>
+                            <SelectTrigger data-testid="select-vehicle-in-dialog">
+                              <SelectValue placeholder="Select vehicle" />
+                            </SelectTrigger>
+                          </FormControl>
+                          <SelectContent>
+                            {vehicles.length === 0 ? (
+                              <div className="px-2 py-1.5 text-sm text-muted-foreground">
+                                No vehicles found. <a href="/expenses/settings" className="text-primary underline">Add a vehicle</a> in expense settings.
+                              </div>
+                            ) : (
+                              vehicles.map((vehicle) => (
+                                <SelectItem key={vehicle.id} value={vehicle.id}>
+                                  {vehicle.name}
+                                </SelectItem>
+                              ))
+                            )}
+                          </SelectContent>
+                        </Select>
+                        <FormMessage />
+                      </FormItem>
+                    )}
+                  />
                   <FormField
                     control={form.control}
                     name="tripTitle"
