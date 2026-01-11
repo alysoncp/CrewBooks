@@ -34,7 +34,6 @@ import { Link } from "wouter";
 import { 
   CANADIAN_PROVINCES, 
   PRICING_TIERS, 
-  TAX_FILING_STATUS, 
   USER_TYPES,
   UNIONS,
   type User as UserType,
@@ -50,7 +49,6 @@ const profileFormSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
-  taxFilingStatus: z.enum([TAX_FILING_STATUS.PERSONAL_ONLY, TAX_FILING_STATUS.PERSONAL_AND_CORPORATE]),
   userType: z.enum([USER_TYPES.PERFORMER, USER_TYPES.CREW, USER_TYPES.BOTH]).nullable(),
   unionAffiliations: z.array(unionAffiliationSchema).nullable(),
   hasAgent: z.boolean(),
@@ -97,7 +95,6 @@ export default function ProfilePage() {
       firstName: "",
       lastName: "",
       email: "",
-      taxFilingStatus: TAX_FILING_STATUS.PERSONAL_ONLY,
       userType: null,
       unionAffiliations: [],
       hasAgent: false,
@@ -114,7 +111,6 @@ export default function ProfilePage() {
           firstName: user.firstName || "",
           lastName: user.lastName || "",
           email: user.email || "",
-          taxFilingStatus: (user.taxFilingStatus as typeof TAX_FILING_STATUS.PERSONAL_ONLY | typeof TAX_FILING_STATUS.PERSONAL_AND_CORPORATE) || TAX_FILING_STATUS.PERSONAL_ONLY,
           userType: (user.userType as typeof USER_TYPES.PERFORMER | typeof USER_TYPES.CREW | typeof USER_TYPES.BOTH) || null,
           unionAffiliations: (user.unionAffiliations as UnionAffiliation[]) || [],
           hasAgent: user.hasAgent || false,
@@ -593,66 +589,9 @@ export default function ProfilePage() {
                 <Building2 className="h-5 w-5" />
                 Business & Tax Information
               </CardTitle>
-              <CardDescription>Your tax filing status and business registration</CardDescription>
+              <CardDescription>Your business registration</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <FormField
-                control={form.control}
-                name="taxFilingStatus"
-                render={({ field }) => (
-                  <FormItem className="space-y-4">
-                    <FormLabel className="text-base">Tax Filing Status</FormLabel>
-                    <FormDescription>
-                      Select how you file your taxes. This affects which features are available.
-                    </FormDescription>
-                    <FormControl>
-                      <RadioGroup
-                        onValueChange={field.onChange}
-                        value={field.value}
-                        className="grid gap-4 md:grid-cols-2"
-                      >
-                        <label
-                          className={`flex cursor-pointer items-start gap-4 rounded-lg border p-4 transition-colors ${
-                            field.value === TAX_FILING_STATUS.PERSONAL_ONLY
-                              ? "border-primary bg-primary/5"
-                              : "hover:border-muted-foreground/50"
-                          }`}
-                          data-testid="radio-personal-only"
-                        >
-                          <RadioGroupItem value={TAX_FILING_STATUS.PERSONAL_ONLY} className="mt-1" />
-                          <div className="space-y-1">
-                            <p className="font-medium">Personal Taxes Only</p>
-                            <p className="text-sm text-muted-foreground">
-                              I file as a sole proprietor or employee
-                            </p>
-                          </div>
-                        </label>
-                        <label
-                          className={`flex cursor-pointer items-start gap-4 rounded-lg border p-4 transition-colors ${
-                            field.value === TAX_FILING_STATUS.PERSONAL_AND_CORPORATE
-                              ? "border-primary bg-primary/5"
-                              : "hover:border-muted-foreground/50"
-                          }`}
-                          data-testid="radio-personal-corporate"
-                        >
-                          <RadioGroupItem value={TAX_FILING_STATUS.PERSONAL_AND_CORPORATE} className="mt-1" />
-                          <div className="space-y-1">
-                            <span className="flex items-center gap-2 font-medium">
-                              Personal + Corporate
-                              <Badge variant="secondary">Inc.</Badge>
-                            </span>
-                            <p className="text-sm text-muted-foreground">
-                              I have an incorporated business
-                            </p>
-                          </div>
-                        </label>
-                      </RadioGroup>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
               <FormField
                 control={form.control}
                 name="hasGstNumber"
