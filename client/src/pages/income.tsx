@@ -79,7 +79,7 @@ const incomeFormSchema = z.object({
     message: "Amount must be a valid number",
   }).transform((v) => parseFloat(v)),
   date: z.string().min(1, "Date is required"),
-  incomeType: z.string().min(1, "Income type is required"),
+  incomeType: z.string().optional(),
   // Film/TV fields
   productionName: z.string().optional(),
   accountingOffice: z.string().optional(),
@@ -118,7 +118,6 @@ const INCOME_CATEGORY_OPTIONS = [
 
 export default function IncomePage() {
   const [isInitialDialogOpen, setIsInitialDialogOpen] = useState(false);
-  const [isCategoryDialogOpen, setIsCategoryDialogOpen] = useState(false);
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null);
   const [isDialogOpen, setIsDialogOpen] = useState(false);
   const [isPaystubUploadDialogOpen, setIsPaystubUploadDialogOpen] = useState(false);
@@ -207,12 +206,13 @@ export default function IncomePage() {
       
       return incomeData;
     },
-    onSuccess: () => {
-      queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+    onSuccess: async () => {
+      // Invalidate and refetch queries to ensure the list updates
+      await queryClient.invalidateQueries({ queryKey: ["/api/income"] });
+      await queryClient.refetchQueries({ queryKey: ["/api/income"] });
       queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
-      setIsCategoryDialogOpen(false);
       setSelectedCategory(null);
       form.reset();
       setEditingIncome(null);
@@ -225,10 +225,10 @@ export default function IncomePage() {
         description: hadPaystub ? "Your income has been created from the paystub." : "Your income has been recorded successfully.",
       });
     },
-    onError: () => {
+    onError: (error) => {
       toast({
         title: "Error",
-        description: "Failed to add income. Please try again.",
+        description: error instanceof Error ? error.message : "Failed to add income. Please try again.",
         variant: "destructive",
       });
     },
@@ -265,7 +265,6 @@ export default function IncomePage() {
       queryClient.invalidateQueries({ queryKey: ["/api/income"] });
       queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
       setIsDialogOpen(false);
-      setIsCategoryDialogOpen(false);
       setSelectedCategory(null);
       form.reset();
       setEditingIncome(null);
@@ -307,15 +306,22 @@ export default function IncomePage() {
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
       
-      // If OCR was enabled and we got data, redirect to income creation
-      if (scanWithOCR && data && Array.isArray(data) && data.length > 0) {
+      // Close upload dialog and reset state
+      setIsPaystubUploadDialogOpen(false);
+      setPreviewFiles([]);
+      setPaystubNotes("");
+      setScanWithOCR(false);
+      
+      // Always open income dialog after upload, regardless of OCR status
+      if (data && Array.isArray(data) && data.length > 0) {
         const firstPaystub = data[0];
         
         if (firstPaystub.id) {
-          setIsPaystubUploadDialogOpen(false);
-          setPreviewFiles([]);
-          setPaystubNotes("");
-          setScanWithOCR(false);
+          // Reset form and state before setting new values
+          form.reset();
+          setSelectedCategory(null);
+          setCustomAccountingOffice("");
+          setEditingIncome(null);
           
           // Set up for income creation from paystub
           setPaystubIdForIncome(firstPaystub.id);
@@ -334,34 +340,37 @@ export default function IncomePage() {
             form.setValue("productionName", incomeData.productionName || "");
             form.setValue("accountingOffice", incomeData.accountingOffice || "");
             setSelectedCategory(incomeData.incomeCategory || INCOME_CATEGORIES.FILM_TV);
-            setIsCategoryDialogOpen(false);
-            setIsDialogOpen(true);
             
             toast({
               title: "Paystub scanned",
               description: "Review and confirm the extracted income data.",
             });
           } else {
-            // No OCR data, just open category selection
-            setIsCategoryDialogOpen(true);
+            // No OCR data, leave category empty for user to select
+            // Don't set a default - let user choose the income type
+            
             toast({
               title: "Paystub uploaded",
               description: "Create an income entry for this paystub.",
             });
           }
-          return;
+          
+          // Always open the income dialog
+          setIsDialogOpen(true);
+        } else {
+          // Fallback: just show success message if no paystub ID
+          toast({
+            title: "Paystubs uploaded",
+            description: "Your paystubs have been saved successfully.",
+          });
         }
+      } else {
+        // Fallback: just show success message if no data
+        toast({
+          title: "Paystubs uploaded",
+          description: "Your paystubs have been saved successfully.",
+        });
       }
-      
-      // Fallback: just close dialog
-      setIsPaystubUploadDialogOpen(false);
-      setPreviewFiles([]);
-      setPaystubNotes("");
-      setScanWithOCR(false);
-      toast({
-        title: "Paystubs uploaded",
-        description: "Your paystubs have been saved successfully.",
-      });
     },
     onError: () => {
       toast({
@@ -481,13 +490,6 @@ export default function IncomePage() {
     setIsDialogOpen(true);
   };
 
-  const handleCategorySelect = (category: string) => {
-    setSelectedCategory(category);
-    form.setValue("incomeCategory", category);
-    setIsCategoryDialogOpen(false);
-    setIsDialogOpen(true);
-  };
-
   const handleAddIncomeClick = () => {
     setEditingIncome(null);
     form.reset();
@@ -501,7 +503,7 @@ export default function IncomePage() {
     if (mode === 'upload') {
       setIsPaystubUploadDialogOpen(true);
     } else if (mode === 'manual') {
-      setIsCategoryDialogOpen(true);
+      setIsDialogOpen(true);
     }
   };
 
@@ -687,14 +689,15 @@ export default function IncomePage() {
                 variant: "default",
               });
             }
-            // If no OCR data, prompt for category selection
+            // If no OCR data, default to Film/TV and open dialog
             if (!paystubIdForIncome) {
-              setIsCategoryDialogOpen(true);
-              return;
+              setSelectedCategory(INCOME_CATEGORIES.FILM_TV);
+              form.setValue("incomeCategory", INCOME_CATEGORIES.FILM_TV);
+            } else {
+              // If paystub exists but no OCR data, default to Film/TV
+              setSelectedCategory(INCOME_CATEGORIES.FILM_TV);
+              form.setValue("incomeCategory", INCOME_CATEGORIES.FILM_TV);
             }
-            // If paystub exists but no OCR data, default to Film/TV
-            setSelectedCategory(INCOME_CATEGORIES.FILM_TV);
-            form.setValue("incomeCategory", INCOME_CATEGORIES.FILM_TV);
           }
           
           // Open dialog
@@ -702,9 +705,11 @@ export default function IncomePage() {
         })
         .catch((err) => {
           console.error("Error fetching OCR data:", err);
-          // If fetching OCR data fails, prompt for category selection
+          // If fetching OCR data fails, default to Film/TV and open dialog
           if (!paystubIdForIncome) {
-            setIsCategoryDialogOpen(true);
+            setSelectedCategory(INCOME_CATEGORIES.FILM_TV);
+            form.setValue("incomeCategory", INCOME_CATEGORIES.FILM_TV);
+            setIsDialogOpen(true);
           } else {
             // If paystub exists but fetch failed, default to Film/TV
             setSelectedCategory(INCOME_CATEGORIES.FILM_TV);
@@ -814,37 +819,6 @@ export default function IncomePage() {
           <h1 className="text-2xl font-semibold" data-testid="text-income-title">Income</h1>
           <p className="text-muted-foreground">Track your earnings from productions and gigs</p>
         </div>
-        {/* Category Selection Dialog */}
-        <Dialog 
-          open={isCategoryDialogOpen && !editingIncome} 
-          onOpenChange={(open) => {
-            setIsCategoryDialogOpen(open);
-            if (!open && !editingIncome) {
-              setSelectedCategory(null);
-            }
-          }}
-        >
-          <DialogContent className="sm:max-w-md">
-            <DialogHeader>
-              <DialogTitle>Select Income Type</DialogTitle>
-            </DialogHeader>
-            <div className="space-y-2 py-4">
-              {INCOME_CATEGORY_OPTIONS.map((option) => (
-                <Button
-                  key={option.value}
-                  variant="outline"
-                  className="w-full justify-start h-auto py-4 px-4"
-                  onClick={() => handleCategorySelect(option.value)}
-                >
-                  <div className="flex flex-col items-start">
-                    <span className="font-medium">{option.label}</span>
-                  </div>
-                </Button>
-              ))}
-            </div>
-          </DialogContent>
-        </Dialog>
-
         {/* Initial Selection Dialog */}
         <Dialog 
           open={isInitialDialogOpen && !editingIncome} 
@@ -1025,7 +999,6 @@ export default function IncomePage() {
             if (!open) {
               if (!editingIncome) {
                 setSelectedCategory(null);
-                setIsCategoryDialogOpen(false);
               }
               setEditingIncome(null);
               form.reset();
@@ -1089,68 +1062,71 @@ export default function IncomePage() {
                     )}
                   />
                   
-                  {/* Common Fields - Always visible once category is selected */}
-                  <FormField
-                    control={form.control}
-                    name="date"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Date</FormLabel>
-                        <FormControl>
-                          <Input {...field} type="date" data-testid="input-income-date" />
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="grossPay"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>Gross Pay (Optional)</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-gross-pay"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
-                  <FormField
-                    control={form.control}
-                    name="amount"
-                    render={({ field }) => (
-                      <FormItem>
-                        <FormLabel>{form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT ? "Net Pay" : "Net Income"}</FormLabel>
-                        <FormControl>
-                          <div className="relative">
-                            <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                            <Input
-                              {...field}
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              placeholder="0.00"
-                              className="pl-7 font-mono"
-                              data-testid="input-income-amount"
-                            />
-                          </div>
-                        </FormControl>
-                        <FormMessage />
-                      </FormItem>
-                    )}
-                  />
+                  {/* All fields conditional on income type selection */}
+                  {form.watch("incomeCategory") && (
+                    <>
+                      {/* Common Fields */}
+                      <FormField
+                        control={form.control}
+                        name="date"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Date</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="date" data-testid="input-income-date" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="grossPay"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Gross Pay (Optional)</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-income-gross-pay"
+                                />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="amount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>{form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT ? "Net Pay" : "Net Income"}</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-income-amount"
+                                />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
 
                       {/* Film/TV Income Fields */}
                       {form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV && (
@@ -1403,7 +1379,7 @@ export default function IncomePage() {
                       )}
 
                       {/* GST/HST Collected - Show for Film/TV and Other Self-Employment */}
-                      {hasGstNumber && (form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV || form.watch("incomeCategory") === INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT || !form.watch("incomeCategory")) && (
+                      {hasGstNumber && (form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV || form.watch("incomeCategory") === INCOME_CATEGORIES.OTHER_SELF_EMPLOYMENT) && (
                         <FormField
                           control={form.control}
                           name="gstHstCollected"
@@ -1579,6 +1555,8 @@ export default function IncomePage() {
                           />
                         </>
                       )}
+                    </>
+                  )}
                 </form>
               </Form>
             </div>
