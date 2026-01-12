@@ -1800,9 +1800,9 @@ export default function IncomePage() {
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
-                    <TableHead>Category</TableHead>
+                    <TableHead className="hidden sm:table-cell">Category</TableHead>
                     <TableHead>Details</TableHead>
-                    <TableHead className="text-right">Gross</TableHead>
+                    <TableHead className="hidden sm:table-cell text-right">Gross</TableHead>
                     <TableHead className="text-right">Net</TableHead>
                     <TableHead className="w-24"></TableHead>
                   </TableRow>
@@ -1823,7 +1823,7 @@ export default function IncomePage() {
                         <TableCell className="text-muted-foreground">
                           {formatDate(item.date)}
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <Badge variant="secondary" className="text-xs">
                             {getIncomeCategoryLabel(category)}
                           </Badge>
@@ -1835,10 +1835,10 @@ export default function IncomePage() {
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{detailName || item.description || "—"}</p>
+                            <p className="font-medium max-w-[10rem] truncate sm:max-w-none">{detailName || item.description || "—"}</p>
                           </div>
                         </TableCell>
-                        <TableCell className="text-right font-mono text-muted-foreground">
+                        <TableCell className="hidden sm:table-cell text-right font-mono text-muted-foreground">
                           {item.grossPay ? formatCurrency(item.grossPay) : "—"}
                         </TableCell>
                         <TableCell className="text-right font-mono font-medium text-green-600 dark:text-green-400">

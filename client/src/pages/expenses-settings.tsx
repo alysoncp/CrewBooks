@@ -518,7 +518,7 @@ export default function ExpensesSettingsPage() {
                 </Button>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(() => {
                 const sorted = Array.from(SELF_EMPLOYMENT_EXPENSE_CATEGORIES)
                   .sort((a, b) => getCategoryLabel(a).localeCompare(getCategoryLabel(b)));
@@ -721,7 +721,7 @@ export default function ExpensesSettingsPage() {
                 </Button>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(() => {
                 const sorted = Array.from(TAX_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES)
                   .sort((a, b) => getPersonalExpenseCategoryLabel(a).localeCompare(getPersonalExpenseCategoryLabel(b)));
@@ -812,7 +812,7 @@ export default function ExpensesSettingsPage() {
                 </Button>
               </div>
             </div>
-            <div className="grid grid-cols-3 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {(() => {
                 const sorted = Array.from(NON_DEDUCTIBLE_PERSONAL_EXPENSE_CATEGORIES)
                   .sort((a, b) => getPersonalExpenseCategoryLabel(a).localeCompare(getPersonalExpenseCategoryLabel(b)));

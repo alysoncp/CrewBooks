@@ -1984,12 +1984,12 @@ export default function ExpensesPage() {
                   <TableRow>
                     <TableHead>Date</TableHead>
                     <TableHead>Title</TableHead>
-                    <TableHead>Type</TableHead>
-                    <TableHead>Category</TableHead>
-                    <TableHead>Vendor</TableHead>
+                    <TableHead className="hidden sm:table-cell">Type</TableHead>
+                    <TableHead className="hidden sm:table-cell">Category</TableHead>
+                    <TableHead className="hidden sm:table-cell">Vendor</TableHead>
                     <TableHead className="text-right">Total</TableHead>
-                    <TableHead className="text-right">Deductible</TableHead>
-                    <TableHead className="text-right">Deductible GST</TableHead>
+                    <TableHead className="hidden sm:table-cell text-right">Deductible</TableHead>
+                    <TableHead className="hidden sm:table-cell text-right">Deductible GST</TableHead>
                     <TableHead className="w-24"></TableHead>
                   </TableRow>
                 </TableHeader>
@@ -2006,13 +2006,13 @@ export default function ExpensesPage() {
                         </TableCell>
                         <TableCell>
                           <div>
-                            <p className="font-medium">{item.title || "—"}</p>
+                            <p className="font-medium max-w-[12rem] truncate sm:max-w-none">{item.title || "—"}</p>
                             {item.description && (
-                              <p className="text-sm text-muted-foreground">{item.description}</p>
+                              <p className="text-sm text-muted-foreground max-w-[16rem] truncate sm:max-w-none">{item.description}</p>
                             )}
                           </div>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <Badge variant={expenseType === "personal" ? "secondary" : expenseType === "mixed" ? "outline" : "default"} className="text-xs">
                             {getExpenseTypeLabel(expenseType)}
                             {expenseType === "mixed" && (item as any).businessUsePercentage && (
@@ -2020,7 +2020,7 @@ export default function ExpensesPage() {
                             )}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           <Badge variant="outline" className="text-xs">
                             {(() => {
                               if (expenseType === "personal") {
@@ -2032,16 +2032,16 @@ export default function ExpensesPage() {
                             })()}
                           </Badge>
                         </TableCell>
-                        <TableCell>
+                        <TableCell className="hidden sm:table-cell">
                           {item.vendor || "—"}
                         </TableCell>
                         <TableCell className="text-right font-mono font-medium text-red-600 dark:text-red-400">
                           -{formatCurrency(item.amount)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-muted-foreground">
+                        <TableCell className="hidden sm:table-cell text-right font-mono text-muted-foreground">
                           {formatCurrency(deductibleAmount)}
                         </TableCell>
-                        <TableCell className="text-right font-mono text-muted-foreground">
+                        <TableCell className="hidden sm:table-cell text-right font-mono text-muted-foreground">
                           {formatCurrency(deductibleGst)}
                         </TableCell>
                       <TableCell>

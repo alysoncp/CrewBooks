@@ -737,7 +737,6 @@ export default function VehicleMileagePage() {
                         <TableHead>Date</TableHead>
                         <TableHead>Title</TableHead>
                         <TableHead>Distance (km)</TableHead>
-                        <TableHead className="text-center">Business</TableHead>
                         <TableHead className="w-24"></TableHead>
                       </TableRow>
                     </TableHeader>
@@ -753,15 +752,7 @@ export default function VehicleMileagePage() {
                           <TableCell className="font-mono">
                             {log.distance.toLocaleString()}
                           </TableCell>
-                          <TableCell className="text-center">
-                            {log.isBusinessUse ? (
-                              <Badge variant="outline" className="bg-green-50 text-green-700 dark:bg-green-950 dark:text-green-300">
-                                Business
-                              </Badge>
-                            ) : (
-                              <Badge variant="outline">Personal</Badge>
-                            )}
-                          </TableCell>
+                          
                           <TableCell>
                             <div className="flex gap-2">
                               <Button
