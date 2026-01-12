@@ -353,6 +353,28 @@ export default function IncomePage() {
             form.setValue("incomeType", incomeData.incomeType || "");
             form.setValue("productionName", incomeData.productionName || "");
             form.setValue("accountingOffice", incomeData.accountingOffice || "");
+            // Populate additional deductions/taxes if provided by OCR
+            if (incomeData.gstHstCollected !== undefined) {
+              form.setValue("gstHstCollected", incomeData.gstHstCollected?.toString() || "");
+            }
+            if (incomeData.dues !== undefined) {
+              form.setValue("dues", incomeData.dues?.toString() || "");
+            }
+            if (incomeData.retirement !== undefined) {
+              form.setValue("retirement", incomeData.retirement?.toString() || "");
+            }
+            if (incomeData.pension !== undefined) {
+              form.setValue("pension", incomeData.pension?.toString() || "");
+            }
+            if (incomeData.insurance !== undefined) {
+              form.setValue("insurance", incomeData.insurance?.toString() || "");
+            }
+            if (incomeData.buyout !== undefined) {
+              form.setValue("buyout", incomeData.buyout?.toString() || "");
+            }
+            if (incomeData.labour !== undefined) {
+              form.setValue("labour", incomeData.labour?.toString() || "");
+            }
             setSelectedCategory(incomeData.incomeCategory || INCOME_CATEGORIES.FILM_TV);
             
             toast({
