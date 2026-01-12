@@ -1265,12 +1265,19 @@ export default function PaystubsPage() {
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
               {paystubs.map((paystub) => (
                 <div key={paystub.id} className="group relative" data-testid={`card-paystub-${paystub.id}`}>
-                  <div className="aspect-square overflow-hidden rounded-lg bg-muted">
-                    <img
-                      src={paystub.imageUrl}
-                      alt="Paystub"
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                    />
+                  <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center">
+                    {paystub.imageUrl?.toLowerCase().endsWith(".pdf") ? (
+                      <div className="flex flex-col items-center gap-2 p-2 text-center">
+                        <FileText className="h-8 w-8 text-muted-foreground" />
+                        <span className="line-clamp-2 px-2 text-xs text-muted-foreground">PDF Document</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={paystub.imageUrl}
+                        alt="Paystub"
+                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      />
+                    )}
                   </div>
                   <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
                     <Button
@@ -1350,13 +1357,21 @@ export default function PaystubsPage() {
       </Card>
 
       <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
-        <DialogContent className="max-w-3xl p-0">
+        <DialogContent className="max-w-5xl p-0">
           {selectedImage && (
-            <img
-              src={selectedImage}
-              alt="Paystub full view"
-              className="max-h-[80vh] w-full object-contain"
-            />
+            selectedImage.toLowerCase().endsWith(".pdf") ? (
+              <iframe
+                src={selectedImage}
+                title="Paystub PDF preview"
+                className="h-[80vh] w-full"
+              />
+            ) : (
+              <img
+                src={selectedImage}
+                alt="Paystub full view"
+                className="max-h-[80vh] w-full object-contain"
+              />
+            )
           )}
         </DialogContent>
       </Dialog>
