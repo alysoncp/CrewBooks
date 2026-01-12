@@ -1,5 +1,6 @@
 import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm, useWatch } from "react-hook-form";
+import { useEffect, useRef } from "react";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
@@ -127,6 +128,28 @@ export default function ProfilePage() {
   const watchedHasGstNumber = useWatch({ control: form.control, name: "hasGstNumber" });
   const watchedHasHomeOffice = useWatch({ control: form.control, name: "hasHomeOffice" });
   const watchedUnionAffiliations = useWatch({ control: form.control, name: "unionAffiliations" }) || [];
+  const watchedAll = useWatch({ control: form.control });
+  const initialLoad = useRef(true);
+
+  useEffect(() => {
+    if (!user) return;
+    if (initialLoad.current) {
+      initialLoad.current = false;
+      return;
+    }
+    const handler = setTimeout(() => {
+      (async () => {
+        const isValid = await form.trigger();
+        if (!isValid) return;
+        const current = form.getValues();
+        autosaveMutation.mutate({
+          ...current,
+          province: "BC",
+        } as ProfileFormData & { province: string });
+      })();
+    }, 600);
+    return () => clearTimeout(handler);
+  }, [watchedAll, user]);
   
   const isPerformer = watchedUserType === USER_TYPES.PERFORMER || watchedUserType === USER_TYPES.BOTH;
   const isCrew = watchedUserType === USER_TYPES.CREW || watchedUserType === USER_TYPES.BOTH;
@@ -153,6 +176,20 @@ export default function ProfilePage() {
         description: "Failed to update profile. Please try again.",
         variant: "destructive",
       });
+    },
+  });
+
+  const autosaveMutation = useMutation({
+    mutationFn: async (data: ProfileFormData) => {
+      return apiRequest("PATCH", "/api/user/profile", data);
+    },
+    onSuccess: () => {
+      queryClient.invalidateQueries({ queryKey: ["/api/user/profile"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/dashboard"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/tax-calculation"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/optimization"] });
+      queryClient.invalidateQueries({ queryKey: ["/api/gst-hst"] });
     },
   });
 

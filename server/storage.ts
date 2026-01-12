@@ -511,29 +511,59 @@ export class DatabaseStorage implements IStorage {
       const gross = i.grossPay ? parseFloat(i.grossPay) : parseFloat(i.amount);
       return sum + gross;
     }, 0);
-    const totalExpenses = expenseRecords
-      .filter((e) => e.isTaxDeductible)
-      .reduce((sum, e) => {
-        const baseCost = e.baseCost ? parseFloat(e.baseCost.toString()) : 0;
-        const pstAmount = e.pstAmount ? parseFloat(e.pstAmount.toString()) : 0;
-        let deductibleAmount = baseCost + pstAmount;
-        
-        // Apply home office percentage for home office expenses
-        if (e.category === "home_office_expenses" && user?.homeOfficePercentage) {
-          const percentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
-          deductibleAmount = deductibleAmount * percentage;
-        } else if (e.category === "meals_entertainment") {
-          // CRA limits most meals & entertainment to 50%
-          deductibleAmount = deductibleAmount * 0.50;
-        } else {
-          // For non-home-office expenses, use the total amount if baseCost/pstAmount not available
-          if (baseCost === 0 && pstAmount === 0) {
-            deductibleAmount = parseFloat(e.amount);
+    const totalExpenses = await (
+      async () => {
+        let total = 0;
+        for (const e of expenseRecords) {
+          if (!e.isTaxDeductible) continue;
+          const totalAmount = e.amount ? parseFloat(e.amount.toString()) : 0;
+          const gstAmount = e.gstAmount ? parseFloat(e.gstAmount.toString()) : 0;
+          const preTax = Math.max(0, totalAmount - gstAmount);
+          const expenseType = (e as any).expenseType || "self_employment";
+
+          if (expenseType === "personal") {
+            // Not deductible
+            continue;
           }
+
+          if (expenseType === "home_office_living") {
+            const percentage = user?.homeOfficePercentage ? (parseFloat(user.homeOfficePercentage.toString()) / 100) : 1.0;
+            total += preTax * percentage;
+            continue;
+          }
+
+          if (expenseType === "vehicle") {
+            let businessPercentage = 1.0;
+            if ((e as any).vehicleId && userId) {
+              try {
+                const calculated = await this.calculateVehicleBusinessUsePercentage(
+                  (e as any).vehicleId as string,
+                  userId,
+                  currentTaxYear
+                );
+                businessPercentage = Math.min(100, Math.max(0, calculated)) / 100;
+              } catch {
+                businessPercentage = 1.0;
+              }
+            }
+            total += preTax * businessPercentage;
+            continue;
+          }
+
+          if (expenseType === "mixed") {
+            const businessPercentage = (e as any).businessUsePercentage
+              ? Math.min(100, Math.max(0, parseFloat((e as any).businessUsePercentage.toString()))) / 100
+              : 0;
+            total += preTax * businessPercentage;
+            continue;
+          }
+
+          // self_employment, business, or default
+          total += preTax;
         }
-        
-        return sum + deductibleAmount;
-      }, 0);
+        return total;
+      }
+    )();
     
     // Add CCA deductions
     const ccaSummary = await this.calculateCCASummary(userId, currentTaxYear);
