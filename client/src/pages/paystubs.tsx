@@ -421,7 +421,7 @@ export default function PaystubsPage() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files).filter((f) =>
-      f.type.startsWith("image/")
+      f.type.startsWith("image/") || f.type === "application/pdf"
     );
     const newPreviews = files.map((file) => ({
       file,
@@ -532,15 +532,15 @@ export default function PaystubsPage() {
               >
                 <Image className="mb-4 h-10 w-10 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  Drag and drop images here, or click to select
+                  Drag and drop images or PDFs here, or click to select
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Supports: JPG, PNG, HEIC
+                  Supports: JPG, PNG, HEIC, PDF
                 </p>
                 <Input
                   id="paystub-file-input"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   multiple
                   className="hidden"
                   onChange={handleFileChange}
@@ -552,11 +552,20 @@ export default function PaystubsPage() {
                 <div className="grid grid-cols-3 gap-4">
                   {previewFiles.map((item, index) => (
                     <div key={index} className="group relative aspect-square">
-                      <img
-                        src={item.preview}
-                        alt={`Preview ${index + 1}`}
-                        className="h-full w-full rounded-lg object-cover"
-                      />
+                      {item.file.type === "application/pdf" ? (
+                        <div className="flex h-full w-full items-center justify-center rounded-lg border bg-muted/30">
+                          <div className="flex flex-col items-center gap-2 p-2 text-center">
+                            <FileText className="h-6 w-6 text-muted-foreground" />
+                            <span className="line-clamp-2 text-xs text-muted-foreground">{item.file.name}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <img
+                          src={item.preview}
+                          alt={`Preview ${index + 1}`}
+                          className="h-full w-full rounded-lg object-cover"
+                        />
+                      )}
                       <Button
                         variant="destructive"
                         size="icon"
@@ -642,11 +651,20 @@ export default function PaystubsPage() {
             </DialogHeader>
             {paystubImageUrl && (
               <div className="mb-4 rounded-lg border p-2">
-                <img
-                  src={paystubImageUrl}
-                  alt="Paystub"
-                  className="max-h-32 w-full object-contain rounded"
-                />
+                {paystubImageUrl.toLowerCase().endsWith(".pdf") ? (
+                  <div className="flex items-center gap-2 text-sm">
+                    <FileText className="h-4 w-4" />
+                    <a href={paystubImageUrl} target="_blank" rel="noreferrer" className="underline">
+                      View uploaded PDF
+                    </a>
+                  </div>
+                ) : (
+                  <img
+                    src={paystubImageUrl}
+                    alt="Paystub"
+                    className="max-h-32 w-full object-contain rounded"
+                  />
+                )}
               </div>
             )}
             <div className="overflow-y-auto flex-1 pr-2">
