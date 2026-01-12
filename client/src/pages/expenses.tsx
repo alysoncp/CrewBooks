@@ -69,15 +69,7 @@ import { Settings } from "lucide-react";
 type ExpenseCategoryTuple = typeof SELF_EMPLOYMENT_EXPENSE_CATEGORIES;
 
 const expenseFormSchema = z.object({
-  baseCost: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "Base cost must be a valid number",
-  }),
-  total: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
+  total: z.string().min(1, "Total is required").refine((val) => {
     const num = parseFloat(val);
     return !isNaN(num) && isFinite(num) && num >= 0;
   }, {
@@ -90,18 +82,9 @@ const expenseFormSchema = z.object({
   }, {
     message: "GST amount must be a valid number",
   }),
-  pstAmount: z.string().optional().refine((val) => {
-    if (!val || val.trim() === "") return true; // Optional field
-    const num = parseFloat(val);
-    return !isNaN(num) && isFinite(num) && num >= 0;
-  }, {
-    message: "PST amount must be a valid number",
-  }),
-  gstIncluded: z.boolean().default(false),
-  pstIncluded: z.boolean().default(false),
   date: z.string().min(1, "Date is required"),
   title: z.string().optional(),
-  category: z.string().min(1, "Category is required"), // Changed from z.enum to z.string
+  category: z.string().min(1, "Category is required"),
   subcategory: z.string().optional(),
   vehicleId: z.string().optional(),
   vendor: z.string().optional(),
@@ -124,14 +107,6 @@ const expenseFormSchema = z.object({
 }, {
   message: "Please select a vehicle",
   path: ["vehicleId"],
-}).refine((data) => {
-  // At least one of baseCost or total must be provided and valid
-  const baseCost = data.baseCost ? parseFloat(data.baseCost) : null;
-  const total = data.total ? parseFloat(data.total) : null;
-  return (baseCost !== null && !isNaN(baseCost) && baseCost > 0) || (total !== null && !isNaN(total) && total > 0);
-}, {
-  message: "Please enter either base cost or total amount",
-  path: ["baseCost"],
 }).refine((data) => {
   // If expense type is mixed, business use percentage is required
   if (data.expenseType === "mixed") {
@@ -221,12 +196,8 @@ export default function ExpensesPage() {
     resolver: zodResolver(expenseFormSchema),
     mode: "onBlur", // Validate on blur for immediate feedback
     defaultValues: {
-      baseCost: "",
       total: "",
       gstAmount: "",
-      pstAmount: "",
-      gstIncluded: true,
-      pstIncluded: true,
       date: getTodayLocalDateString(),
       title: "",
       category: "",
@@ -304,115 +275,7 @@ export default function ExpensesPage() {
   }, [customCategories, customPersonalCategories, expenseType, enabledCategories, enabledPersonalCategories]);
 
   // Track which field was last edited to prevent circular updates
-  const [lastEditedField, setLastEditedField] = useState<"baseCost" | "total" | "gstAmount" | "pstAmount" | null>(null);
-
-  // Watch form values for calculations
-  const baseCostValue = form.watch("baseCost");
-  const totalValue = form.watch("total");
-  const gstAmountValue = form.watch("gstAmount");
-  const pstAmountValue = form.watch("pstAmount");
-  const gstIncluded = form.watch("gstIncluded");
-  const pstIncluded = form.watch("pstIncluded");
-
-  // Effect to calculate total when baseCost changes
-  useEffect(() => {
-    if (lastEditedField === "baseCost" && baseCostValue) {
-      const base = parseFloat(baseCostValue);
-      const gst = gstAmountValue ? parseFloat(gstAmountValue) : 0;
-      const pst = pstAmountValue ? parseFloat(pstAmountValue) : 0;
-      if (!isNaN(base) && base >= 0) {
-        const total = base + gst + pst;
-        form.setValue("total", total.toFixed(2), { shouldValidate: false });
-      }
-    }
-  }, [baseCostValue, gstAmountValue, pstAmountValue, lastEditedField, form]);
-
-  // Effect to calculate baseCost, GST, and PST when total changes
-  useEffect(() => {
-    if (lastEditedField === "total" && totalValue) {
-      const total = parseFloat(totalValue);
-      if (!isNaN(total) && total >= 0) {
-        // If both GST and PST are enabled, calculate from total
-        if (gstIncluded && pstIncluded) {
-          // Total = Base * (1 + 0.05 + 0.07) = Base * 1.12
-          const base = total / 1.12;
-          const gst = base * 0.05;
-          const pst = base * 0.07;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
-          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
-        } else if (gstIncluded) {
-          // Only GST: Total = Base * 1.05
-          const base = total / 1.05;
-          const gst = base * 0.05;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
-          form.setValue("pstAmount", "", { shouldValidate: false });
-        } else if (pstIncluded) {
-          // Only PST: Total = Base * 1.07
-          const base = total / 1.07;
-          const pst = base * 0.07;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", "", { shouldValidate: false });
-          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
-        } else {
-          // Neither enabled, total is base cost
-          const base = total;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", "", { shouldValidate: false });
-          form.setValue("pstAmount", "", { shouldValidate: false });
-        }
-      }
-    }
-  }, [totalValue, gstIncluded, pstIncluded, lastEditedField, form]);
-
-  // Effect to recalculate when GST/PST checkboxes are toggled (if total exists)
-  useEffect(() => {
-    // Only recalculate if total was last edited (meaning user entered a total)
-    if (lastEditedField === "total" && totalValue && (gstIncluded || pstIncluded)) {
-      const total = parseFloat(totalValue);
-      if (!isNaN(total) && total >= 0) {
-        if (gstIncluded && pstIncluded) {
-          const base = total / 1.12;
-          const gst = base * 0.05;
-          const pst = base * 0.07;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
-          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
-        } else if (gstIncluded) {
-          const base = total / 1.05;
-          const gst = base * 0.05;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", gst.toFixed(2), { shouldValidate: false });
-          form.setValue("pstAmount", "", { shouldValidate: false });
-        } else if (pstIncluded) {
-          const base = total / 1.07;
-          const pst = base * 0.07;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", "", { shouldValidate: false });
-          form.setValue("pstAmount", pst.toFixed(2), { shouldValidate: false });
-        } else {
-          const base = total;
-          form.setValue("baseCost", base.toFixed(2), { shouldValidate: false });
-          form.setValue("gstAmount", "", { shouldValidate: false });
-          form.setValue("pstAmount", "", { shouldValidate: false });
-        }
-      }
-    }
-  }, [gstIncluded, pstIncluded, totalValue, lastEditedField, form]);
-
-  // Effect to recalculate total when GST/PST amounts change
-  useEffect(() => {
-    if ((lastEditedField === "gstAmount" || lastEditedField === "pstAmount") && baseCostValue) {
-      const base = parseFloat(baseCostValue);
-      const gst = gstAmountValue ? parseFloat(gstAmountValue) : 0;
-      const pst = pstAmountValue ? parseFloat(pstAmountValue) : 0;
-      if (!isNaN(base) && base >= 0) {
-        const total = base + gst + pst;
-        form.setValue("total", total.toFixed(2), { shouldValidate: false });
-      }
-    }
-  }, [gstAmountValue, pstAmountValue, baseCostValue, lastEditedField, form]);
+  const [lastEditedField, setLastEditedField] = useState<"total" | "gstAmount" | null>(null);
 
   // Check for receiptId in URL params
   useEffect(() => {
@@ -459,14 +322,9 @@ export default function ExpensesPage() {
             // Pre-fill form with OCR data
             const ocrAmount = data.expenseData.amount ? parseFloat(data.expenseData.amount.toString()) : 0;
             const ocrGstAmount = data.expenseData.gstAmount ? parseFloat(data.expenseData.gstAmount.toString()) : 0;
-            const ocrPstAmount = data.expenseData.pstAmount ? parseFloat(data.expenseData.pstAmount.toString()) : 0;
             form.reset({
-              baseCost: data.expenseData.baseCost ? parseFloat(data.expenseData.baseCost.toString()).toFixed(2) : "",
               total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
               gstAmount: ocrGstAmount > 0 ? ocrGstAmount.toFixed(2) : "",
-              pstAmount: ocrPstAmount > 0 ? ocrPstAmount.toFixed(2) : "",
-              gstIncluded: ocrGstAmount > 0,
-              pstIncluded: ocrPstAmount > 0,
               date: data.expenseData.date || getTodayLocalDateString(),
               title: data.expenseData.title || "",
               category: data.expenseData.category || "",
@@ -477,12 +335,8 @@ export default function ExpensesPage() {
           } else {
             // No OCR data available - reset to blank form
             form.reset({
-              baseCost: "",
               total: "",
               gstAmount: "",
-              pstAmount: "",
-              gstIncluded: true,
-              pstIncluded: true,
               date: getTodayLocalDateString(),
               title: "",
               category: "",
@@ -500,12 +354,8 @@ export default function ExpensesPage() {
           window.history.replaceState({}, "", "/expenses");
           // Reset to blank form and open dialog
           form.reset({
-            baseCost: "",
             total: "",
             gstAmount: "",
-            pstAmount: "",
-            gstIncluded: true,
-            pstIncluded: true,
             date: getTodayLocalDateString(),
             title: "",
             category: "",
@@ -531,37 +381,12 @@ export default function ExpensesPage() {
 
   const createMutation = useMutation({
     mutationFn: async (data: ExpenseFormData) => {
-      // Use manual amounts if provided, otherwise calculate from baseCost
-      let baseCost = data.baseCost ? parseFloat(data.baseCost) : 0;
-      let gstAmount = 0;
-      let pstAmount = 0;
-      let amount = 0;
-
-      // Get manual GST/PST amounts if provided and enabled
-      if (data.gstIncluded && data.gstAmount) {
-        gstAmount = parseFloat(data.gstAmount);
-      }
-      if (data.pstIncluded && data.pstAmount) {
-        pstAmount = parseFloat(data.pstAmount);
-      }
-
-      // If total is provided, use it directly
-      if (data.total) {
-        amount = parseFloat(data.total);
-        // If baseCost not provided, calculate it from total minus taxes
-        if (!baseCost || baseCost === 0) {
-          baseCost = amount - gstAmount - pstAmount;
-        }
-      } else {
-        // Calculate total from baseCost + taxes
-        amount = baseCost + gstAmount + pstAmount;
-      }
+      const amount = data.total ? parseFloat(data.total) : 0;
+      const gstAmount = data.gstAmount ? parseFloat(data.gstAmount) : 0;
 
       const payload: any = {
         amount: amount.toString(),
-        baseCost: baseCost.toString(),
         gstAmount: gstAmount.toString(),
-        pstAmount: pstAmount.toString(),
         date: data.date,
         title: data.title,
         category: data.category,
@@ -610,37 +435,12 @@ export default function ExpensesPage() {
 
   const updateMutation = useMutation({
     mutationFn: async ({ id, data }: { id: string; data: ExpenseFormData }) => {
-      // Use manual amounts if provided, otherwise calculate from baseCost
-      let baseCost = data.baseCost ? parseFloat(data.baseCost) : 0;
-      let gstAmount = 0;
-      let pstAmount = 0;
-      let amount = 0;
-
-      // Get manual GST/PST amounts if provided and enabled
-      if (data.gstIncluded && data.gstAmount) {
-        gstAmount = parseFloat(data.gstAmount);
-      }
-      if (data.pstIncluded && data.pstAmount) {
-        pstAmount = parseFloat(data.pstAmount);
-      }
-
-      // If total is provided, use it directly
-      if (data.total) {
-        amount = parseFloat(data.total);
-        // If baseCost not provided, calculate it from total minus taxes
-        if (!baseCost || baseCost === 0) {
-          baseCost = amount - gstAmount - pstAmount;
-        }
-      } else {
-        // Calculate total from baseCost + taxes
-        amount = baseCost + gstAmount + pstAmount;
-      }
+      const amount = data.total ? parseFloat(data.total) : 0;
+      const gstAmount = data.gstAmount ? parseFloat(data.gstAmount) : 0;
 
       const payload: any = {
         amount: amount.toString(),
-        baseCost: baseCost.toString(),
         gstAmount: gstAmount.toString(),
-        pstAmount: pstAmount.toString(),
         date: data.date,
         title: data.title,
         category: data.category,
@@ -724,59 +524,25 @@ export default function ExpensesPage() {
     setEditingExpense(expense);
     setIsDialogOpen(true);
     
-    // Check if expense has breakdown data
-    const baseCost = expense.baseCost ? parseFloat(expense.baseCost.toString()) : null;
     const gstAmount = expense.gstAmount ? parseFloat(expense.gstAmount.toString()) : null;
-    const pstAmount = expense.pstAmount ? parseFloat(expense.pstAmount.toString()) : null;
     const totalAmount = parseFloat(expense.amount.toString());
-    
-    // If we have base cost, use it; otherwise use total
-    if (baseCost !== null && baseCost > 0) {
-      form.reset({
-        baseCost: baseCost.toFixed(2),
-        total: totalAmount.toFixed(2),
-        gstAmount: gstAmount !== null && gstAmount > 0 ? gstAmount.toFixed(2) : "",
-        pstAmount: pstAmount !== null && pstAmount > 0 ? pstAmount.toFixed(2) : "",
-        gstIncluded: (gstAmount !== null && gstAmount > 0),
-        pstIncluded: (pstAmount !== null && pstAmount > 0),
-        date: expense.date,
-        title: expense.title || "",
-        category: expense.category,
-        subcategory: expense.subcategory || "",
-        vehicleId: expense.vehicleId || "",
-        vendor: expense.vendor || "",
-        description: expense.description || "",
-        isTaxDeductible: expense.isTaxDeductible ?? true,
-        expenseType: (expense as any).expenseType || "self_employment",
-        businessUsePercentage: (expense as any).businessUsePercentage 
-          ? parseFloat((expense as any).businessUsePercentage.toString()).toFixed(2) 
-          : "",
-      });
-      setLastEditedField("baseCost");
-    } else {
-      // For old expenses without breakdown, use total
-      form.reset({
-        baseCost: "",
-        total: totalAmount.toFixed(2),
-        gstAmount: "",
-        pstAmount: "",
-        gstIncluded: false,
-        pstIncluded: false,
-        date: expense.date,
-        title: expense.title || "",
-        category: expense.category,
-        subcategory: expense.subcategory || "",
-        vehicleId: expense.vehicleId || "",
-        vendor: expense.vendor || "",
-        description: expense.description || "",
-        isTaxDeductible: expense.isTaxDeductible ?? true,
-        expenseType: (expense as any).expenseType || "self_employment",
-        businessUsePercentage: (expense as any).businessUsePercentage 
-          ? parseFloat((expense as any).businessUsePercentage.toString()).toFixed(2) 
-          : "",
-      });
-      setLastEditedField("total");
-    }
+    form.reset({
+      total: totalAmount.toFixed(2),
+      gstAmount: gstAmount !== null && gstAmount > 0 ? gstAmount.toFixed(2) : "",
+      date: expense.date,
+      title: expense.title || "",
+      category: expense.category,
+      subcategory: expense.subcategory || "",
+      vehicleId: expense.vehicleId || "",
+      vendor: expense.vendor || "",
+      description: expense.description || "",
+      isTaxDeductible: expense.isTaxDeductible ?? true,
+      expenseType: (expense as any).expenseType || "self_employment",
+      businessUsePercentage: (expense as any).businessUsePercentage 
+        ? parseFloat((expense as any).businessUsePercentage.toString()).toFixed(2) 
+        : "",
+    });
+    setLastEditedField("total");
   };
 
   const handleAddExpenseClick = () => {
@@ -896,14 +662,9 @@ export default function ExpensesPage() {
                 // Pre-fill form with OCR data
                 const ocrAmount = ocrData.expenseData.amount ? parseFloat(ocrData.expenseData.amount.toString()) : 0;
                 const ocrGstAmount = ocrData.expenseData.gstAmount ? parseFloat(ocrData.expenseData.gstAmount.toString()) : 0;
-                const ocrPstAmount = ocrData.expenseData.pstAmount ? parseFloat(ocrData.expenseData.pstAmount.toString()) : 0;
                 form.reset({
-                  baseCost: ocrData.expenseData.baseCost ? parseFloat(ocrData.expenseData.baseCost.toString()).toFixed(2) : "",
                   total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
                   gstAmount: ocrGstAmount > 0 ? ocrGstAmount.toFixed(2) : "",
-                  pstAmount: ocrPstAmount > 0 ? ocrPstAmount.toFixed(2) : "",
-                  gstIncluded: ocrGstAmount > 0,
-                  pstIncluded: ocrPstAmount > 0,
                   date: ocrData.expenseData.date || getTodayLocalDateString(),
                   title: ocrData.expenseData.title || "",
                   category: ocrData.expenseData.category || "",
@@ -916,12 +677,8 @@ export default function ExpensesPage() {
               } else {
                 // No OCR data available - reset to blank form
                 form.reset({
-                  baseCost: "",
                   total: "",
                   gstAmount: "",
-                  pstAmount: "",
-                  gstIncluded: true,
-                  pstIncluded: true,
                   date: getTodayLocalDateString(),
                   title: "",
                   category: "",
@@ -935,12 +692,8 @@ export default function ExpensesPage() {
             } else {
               // OCR endpoint returned error - reset to blank form
               form.reset({
-                baseCost: "",
                 total: "",
                 gstAmount: "",
-                pstAmount: "",
-                gstIncluded: true,
-                pstIncluded: true,
                 date: getTodayLocalDateString(),
                 title: "",
                 category: "",
@@ -954,12 +707,8 @@ export default function ExpensesPage() {
           } catch (error) {
             // Error fetching OCR - reset to blank form
             form.reset({
-              baseCost: "",
               total: "",
               gstAmount: "",
-              pstAmount: "",
-              gstIncluded: true,
-              pstIncluded: true,
               date: getTodayLocalDateString(),
               title: "",
               category: "",
@@ -1029,12 +778,8 @@ export default function ExpensesPage() {
       if (!editingExpense && !receiptIdForExpense) {
         setEditingExpense(null); // Ensure it's cleared
         form.reset({
-          baseCost: "",
           total: "",
           gstAmount: "",
-          pstAmount: "",
-          gstIncluded: true,
-          pstIncluded: true,
           date: getTodayLocalDateString(),
           title: "",
           category: "",
@@ -1482,154 +1227,14 @@ export default function ExpensesPage() {
                 <Form {...form}>
                   <form onSubmit={form.handleSubmit(onSubmit)} className="space-y-4">
                     <div className="space-y-4 rounded-lg border p-4">
-                      <div className="text-sm font-medium">Cost Breakdown</div>
-                      
-                      <FormField
-                        control={form.control}
-                        name="baseCost"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Base Cost</FormLabel>
-                            <FormControl>
-                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                <Input
-                                  {...field}
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  placeholder="0.00"
-                                  className="pl-7 font-mono"
-                                  data-testid="input-expense-base-cost"
-                                  onChange={(e) => {
-                                    field.onChange(e);
-                                    setLastEditedField("baseCost");
-                                  }}
-                                />
-                              </div>
-                            </FormControl>
-                            <FormDescription>Cost before taxes</FormDescription>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      <div className="space-y-4">
-                        <div className="space-y-2">
-                          <div className="flex items-center space-x-3">
-                            <FormField
-                              control={form.control}
-                              name="gstIncluded"
-                              render={({ field: checkboxField }) => (
-                                <FormItem className="flex flex-row items-center space-x-2 space-y-0">
-                                  <FormControl>
-                                    <Switch
-                                      checked={checkboxField.value}
-                                      onCheckedChange={(checked) => {
-                                        checkboxField.onChange(checked);
-                                        if (!checked) {
-                                          form.setValue("gstAmount", "");
-                                        }
-                                      }}
-                                      data-testid="switch-gst-included"
-                                    />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                            <FormLabel className="!mt-0">GST Amount</FormLabel>
-                          </div>
-                          <FormField
-                            control={form.control}
-                            name="gstAmount"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-expense-gst-amount"
-                                      disabled={!gstIncluded}
-                                      onChange={(e) => {
-                                        field.onChange(e);
-                                        setLastEditedField("gstAmount");
-                                      }}
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-
-                        <div className="space-y-2">
-                          <div className="flex items-center space-x-3">
-                            <FormField
-                              control={form.control}
-                              name="pstIncluded"
-                              render={({ field: checkboxField }) => (
-                                <FormItem className="flex flex-row items-center space-x-2 space-y-0">
-                                  <FormControl>
-                                    <Switch
-                                      checked={checkboxField.value}
-                                      onCheckedChange={(checked) => {
-                                        checkboxField.onChange(checked);
-                                        if (!checked) {
-                                          form.setValue("pstAmount", "");
-                                        }
-                                      }}
-                                      data-testid="switch-pst-included"
-                                    />
-                                  </FormControl>
-                                </FormItem>
-                              )}
-                            />
-                            <FormLabel className="!mt-0">PST Amount</FormLabel>
-                          </div>
-                          <FormField
-                            control={form.control}
-                            name="pstAmount"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-expense-pst-amount"
-                                      disabled={!pstIncluded}
-                                      onChange={(e) => {
-                                        field.onChange(e);
-                                        setLastEditedField("pstAmount");
-                                      }}
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                        </div>
-                      </div>
+                      <div className="text-sm font-medium">Amounts</div>
 
                       <FormField
                         control={form.control}
                         name="total"
                         render={({ field }) => (
                           <FormItem>
-                            <FormLabel>Total</FormLabel>
+                            <FormLabel>Total (incl. taxes)</FormLabel>
                             <FormControl>
                               <div className="relative">
                                 <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
@@ -1649,6 +1254,36 @@ export default function ExpensesPage() {
                               </div>
                             </FormControl>
                             <FormDescription>Total amount including taxes</FormDescription>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      <FormField
+                        control={form.control}
+                        name="gstAmount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>GST Amount</FormLabel>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-expense-gst-amount"
+                                  onChange={(e) => {
+                                    field.onChange(e);
+                                    setLastEditedField("gstAmount");
+                                  }}
+                                />
+                              </div>
+                            </FormControl>
+                            <FormDescription>GST extracted from receipt (if any)</FormDescription>
                             <FormMessage />
                           </FormItem>
                         )}
@@ -1979,7 +1614,7 @@ export default function ExpensesPage() {
             </div>
           ) : (
             <div className="overflow-x-auto">
-              <Table>
+              <Table className="table-fixed w-full">
                 <TableHeader>
                   <TableRow>
                     <TableHead>Date</TableHead>
@@ -2020,8 +1655,8 @@ export default function ExpensesPage() {
                             )}
                           </Badge>
                         </TableCell>
-                        <TableCell className="hidden sm:table-cell">
-                          <Badge variant="outline" className="text-xs">
+                        <TableCell className="hidden sm:table-cell align-top max-w-[12rem] whitespace-normal break-words">
+                          <Badge variant="outline" className="text-xs whitespace-normal break-words text-left">
                             {(() => {
                               if (expenseType === "personal") {
                                 // All personal expense categories (including former general categories) use personal label

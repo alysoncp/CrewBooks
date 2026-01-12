@@ -122,39 +122,28 @@ function convertOCRToExpenseData(ocrResult: OCRResult): any {
   const category = mapVendorToCategory(ocrResult.vendor, ocrResult.lineItems?.[0]?.description);
 
   // Calculate tax breakdown (assuming Canadian GST/PST)
-  let baseCost = 0;
   let gstAmount = 0;
-  let pstAmount = 0;
-  let total = ocrResult.amount || 0;
+  const total = ocrResult.amount || 0;
 
+  // We only keep Total and GST. Estimate GST from OCR tax data when possible.
   if (ocrResult.tax && ocrResult.tax > 0 && total > 0) {
-    // Try to infer tax breakdown
     const taxRate = ocrResult.tax / total;
-    
-    if (taxRate >= 0.12 && taxRate <= 0.14) {
-      // Likely HST (13% in ON)
-      baseCost = total / 1.13;
-      gstAmount = baseCost * 0.05;
-      pstAmount = baseCost * 0.08; // HST = GST + PST equivalent
-    } else if (taxRate >= 0.04 && taxRate <= 0.06) {
-      // Likely GST only (5%)
-      baseCost = total / 1.05;
-      gstAmount = baseCost * 0.05;
-    } else {
-      // Use tax amount as GST, calculate base
-      baseCost = total - ocrResult.tax;
+    // If total tax ~5%, treat it as GST
+    if (taxRate >= 0.04 && taxRate <= 0.06) {
       gstAmount = ocrResult.tax;
+    } else if (taxRate >= 0.12 && taxRate <= 0.14) {
+      // For ~13% HST, approximate GST component as 5% of pre-tax base
+      const base = total / 1.13;
+      gstAmount = base * 0.05;
+    } else {
+      // Fallback: if tax seems small (<=6% of total), use it; else set 0
+      gstAmount = taxRate <= 0.06 ? ocrResult.tax : 0;
     }
-  } else {
-    // No tax detected, assume total is base cost
-    baseCost = total;
   }
 
   return {
     amount: total.toString(),
-    baseCost: baseCost.toString(),
     gstAmount: gstAmount.toString(),
-    pstAmount: pstAmount.toString(),
     date: ocrResult.date || new Date().toISOString().split("T")[0],
     title: ocrResult.lineItems?.[0]?.description || ocrResult.vendor || "Receipt Expense",
     category: category,
@@ -2437,27 +2426,23 @@ async function calculateDeductibleAmount(expense: any, user?: any, userId?: stri
   }
 
   const expenseType = expense.expenseType || "self_employment"; // Default for backward compatibility
-  const baseCost = expense.baseCost ? parseFloat(expense.baseCost.toString()) : 0;
-  const pstAmount = expense.pstAmount ? parseFloat(expense.pstAmount.toString()) : 0;
+  const total = expense.amount ? parseFloat(expense.amount.toString()) : 0;
+  const gstAmount = expense.gstAmount ? parseFloat(expense.gstAmount.toString()) : 0;
+  const preTax = Math.max(0, total - gstAmount);
 
   if (expenseType === "personal") {
     return 0; // Personal expenses are not deductible for business
   }
 
   if (expenseType === "home_office_living") {
-    // Home Office/Living expenses: apply home office percentage if set
-    let deductibleAmount = baseCost + pstAmount;
-    if (user?.homeOfficePercentage) {
-      const percentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
-      deductibleAmount = deductibleAmount * percentage;
-    }
-    return deductibleAmount;
+    // Home Office/Living expenses: deductible portion is pre-tax total * home office percentage
+    const percentage = user?.homeOfficePercentage ? (parseFloat(user.homeOfficePercentage.toString()) / 100) : 1.0;
+    return preTax * percentage;
   }
 
   if (expenseType === "vehicle") {
     // Vehicle expenses: use business use percentage from odometer entries
     let businessPercentage = 1.0; // Default to 100% if calculation fails
-    
     if (expense.vehicleId && userId && taxYear) {
       try {
         const calculatedPercentage = await storage.calculateVehicleBusinessUsePercentage(
@@ -2467,47 +2452,32 @@ async function calculateDeductibleAmount(expense: any, user?: any, userId?: stri
         );
         businessPercentage = Math.min(100, Math.max(0, calculatedPercentage)) / 100;
       } catch (error) {
-        // If calculation fails, default to 100%
         businessPercentage = 1.0;
       }
     }
-    
-    return (baseCost + pstAmount) * businessPercentage;
+    return preTax * businessPercentage;
   }
 
   if (expenseType === "self_employment") {
-    // Self-Employment expenses: fully deductible
-    return baseCost + pstAmount;
+    // Self-Employment expenses: fully deductible (pre-tax portion)
+    return preTax;
   }
 
   if (expenseType === "mixed") {
-    const businessPercentage = expense.businessUsePercentage 
-      ? parseFloat(expense.businessUsePercentage.toString()) / 100 
+    const businessPercentage = expense.businessUsePercentage
+      ? Math.min(100, Math.max(0, parseFloat(expense.businessUsePercentage.toString()))) / 100
       : 0;
-    
-    // Only business portion of base cost + proportional PST is deductible
-    const businessBaseCost = baseCost * businessPercentage;
-    const businessPstAmount = pstAmount * businessPercentage;
-    let deductibleAmount = businessBaseCost + businessPstAmount;
-    
-    // Apply home office percentage if applicable for home office/living categories
-    // Check if category is in HOME_OFFICE_LIVING_CATEGORIES
-    const homeOfficeCategories = ["rent", "utilities", "internet", "phone", "heat", "electricity", "insurance_home", "maintenance_home", "mortgage_interest", "property_taxes"];
-    if (homeOfficeCategories.includes(expense.category) && user?.homeOfficePercentage) {
-      const homeOfficePercentage = parseFloat(user.homeOfficePercentage.toString()) / 100;
-      deductibleAmount = deductibleAmount * homeOfficePercentage;
-    }
-    
-    return deductibleAmount;
+    // Mixed expenses: apply provided business use percentage only
+    return preTax * businessPercentage;
   }
 
   // Legacy: treat "business" as self_employment for backward compatibility
   if (expenseType === "business") {
-    return baseCost + pstAmount;
+    return preTax;
   }
 
   // Default: treat as self-employment expense
-  return baseCost + pstAmount;
+  return preTax;
 }
 
 function calculateExpensesByCategory(
