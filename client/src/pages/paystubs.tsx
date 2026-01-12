@@ -290,6 +290,28 @@ export default function PaystubsPage() {
             form.setValue("incomeType", incomeData.incomeType || "");
             form.setValue("productionName", incomeData.productionName || "");
             form.setValue("accountingOffice", incomeData.accountingOffice || "");
+            // Populate additional deductions/taxes if provided by OCR
+            if (incomeData.gstHstCollected !== undefined) {
+              form.setValue("gstHstCollected", incomeData.gstHstCollected?.toString() || "");
+            }
+            if (incomeData.dues !== undefined) {
+              form.setValue("dues", incomeData.dues?.toString() || "");
+            }
+            if (incomeData.retirement !== undefined) {
+              form.setValue("retirement", incomeData.retirement?.toString() || "");
+            }
+            if (incomeData.pension !== undefined) {
+              form.setValue("pension", incomeData.pension?.toString() || "");
+            }
+            if (incomeData.insurance !== undefined) {
+              form.setValue("insurance", incomeData.insurance?.toString() || "");
+            }
+            if (incomeData.buyout !== undefined) {
+              form.setValue("buyout", incomeData.buyout?.toString() || "");
+            }
+            if (incomeData.labour !== undefined) {
+              form.setValue("labour", incomeData.labour?.toString() || "");
+            }
             setSelectedCategory(incomeData.incomeCategory || INCOME_CATEGORIES.FILM_TV);
             
             toast({
@@ -421,7 +443,7 @@ export default function PaystubsPage() {
   const handleDrop = useCallback((e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files).filter((f) =>
-      f.type.startsWith("image/")
+      f.type.startsWith("image/") || f.type === "application/pdf"
     );
     const newPreviews = files.map((file) => ({
       file,
@@ -532,15 +554,15 @@ export default function PaystubsPage() {
               >
                 <Image className="mb-4 h-10 w-10 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  Drag and drop images here, or click to select
+                  Drag and drop images or PDFs here, or click to select
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Supports: JPG, PNG, HEIC
+                  Supports: JPG, PNG, HEIC, PDF
                 </p>
                 <Input
                   id="paystub-file-input"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   multiple
                   className="hidden"
                   onChange={handleFileChange}
@@ -552,11 +574,20 @@ export default function PaystubsPage() {
                 <div className="grid grid-cols-3 gap-4">
                   {previewFiles.map((item, index) => (
                     <div key={index} className="group relative aspect-square">
-                      <img
-                        src={item.preview}
-                        alt={`Preview ${index + 1}`}
-                        className="h-full w-full rounded-lg object-cover"
-                      />
+                      {item.file.type === "application/pdf" ? (
+                        <div className="flex h-full w-full items-center justify-center rounded-lg border bg-muted/30">
+                          <div className="flex flex-col items-center gap-2 p-2 text-center">
+                            <FileText className="h-6 w-6 text-muted-foreground" />
+                            <span className="line-clamp-2 text-xs text-muted-foreground">{item.file.name}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <img
+                          src={item.preview}
+                          alt={`Preview ${index + 1}`}
+                          className="h-full w-full rounded-lg object-cover"
+                        />
+                      )}
                       <Button
                         variant="destructive"
                         size="icon"
@@ -642,11 +673,20 @@ export default function PaystubsPage() {
             </DialogHeader>
             {paystubImageUrl && (
               <div className="mb-4 rounded-lg border p-2">
-                <img
-                  src={paystubImageUrl}
-                  alt="Paystub"
-                  className="max-h-32 w-full object-contain rounded"
-                />
+                {paystubImageUrl.toLowerCase().endsWith(".pdf") ? (
+                  <div className="flex items-center gap-2 text-sm">
+                    <FileText className="h-4 w-4" />
+                    <a href={paystubImageUrl} target="_blank" rel="noreferrer" className="underline">
+                      View uploaded PDF
+                    </a>
+                  </div>
+                ) : (
+                  <img
+                    src={paystubImageUrl}
+                    alt="Paystub"
+                    className="max-h-32 w-full object-contain rounded"
+                  />
+                )}
               </div>
             )}
             <div className="overflow-y-auto flex-1 pr-2">
@@ -1225,12 +1265,19 @@ export default function PaystubsPage() {
             <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5">
               {paystubs.map((paystub) => (
                 <div key={paystub.id} className="group relative" data-testid={`card-paystub-${paystub.id}`}>
-                  <div className="aspect-square overflow-hidden rounded-lg bg-muted">
-                    <img
-                      src={paystub.imageUrl}
-                      alt="Paystub"
-                      className="h-full w-full object-cover transition-transform group-hover:scale-105"
-                    />
+                  <div className="aspect-square overflow-hidden rounded-lg bg-muted flex items-center justify-center">
+                    {paystub.imageUrl?.toLowerCase().endsWith(".pdf") ? (
+                      <div className="flex flex-col items-center gap-2 p-2 text-center">
+                        <FileText className="h-8 w-8 text-muted-foreground" />
+                        <span className="line-clamp-2 px-2 text-xs text-muted-foreground">PDF Document</span>
+                      </div>
+                    ) : (
+                      <img
+                        src={paystub.imageUrl}
+                        alt="Paystub"
+                        className="h-full w-full object-cover transition-transform group-hover:scale-105"
+                      />
+                    )}
                   </div>
                   <div className="absolute inset-0 flex items-center justify-center gap-2 rounded-lg bg-black/50 opacity-0 transition-opacity group-hover:opacity-100">
                     <Button
@@ -1310,13 +1357,21 @@ export default function PaystubsPage() {
       </Card>
 
       <Dialog open={!!selectedImage} onOpenChange={() => setSelectedImage(null)}>
-        <DialogContent className="max-w-3xl p-0">
+        <DialogContent className="max-w-5xl p-0">
           {selectedImage && (
-            <img
-              src={selectedImage}
-              alt="Paystub full view"
-              className="max-h-[80vh] w-full object-contain"
-            />
+            selectedImage.toLowerCase().endsWith(".pdf") ? (
+              <iframe
+                src={selectedImage}
+                title="Paystub PDF preview"
+                className="h-[80vh] w-full"
+              />
+            ) : (
+              <img
+                src={selectedImage}
+                alt="Paystub full view"
+                className="max-h-[80vh] w-full object-contain"
+              />
+            )
           )}
         </DialogContent>
       </Dialog>

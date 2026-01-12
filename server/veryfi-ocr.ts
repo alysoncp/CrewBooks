@@ -45,8 +45,15 @@ export async function processReceiptOCR(imagePath: string, category?: string): P
     const fileName = path.basename(imagePath);
 
     // Veryfi API v8 expects file_data as a base64-encoded string in JSON payload
-    // Convert image buffer to base64
-    const mimeType = "image/jpeg"; // or detect dynamically if you want
+    // Detect MIME type based on file extension to support PDFs and images
+    const ext = path.extname(fileName).toLowerCase();
+    const mimeType =
+      ext === ".pdf" ? "application/pdf" :
+      ext === ".png" ? "image/png" :
+      ext === ".webp" ? "image/webp" :
+      ext === ".heic" ? "image/heic" :
+      ext === ".jpeg" || ext === ".jpg" ? "image/jpeg" :
+      "application/octet-stream";
     const fileDataBase64 = `data:${mimeType};base64,${imageBuffer.toString("base64")}`;
 
     

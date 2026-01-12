@@ -635,6 +635,90 @@ function parseCastAndCrew(data: any): NormalizedPaystub {
     confidence: 0,
   };
 
+  // Use OCR text anchors for Cast & Crew specific fields
+  const shouldLog = process.env.NODE_ENV !== "production";
+  const ocrTextRaw: string = data.ocr_text || "";
+  if (ocrTextRaw) {
+    // Gross Pay
+    const grossMatch = ocrTextRaw.match(/gross\s*pay\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    if (grossMatch && grossMatch[1]) {
+      const val = extractNumeric(grossMatch[1]);
+      if (val !== null) {
+        normalized.grossPay = val;
+        if (shouldLog) console.log("[C&C] OCR Gross Pay:", val);
+      }
+    }
+
+    // Net Income -> Amount Deposited
+    const netMatch = ocrTextRaw.match(/amount\s+deposited\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    if (netMatch && netMatch[1]) {
+      const val = extractNumeric(netMatch[1]);
+      if (val !== null) {
+        normalized.netPay = val;
+        if (shouldLog) console.log("[C&C] OCR Net (Amount Deposited):", val);
+      }
+    }
+
+    // GST/HST collected
+    // Prefer explicit "GST/HST:" anchor first
+    let gstMatch = ocrTextRaw.match(/gst\s*\/\s*hst\s*:\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    if (!gstMatch) {
+      // Generic GST/HST with optional colon or dash
+      gstMatch = ocrTextRaw.match(/gst\s*\/?\s*hst\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    }
+    if (!gstMatch) {
+      // Fallback to G/HST (P)
+      gstMatch = ocrTextRaw.match(/g\/?hst\s*\(p\)\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    }
+    if (gstMatch && gstMatch[1]) {
+      const val = extractNumeric(gstMatch[1]);
+      if (val !== null) {
+        (normalized.taxes as any).gstHst = val;
+        if (shouldLog) console.log("[C&C] OCR GST/HST:", val);
+      }
+    }
+
+    // Dues: Permit Fee or Member Fee
+    const duesMatch = ocrTextRaw.match(/(permit\s*fee|member\s*fee)\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    if (duesMatch && duesMatch[2]) {
+      const val = extractNumeric(duesMatch[2]);
+      if (val !== null) {
+        (normalized.deductions as any).unionDues = ((normalized.deductions as any).unionDues || 0) + val;
+        if (shouldLog) console.log("[C&C] OCR Dues (Permit/Member Fee):", val);
+      }
+    }
+
+    // Insurance: "Ins. Ded"
+    const insMatch = ocrTextRaw.match(/ins\.\s*ded\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    if (insMatch && insMatch[1]) {
+      const val = extractNumeric(insMatch[1]);
+      if (val !== null) {
+        (normalized.deductions as any).insurance = ((normalized.deductions as any).insurance || 0) + val;
+        if (shouldLog) console.log("[C&C] OCR Insurance (Ins. Ded):", val);
+      }
+    }
+
+    // Pension: "Retir. Emp"
+    const pensionMatch = ocrTextRaw.match(/retir\.\s*emp\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    if (pensionMatch && pensionMatch[1]) {
+      const val = extractNumeric(pensionMatch[1]);
+      if (val !== null) {
+        (normalized.deductions as any).pension = ((normalized.deductions as any).pension || 0) + val;
+        if (shouldLog) console.log("[C&C] OCR Pension (Retir. Emp):", val);
+      }
+    }
+
+    // Retirement: "Retire Ded"
+    const retireMatch = ocrTextRaw.match(/retire\s*ded\s*[:\-]?\s*\$?\s*([\d,]+(?:\.\d{2})?)/i);
+    if (retireMatch && retireMatch[1]) {
+      const val = extractNumeric(retireMatch[1]);
+      if (val !== null) {
+        (normalized.deductions as any).retirement = ((normalized.deductions as any).retirement || 0) + val;
+        if (shouldLog) console.log("[C&C] OCR Retirement (Retire Ded):", val);
+      }
+    }
+  }
+
   // Similar parsing logic (can be customized for Cast and Crew format)
   if (data.federal_tax !== undefined) normalized.taxes.federal = extractNumeric(data.federal_tax) || 0;
   if (data.provincial_tax !== undefined) normalized.taxes.provincial = extractNumeric(data.provincial_tax) || 0;

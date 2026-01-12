@@ -353,6 +353,28 @@ export default function IncomePage() {
             form.setValue("incomeType", incomeData.incomeType || "");
             form.setValue("productionName", incomeData.productionName || "");
             form.setValue("accountingOffice", incomeData.accountingOffice || "");
+            // Populate additional deductions/taxes if provided by OCR
+            if (incomeData.gstHstCollected !== undefined) {
+              form.setValue("gstHstCollected", incomeData.gstHstCollected?.toString() || "");
+            }
+            if (incomeData.dues !== undefined) {
+              form.setValue("dues", incomeData.dues?.toString() || "");
+            }
+            if (incomeData.retirement !== undefined) {
+              form.setValue("retirement", incomeData.retirement?.toString() || "");
+            }
+            if (incomeData.pension !== undefined) {
+              form.setValue("pension", incomeData.pension?.toString() || "");
+            }
+            if (incomeData.insurance !== undefined) {
+              form.setValue("insurance", incomeData.insurance?.toString() || "");
+            }
+            if (incomeData.buyout !== undefined) {
+              form.setValue("buyout", incomeData.buyout?.toString() || "");
+            }
+            if (incomeData.labour !== undefined) {
+              form.setValue("labour", incomeData.labour?.toString() || "");
+            }
             setSelectedCategory(incomeData.incomeCategory || INCOME_CATEGORIES.FILM_TV);
             
             toast({
@@ -542,7 +564,7 @@ export default function IncomePage() {
   const handleDrop = (e: React.DragEvent) => {
     e.preventDefault();
     const files = Array.from(e.dataTransfer.files).filter((f) =>
-      f.type.startsWith("image/")
+      f.type.startsWith("image/") || f.type === "application/pdf"
     );
     const newPreviews = files.map((file) => ({
       file,
@@ -914,15 +936,15 @@ export default function IncomePage() {
               >
                 <Image className="mb-4 h-10 w-10 text-muted-foreground" />
                 <p className="text-sm text-muted-foreground">
-                  Drag and drop images here, or click to select
+                  Drag and drop images or PDFs here, or click to select
                 </p>
                 <p className="mt-1 text-xs text-muted-foreground">
-                  Supports: JPG, PNG, HEIC
+                  Supports: JPG, PNG, HEIC, PDF
                 </p>
                 <Input
                   id="paystub-file-input-income"
                   type="file"
-                  accept="image/*"
+                  accept="image/*,application/pdf"
                   multiple
                   className="hidden"
                   onChange={handlePaystubFileChange}
@@ -934,11 +956,20 @@ export default function IncomePage() {
                 <div className="grid grid-cols-3 gap-4">
                   {previewFiles.map((item, index) => (
                     <div key={index} className="group relative aspect-square">
-                      <img
-                        src={item.preview}
-                        alt={`Preview ${index + 1}`}
-                        className="h-full w-full rounded-lg object-cover"
-                      />
+                      {item.file.type === "application/pdf" ? (
+                        <div className="flex h-full w-full items-center justify-center rounded-lg border bg-muted/30">
+                          <div className="flex flex-col items-center gap-2 p-2 text-center">
+                            <FileText className="h-6 w-6 text-muted-foreground" />
+                            <span className="line-clamp-2 text-xs text-muted-foreground">{item.file.name}</span>
+                          </div>
+                        </div>
+                      ) : (
+                        <img
+                          src={item.preview}
+                          alt={`Preview ${index + 1}`}
+                          className="h-full w-full rounded-lg object-cover"
+                        />
+                      )}
                       <Button
                         variant="destructive"
                         size="icon"
