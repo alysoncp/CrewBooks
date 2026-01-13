@@ -31,6 +31,7 @@ import AssetsPage from "@/pages/assets";
 import LeasesPage from "@/pages/leases";
 import HelpPage from "@/pages/help";
 import AboutPage from "@/pages/about";
+import BenefitsPage from "@/pages/benefits";
 
 function AuthenticatedRouter() {
   return (
@@ -44,6 +45,7 @@ function AuthenticatedRouter() {
       <Route path="/receipts" component={ReceiptsPage} />
       <Route path="/assets" component={AssetsPage} />
       <Route path="/leases" component={LeasesPage} />
+      <Route path="/benefits" component={BenefitsPage} />
       <Route path="/tax-calculator" component={TaxCalculatorPage} />
       <Route path="/optimization" component={OptimizationPage} />
       <Route path="/gst-hst" component={GstHstPage} />

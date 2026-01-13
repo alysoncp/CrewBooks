@@ -15,6 +15,7 @@ export interface NormalizedPaystub {
   netPay: number | null;
   taxes: Record<string, number>;
   deductions: Record<string, number>;
+  reimbursements?: number;
   employerName: string | null;
   employeeName: string | null;
   confidence: number;
@@ -465,6 +466,7 @@ function parseEntertainmentPartners(data: any): NormalizedPaystub {
     netPay,
     taxes: {},
     deductions: {},
+    reimbursements: 0,
     employerName: data.vendor?.name || data.merchant_name || null,
     employeeName: data.employee_name || null,
     confidence: 0,
@@ -606,6 +608,23 @@ function parseEntertainmentPartners(data: any): NormalizedPaystub {
         if (shouldLog) console.log(`  → Extracted G/HST (P) from ocr_text: ${gstAmount}`);
       }
     }
+
+    // Extract reimbursements (Other Payments, Kit Rental, Mileage, Per Diem, Reimbursements)
+    const reimbursementPatterns = [
+      /Reimbursements?[\t\s:]+(\d+\.?\d*)/i,
+      /Other\s+Payments?[\t\s:]+(\d+\.?\d*)/i,
+      /Kit(?:\s+Rental)?[\t\s:]+(\d+\.?\d*)/i,
+      /Mileage[\t\s:]+(\d+\.?\d*)/i,
+      /Per\s*Diem[\t\s:]+(\d+\.?\d*)/i,
+    ];
+    for (const pat of reimbursementPatterns) {
+      const m = ocrText.match(pat);
+      if (m && m[1]) {
+        const val = extractNumeric(m[1]) || 0;
+        normalized.reimbursements = (normalized.reimbursements || 0) + val;
+        if (shouldLog) console.log(`  → Extracted reimbursement from ocr_text: +${val}`);
+      }
+    }
   }
 
   if (shouldLog) {
@@ -675,6 +694,24 @@ function parseCastAndCrew(data: any): NormalizedPaystub {
       if (val !== null) {
         (normalized.taxes as any).gstHst = val;
         if (shouldLog) console.log("[C&C] OCR GST/HST:", val);
+      }
+    }
+
+    // Reimbursements: look for common anchors
+    const reimbPatterns = [
+      /(reimbursements?|exp\.?\s*reimb\.?)[\s:]*\$?\s*([\d,]+(?:\.\d{2})?)/i,
+      /(per\s*diem)[\s:]*\$?\s*([\d,]+(?:\.\d{2})?)/i,
+      /(mileage)[\s:]*\$?\s*([\d,]+(?:\.\d{2})?)/i,
+      /(kit(?:\s*rental)?)[\s:]*\$?\s*([\d,]+(?:\.\d{2})?)/i,
+    ];
+    for (const pat of reimbPatterns) {
+      const m = ocrTextRaw.match(pat);
+      if (m && m[2]) {
+        const val = extractNumeric(m[2]);
+        if (val !== null) {
+          normalized.reimbursements = (normalized.reimbursements || 0) + val;
+          if (shouldLog) console.log("[C&C] OCR Reimbursement:", val);
+        }
       }
     }
 
@@ -858,11 +895,10 @@ export function normalizedPaystubToIncomeData(
   incomeType: string;
   productionName: string | undefined;
   accountingOffice: string | undefined;
+  grossPay: string | undefined;
   gstHstCollected?: string;
   dues?: string;
   retirement?: string;
-  labour?: string;
-  buyout?: string;
   pension?: string;
   insurance?: string;
   confidence: number;
@@ -892,14 +928,10 @@ export function normalizedPaystubToIncomeData(
 
 
   // Extract deductions for the income form
-  // NOTE: buyout and labour are earnings (income), not deductions, but we store them
-  // separately so they can be displayed in the form. They should NOT be subtracted from gross.
   const dues = normalized.deductions.unionDues !== undefined ? normalized.deductions.unionDues.toString() : undefined;
   const retirement = normalized.deductions.retirement !== undefined ? normalized.deductions.retirement.toString() : undefined;
   const pension = normalized.deductions.pension !== undefined ? normalized.deductions.pension.toString() : undefined;
   const insurance = normalized.deductions.insurance !== undefined ? normalized.deductions.insurance.toString() : undefined;
-  const buyout = normalized.deductions.buyout !== undefined ? normalized.deductions.buyout.toString() : undefined;
-  const labour = normalized.deductions.labour !== undefined ? normalized.deductions.labour.toString() : undefined;
   // Note: Mileage is typically an expense, not a deduction on income, but include it if needed
   // const mileage = normalized.deductions.mileage !== undefined ? normalized.deductions.mileage.toString() : undefined;
   
@@ -909,8 +941,6 @@ export function normalizedPaystubToIncomeData(
       retirement,
       pension,
       insurance,
-      buyout,
-      labour,
     });
   }
   
@@ -920,12 +950,36 @@ export function normalizedPaystubToIncomeData(
   const gstHstCollected = gstHstAmount > 0 ? gstHstAmount.toString() : undefined;
   if (shouldLog) console.log("GST/HST collected:", gstHstCollected);
 
+  // Compute issuer-specific taxable income (gross incl. reimbursements, excl. GST/HST)
+  let taxableIncome: number | undefined = undefined;
+  if (normalized.issuer === "ENTERTAINMENT_PARTNERS") {
+    // EP gross includes GST and reimbursements; taxable = gross - GST
+    if (normalized.grossPay !== null && normalized.grossPay !== undefined) {
+      taxableIncome = normalized.grossPay - (gstHstAmount || 0);
+    }
+  } else if (normalized.issuer === "CAST_AND_CREW") {
+    // C&C taxable income: Net Pay - GST/HST + Deductions
+    const totalDeductions = (normalized.deductions.unionDues || 0) +
+      (normalized.deductions.retirement || 0) +
+      (normalized.deductions.pension || 0) +
+      (normalized.deductions.insurance || 0);
+    if (normalized.netPay !== null && normalized.netPay !== undefined) {
+      taxableIncome = normalized.netPay - (gstHstAmount || 0) + totalDeductions;
+    } else if (normalized.grossPay !== null && normalized.grossPay !== undefined) {
+      // Fallback if net is missing: approximate from gross and taxes/deductions
+      const totalTaxes = Object.values(normalized.taxes).reduce((sum, val) => sum + val, 0);
+      const approxNet = normalized.grossPay - totalTaxes - totalDeductions;
+      taxableIncome = approxNet - (gstHstAmount || 0) + totalDeductions;
+    }
+  }
+  if (shouldLog) console.log("Computed taxable income:", taxableIncome);
+
   // Determine if review is needed (low confidence or validation errors)
   const needsReview = normalized.confidence < 0.7;
 
   const result = {
     amount: amount.toString(), // Net pay
-    grossPay: normalized.grossPay ? normalized.grossPay.toString() : undefined,
+    grossPay: taxableIncome !== undefined ? taxableIncome.toString() : (normalized.grossPay ? normalized.grossPay.toString() : undefined),
     date,
     incomeType: defaultIncomeType,
     productionName: normalized.employerName || undefined,
@@ -935,8 +989,6 @@ export function normalizedPaystubToIncomeData(
     retirement,
     pension,
     insurance,
-    buyout,
-    labour,
     confidence: normalized.confidence,
     needsReview,
   };

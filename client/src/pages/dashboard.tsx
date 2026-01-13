@@ -2,7 +2,7 @@ import { useQuery } from "@tanstack/react-query";
 import { useMemo, useState, useEffect } from "react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
-import { TrendingUp, TrendingDown, DollarSign, Receipt, Calculator, Percent } from "lucide-react";
+import { TrendingUp, TrendingDown, DollarSign, Percent } from "lucide-react";
 import { formatCurrency, formatPercent, getCategoryLabel, getYearFromDateString } from "@/lib/format";
 import { AreaChart, Area, XAxis, YAxis, CartesianGrid, Tooltip, ResponsiveContainer, BarChart, Bar, PieChart, Pie, Cell } from "recharts";
 import type { Income, Expense, TaxCalculation, User, Vehicle } from "@shared/schema";
@@ -331,6 +331,7 @@ export default function Dashboard() {
   const totalBusinessExpenses = filteredBusinessExpenses.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
   const totalPersonalExpenses = filteredPersonalExpenses.reduce((sum, item) => sum + parseFloat(item.amount.toString()), 0);
   const netIncome = totalIncome - totalExpenses;
+  const netBusinessIncome = totalIncome - deductibleExpenses;
   
   // For tax calculations, we'll proportionally adjust based on the income ratio
   // This is an approximation since tax brackets are progressive
@@ -355,7 +356,7 @@ export default function Dashboard() {
         <p className="text-muted-foreground">Your financial overview for {taxYear}</p>
       </div>
 
-      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-4">
+      <div className="grid gap-6 md:grid-cols-2 lg:grid-cols-3">
         <StatCard
           title="Total Income"
           value={formatCurrency(totalIncome)}
@@ -364,15 +365,6 @@ export default function Dashboard() {
           trend="up"
           isLoading={isLoading}
           testId="stat-total-income"
-        />
-        <StatCard
-          title="Total Expenses"
-          value={formatCurrency(totalExpenses)}
-          subtitle="Year to date"
-          icon={Receipt}
-          trend="neutral"
-          isLoading={isLoading}
-          testId="stat-total-expenses"
         />
         <StatCard
           title="Deductible Expenses"
@@ -384,11 +376,11 @@ export default function Dashboard() {
           testId="stat-deductible-expenses"
         />
         <StatCard
-          title="Net Cash Flow"
-          value={formatCurrency(netIncome)}
-          subtitle="Income minus expenses"
+          title="Net Business Income"
+          value={formatCurrency(netBusinessIncome)}
+          subtitle="Income minus deductible expenses"
           icon={TrendingUp}
-          trend={netIncome > 0 ? "up" : "down"}
+          trend={netBusinessIncome > 0 ? "up" : "down"}
           isLoading={isLoading}
           testId="stat-net-income"
         />
@@ -506,44 +498,7 @@ export default function Dashboard() {
         </Card>
       </div>
 
-      <Card>
-        <CardHeader>
-          <CardTitle>Tax Breakdown</CardTitle>
-          <CardDescription>Estimated tax obligations for {taxYear}</CardDescription>
-        </CardHeader>
-        <CardContent>
-          {isLoading ? (
-            <Skeleton className="h-32 w-full" />
-          ) : (
-            <div className="grid gap-6 md:grid-cols-4">
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Federal Tax</p>
-                <p className="font-mono text-xl font-semibold" data-testid="stat-federal-tax">
-                  {formatCurrency(federalTax)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">Provincial Tax</p>
-                <p className="font-mono text-xl font-semibold" data-testid="stat-provincial-tax">
-                  {formatCurrency(provincialTax)}
-                </p>
-              </div>
-              <div className="space-y-1">
-                <p className="text-sm text-muted-foreground">CPP Contribution</p>
-                <p className="font-mono text-xl font-semibold" data-testid="stat-cpp">
-                  {formatCurrency(cppContribution)}
-                </p>
-              </div>
-              <div className="space-y-1 border-l pl-6">
-                <p className="text-sm text-muted-foreground">Total Owed</p>
-                <p className="font-mono text-xl font-semibold text-destructive" data-testid="stat-total-owed">
-                  {formatCurrency(totalTaxOwed)}
-                </p>
-              </div>
-            </div>
-          )}
-        </CardContent>
-      </Card>
+      
     </div>
   );
 }

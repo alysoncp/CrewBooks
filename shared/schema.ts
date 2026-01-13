@@ -22,7 +22,6 @@ export type UserType = typeof USER_TYPES[keyof typeof USER_TYPES];
 
 // Union Affiliations
 export const UNIONS = {
-  ACTRA: { id: "actra", name: "ACTRA", levels: ["apprentice", "full", "background"] },
   UBCP: { id: "ubcp", name: "UBCP", levels: ["apprentice", "full", "background"] },
   IATSE: { id: "iatse", name: "IATSE", levels: ["permittee", "full"] },
 } as const;
@@ -242,6 +241,11 @@ export const income = pgTable("income", {
   cppContribution: numeric("cpp_contribution", { precision: 12, scale: 2 }),
   eiContribution: numeric("ei_contribution", { precision: 12, scale: 2 }),
   incomeTaxDeduction: numeric("income_tax_deduction", { precision: 12, scale: 2 }),
+  // Film/TV Deductions
+  dues: numeric("dues", { precision: 12, scale: 2 }),
+  retirement: numeric("retirement", { precision: 12, scale: 2 }),
+  pension: numeric("pension", { precision: 12, scale: 2 }),
+  insurance: numeric("insurance", { precision: 12, scale: 2 }),
 });
 
 export const insertIncomeSchema = createInsertSchema(income).omit({ id: true });

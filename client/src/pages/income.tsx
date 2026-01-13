@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Plus, Trash2, FileText, Search, DollarSign, Receipt, TrendingUp, Pencil, Upload, Image, X, Scan, Camera } from "lucide-react";
+import { Plus, Trash2, FileText, Search, DollarSign, Receipt, TrendingUp, Pencil, Upload, Image, X, Scan, Camera, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -31,6 +31,7 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   Table,
   TableBody,
@@ -71,7 +72,12 @@ const optionalNumberField = z.string().optional().refine((val) => {
 
 const incomeFormSchema = z.object({
   incomeCategory: z.string().min(1, "Income category is required"),
-  grossPay: optionalNumberField,
+  grossPay: z.string().min(1, "Gross pay is required").refine((val) => {
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, {
+    message: "Gross pay must be a valid number",
+  }).transform((v) => parseFloat(v)),
   amount: z.string().min(1, "Amount is required").refine((val) => {
     const num = parseFloat(val);
     return !isNaN(num) && isFinite(num) && num >= 0;
@@ -93,12 +99,30 @@ const incomeFormSchema = z.object({
   // Common fields
   description: z.string().optional(),
   gstHstCollected: optionalNumberField,
+  totalDeductions: z.string().optional().refine((val) => {
+    if (val === undefined || val === "") return true;
+    const num = parseFloat(val);
+    return !isNaN(num) && isFinite(num) && num >= 0;
+  }, { message: "Must be a valid number" }).transform((v) => v ? parseFloat(v) : undefined),
   dues: optionalNumberField,
   retirement: optionalNumberField,
-  labour: optionalNumberField,
-  buyout: optionalNumberField,
   pension: optionalNumberField,
   insurance: optionalNumberField,
+}).superRefine((data, ctx) => {
+  if (data.incomeCategory === INCOME_CATEGORIES.FILM_TV) {
+    // Always require totalDeductions for Film/TV
+    if (data.totalDeductions === undefined || data.totalDeductions === null) {
+      ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totalDeductions"], message: "Total deductions is required" });
+    }
+    // Enforce equality only when all four subfields are filled
+    const hasAll = [data.dues, data.retirement, data.pension, data.insurance].every((v) => v !== undefined);
+    if (hasAll && data.totalDeductions !== undefined && data.totalDeductions !== null) {
+      const sum = (data.dues || 0) + (data.retirement || 0) + (data.pension || 0) + (data.insurance || 0);
+      if (Math.abs(sum - (data.totalDeductions || 0)) > 0.01) {
+        ctx.addIssue({ code: z.ZodIssueCode.custom, path: ["totalDeductions"], message: "Total must equal Dues + Retirement + Pension + Insurance" });
+      }
+    }
+  }
 });
 
 type IncomeFormData = z.input<typeof incomeFormSchema>;
@@ -172,19 +196,40 @@ export default function IncomePage() {
       eiContribution: "",
       incomeTaxDeduction: "",
       gstHstCollected: "",
+      totalDeductions: "",
       dues: "",
       retirement: "",
-      labour: "",
-      buyout: "",
       pension: "",
       insurance: "",
     },
   });
 
+  // Auto-calc Total Deductions when all four subfields are filled and total is empty (do not override manual/OCR input)
+  useEffect(() => {
+    const subscription = form.watch((current) => {
+      const cat = current?.incomeCategory as string | undefined;
+      if (cat !== INCOME_CATEGORIES.FILM_TV) return;
+      const dues = current?.dues as number | string | undefined;
+      const retirement = current?.retirement as number | string | undefined;
+      const pension = current?.pension as number | string | undefined;
+      const insurance = current?.insurance as number | string | undefined;
+      const total = current?.totalDeductions as number | string | undefined;
+      const allFilled = [dues, retirement, pension, insurance].every((v) => v !== undefined && v !== "");
+      const totalEmpty = total === undefined || total === "";
+      if (allFilled && totalEmpty) {
+        const toNum = (v: any) => (typeof v === "string" ? parseFloat(v || "0") : (v || 0));
+        const sum = toNum(dues) + toNum(retirement) + toNum(pension) + toNum(insurance);
+        form.setValue("totalDeductions", sum.toFixed(2), { shouldValidate: true, shouldDirty: true });
+      }
+    });
+    return () => subscription.unsubscribe();
+  }, [form]);
+
   const createMutation = useMutation({
     mutationFn: async (data: IncomeFormData) => {
+      const { totalDeductions, ...rest } = data as any;
       const payload: any = {
-        ...data,
+        ...rest,
         grossPay: data.grossPay?.toString() || null,
         amount: data.amount.toString(),
         accountingOffice: data.accountingOffice || null,
@@ -197,8 +242,6 @@ export default function IncomePage() {
         gstHstCollected: data.gstHstCollected?.toString() || null,
         dues: data.dues?.toString() || null,
         retirement: data.retirement?.toString() || null,
-        labour: data.labour?.toString() || null,
-        buyout: data.buyout?.toString() || null,
         pension: data.pension?.toString() || null,
         insurance: data.insurance?.toString() || null,
       };
@@ -252,8 +295,9 @@ export default function IncomePage() {
     mutationFn: async (data: IncomeFormData) => {
       if (!editingIncome) throw new Error("No income selected for editing");
       
+      const { totalDeductions, ...rest } = data as any;
       const payload: any = {
-        ...data,
+        ...rest,
         grossPay: data.grossPay?.toString() || null,
         amount: data.amount.toString(),
         accountingOffice: data.accountingOffice || null,
@@ -266,8 +310,6 @@ export default function IncomePage() {
         gstHstCollected: data.gstHstCollected?.toString() || null,
         dues: data.dues?.toString() || null,
         retirement: data.retirement?.toString() || null,
-        labour: data.labour?.toString() || null,
-        buyout: data.buyout?.toString() || null,
         pension: data.pension?.toString() || null,
         insurance: data.insurance?.toString() || null,
       };
@@ -357,6 +399,9 @@ export default function IncomePage() {
             if (incomeData.gstHstCollected !== undefined) {
               form.setValue("gstHstCollected", incomeData.gstHstCollected?.toString() || "");
             }
+            if (incomeData.totalDeductions !== undefined) {
+              form.setValue("totalDeductions", incomeData.totalDeductions?.toString() || "");
+            }
             if (incomeData.dues !== undefined) {
               form.setValue("dues", incomeData.dues?.toString() || "");
             }
@@ -368,12 +413,6 @@ export default function IncomePage() {
             }
             if (incomeData.insurance !== undefined) {
               form.setValue("insurance", incomeData.insurance?.toString() || "");
-            }
-            if (incomeData.buyout !== undefined) {
-              form.setValue("buyout", incomeData.buyout?.toString() || "");
-            }
-            if (incomeData.labour !== undefined) {
-              form.setValue("labour", incomeData.labour?.toString() || "");
             }
             setSelectedCategory(incomeData.incomeCategory || INCOME_CATEGORIES.FILM_TV);
             
@@ -511,8 +550,6 @@ export default function IncomePage() {
       gstHstCollected: income.gstHstCollected ? income.gstHstCollected.toString() : "",
       dues: "",
       retirement: "",
-      labour: "",
-      buyout: "",
       pension: "",
       insurance: "",
     });
@@ -703,10 +740,9 @@ export default function IncomePage() {
               eiContribution: data.incomeData.eiContribution || "",
               incomeTaxDeduction: data.incomeData.incomeTaxDeduction || "",
               gstHstCollected: data.incomeData.gstHstCollected || "",
+              totalDeductions: data.incomeData.totalDeductions || "",
               dues: data.incomeData.dues || "",
               retirement: data.incomeData.retirement || "",
-              labour: data.incomeData.labour || "",
-              buyout: data.incomeData.buyout || "",
               pension: data.incomeData.pension || "",
               insurance: data.incomeData.insurance || "",
             });
@@ -1110,70 +1146,7 @@ export default function IncomePage() {
                   {/* All fields conditional on income type selection */}
                   {form.watch("incomeCategory") && (
                     <>
-                      {/* Common Fields */}
-                      <FormField
-                        control={form.control}
-                        name="date"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Date</FormLabel>
-                            <FormControl>
-                              <Input {...field} type="date" data-testid="input-income-date" />
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="grossPay"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>Gross Pay (Optional)</FormLabel>
-                            <FormControl>
-                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                <Input
-                                  {...field}
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  placeholder="0.00"
-                                  className="pl-7 font-mono"
-                                  data-testid="input-income-gross-pay"
-                                />
-                              </div>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-                      <FormField
-                        control={form.control}
-                        name="amount"
-                        render={({ field }) => (
-                          <FormItem>
-                            <FormLabel>{form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT ? "Net Pay" : "Net Income"}</FormLabel>
-                            <FormControl>
-                              <div className="relative">
-                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                <Input
-                                  {...field}
-                                  type="number"
-                                  step="0.01"
-                                  min="0"
-                                  placeholder="0.00"
-                                  className="pl-7 font-mono"
-                                  data-testid="input-income-amount"
-                                />
-                              </div>
-                            </FormControl>
-                            <FormMessage />
-                          </FormItem>
-                        )}
-                      />
-
-                      {/* Film/TV Income Fields */}
+                      {/* Film/TV primary fields first when Film/TV is selected */}
                       {form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV && (
                         <>
                           <FormField
@@ -1181,7 +1154,27 @@ export default function IncomePage() {
                             name="incomeType"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Show Type</FormLabel>
+                                <div className="flex items-center gap-2">
+                                  <FormLabel>Show Type</FormLabel>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button type="button" aria-label="Show type info" className="text-muted-foreground hover:text-foreground">
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="max-w-xs text-xs" align="start">
+                                      <div className="space-y-2">
+                                        <p className="font-medium">Income type helps us classify Film/TV income:</p>
+                                        <ul className="list-disc pl-4 space-y-1">
+                                          <li><span className="font-medium">Union Production</span>: Work paid through a union production (e.g., UBCP/ACTRA productions).</li>
+                                          <li><span className="font-medium">Non-Union Production</span>: Work on non-union shows or projects.</li>
+                                          <li><span className="font-medium">Royalty/Residual</span>: Residuals or ongoing royalty payments.</li>
+                                          <li><span className="font-medium">Cash</span>: Cash payments that may not have formal paystubs.</li>
+                                        </ul>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
                                 <Select onValueChange={field.onChange} defaultValue={field.value}>
                                   <FormControl>
                                     <SelectTrigger data-testid="select-income-type">
@@ -1202,27 +1195,27 @@ export default function IncomePage() {
                           />
                           <FormField
                             control={form.control}
-                            name="productionName"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Show</FormLabel>
-                                <FormControl>
-                                  <Input
-                                    {...field}
-                                    placeholder="e.g., The Crown Season 6"
-                                    data-testid="input-income-production"
-                                  />
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
                             name="accountingOffice"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Issuer</FormLabel>
+                                <div className="flex items-center gap-2">
+                                  <FormLabel>Issuer</FormLabel>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button type="button" aria-label="Issuer info" className="text-muted-foreground hover:text-foreground">
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="max-w-xs text-xs" align="start">
+                                      <div className="space-y-2">
+                                        <p className="font-medium">Issuer</p>
+                                        <p>
+                                          The payroll or accounting company that issued your pay (e.g., Entertainment Partners, Cast & Crew). Choose Other to enter a custom issuer.
+                                        </p>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
                                 <Select 
                                   onValueChange={(value) => {
                                     field.onChange(value);
@@ -1249,6 +1242,23 @@ export default function IncomePage() {
                               </FormItem>
                             )}
                           />
+                          <FormField
+                            control={form.control}
+                            name="productionName"
+                            render={({ field }) => (
+                              <FormItem>
+                                <FormLabel>Show</FormLabel>
+                                <FormControl>
+                                  <Input
+                                    {...field}
+                                    placeholder="e.g., The Crown Season 6"
+                                    data-testid="input-income-production"
+                                  />
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                           {form.watch("accountingOffice") === "other" && (
                             <FormItem>
                               <FormLabel>Custom Accounting Office</FormLabel>
@@ -1263,6 +1273,113 @@ export default function IncomePage() {
                             </FormItem>
                           )}
                         </>
+                      )}
+                      {/* Common Fields */}
+                      <FormField
+                        control={form.control}
+                        name="date"
+                        render={({ field }) => (
+                          <FormItem>
+                            <FormLabel>Date</FormLabel>
+                            <FormControl>
+                              <Input {...field} type="date" data-testid="input-income-date" />
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="grossPay"
+                        render={({ field }) => (
+                          <FormItem>
+                            <div className="flex items-center gap-2">
+                              <FormLabel>Gross Pay</FormLabel>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button type="button" aria-label="Gross pay info" className="text-muted-foreground hover:text-foreground">
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="max-w-xs text-xs" align="start">
+                                  <div className="space-y-2">
+                                    <p className="font-medium">Gross Pay</p>
+                                    <p>
+                                      Total earnings before any deductions or taxes (the amount on your contract or before withholdings on a paystub).
+                                    </p>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-income-gross-pay"
+                                />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+                      <FormField
+                        control={form.control}
+                        name="amount"
+                        render={({ field }) => (
+                          <FormItem>
+                            <div className="flex items-center gap-2">
+                              <FormLabel>{
+                                form.watch("incomeCategory") === INCOME_CATEGORIES.REGULAR_EMPLOYMENT
+                                  ? "Net Pay"
+                                  : ((form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV && ["entertainment_partners_canada","cast_and_crew_services"].includes(form.watch("accountingOffice") || ""))
+                                    ? "Net Pay"
+                                    : "Net Income")
+                              }</FormLabel>
+                              <Popover>
+                                <PopoverTrigger asChild>
+                                  <button type="button" aria-label="Net amount info" className="text-muted-foreground hover:text-foreground">
+                                    <Info className="h-4 w-4" />
+                                  </button>
+                                </PopoverTrigger>
+                                <PopoverContent className="max-w-xs text-xs" align="start">
+                                  <div className="space-y-2">
+                                    <p className="font-medium">Net amount</p>
+                                    <p>
+                                      What you actually received after deductions and taxes. For regular employment and EP/C&C paystubs this is your Net Pay (amount deposited); for other Film/TV and self-employment this is your Net Income after fees/dues.
+                                    </p>
+                                  </div>
+                                </PopoverContent>
+                              </Popover>
+                            </div>
+                            <FormControl>
+                              <div className="relative">
+                                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                <Input
+                                  {...field}
+                                  type="number"
+                                  step="0.01"
+                                  min="0"
+                                  placeholder="0.00"
+                                  className="pl-7 font-mono"
+                                  data-testid="input-income-amount"
+                                />
+                              </div>
+                            </FormControl>
+                            <FormMessage />
+                          </FormItem>
+                        )}
+                      />
+
+                      {/* Film/TV Income Fields */}
+                      {form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV && (
+                        <></>
                       )}
 
                       {/* Regular Employment Income Fields */}
@@ -1453,13 +1570,70 @@ export default function IncomePage() {
 
                       {/* Film/TV Specific Deductions */}
                       {form.watch("incomeCategory") === INCOME_CATEGORIES.FILM_TV && (
-                        <>
+                        <div className={`mt-2 rounded-md border p-3 ${form.formState.errors.totalDeductions ? 'border-red-300' : 'border-border'}`}>
+                          <div className="mb-2 text-sm font-medium text-muted-foreground">Deductions</div>
+                          <FormField
+                            control={form.control}
+                            name="totalDeductions"
+                            render={({ field }) => (
+                              <FormItem>
+                                <div className="flex items-center gap-2">
+                                  <FormLabel>Total Deductions</FormLabel>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button type="button" aria-label="Total deductions info" className="text-muted-foreground hover:text-foreground">
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="max-w-xs text-xs" align="start">
+                                      <div className="space-y-2">
+                                        <p className="font-medium">Total Deductions</p>
+                                        <p>Sum of Dues, Retirement, Pension, and Insurance for this pay period.</p>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
+                                <FormControl>
+                                  <div className="relative">
+                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
+                                    <Input
+                                      {...field}
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      placeholder="0.00"
+                                      className="pl-7 font-mono"
+                                      data-testid="input-income-total-deductions"
+                                    />
+                                  </div>
+                                </FormControl>
+                                <FormMessage />
+                              </FormItem>
+                            )}
+                          />
                           <FormField
                             control={form.control}
                             name="dues"
                             render={({ field }) => (
                               <FormItem>
-                                <FormLabel>Dues (Optional)</FormLabel>
+                                <div className="flex items-center gap-2">
+                                  <FormLabel>Dues (Optional)</FormLabel>
+                                  <Popover>
+                                    <PopoverTrigger asChild>
+                                      <button type="button" aria-label="Dues info" className="text-muted-foreground hover:text-foreground">
+                                        <Info className="h-4 w-4" />
+                                      </button>
+                                    </PopoverTrigger>
+                                    <PopoverContent className="max-w-xs text-xs" align="start">
+                                      <div className="space-y-2">
+                                        <p className="font-medium">Union Dues</p>
+                                        <p>
+                                          Amounts withheld for union dues on your paystub. Enter only the dues related to this payment.
+                                        </p>
+                                      </div>
+                                    </PopoverContent>
+                                  </Popover>
+                                </div>
                                 <FormControl>
                                   <div className="relative">
                                     <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
@@ -1504,54 +1678,6 @@ export default function IncomePage() {
                               )}
                             />
                           )}
-                          <FormField
-                            control={form.control}
-                            name="labour"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Labour (Optional)</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-income-labour"
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
-                          <FormField
-                            control={form.control}
-                            name="buyout"
-                            render={({ field }) => (
-                              <FormItem>
-                                <FormLabel>Buyout (Optional)</FormLabel>
-                                <FormControl>
-                                  <div className="relative">
-                                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted-foreground">$</span>
-                                    <Input
-                                      {...field}
-                                      type="number"
-                                      step="0.01"
-                                      min="0"
-                                      placeholder="0.00"
-                                      className="pl-7 font-mono"
-                                      data-testid="input-income-buyout"
-                                    />
-                                  </div>
-                                </FormControl>
-                                <FormMessage />
-                              </FormItem>
-                            )}
-                          />
                           {showRetirementAndInsurance && (
                             <FormField
                               control={form.control}
@@ -1604,7 +1730,7 @@ export default function IncomePage() {
                               )}
                             />
                           )}
-                        </>
+                        </div>
                       )}
                     </>
                   )}

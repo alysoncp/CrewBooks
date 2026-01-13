@@ -27,15 +27,13 @@ import {
   SelectTrigger,
   SelectValue,
 } from "@/components/ui/select";
-import { RadioGroup, RadioGroupItem } from "@/components/ui/radio-group";
 import { useToast } from "@/hooks/use-toast";
 import { queryClient, apiRequest } from "@/lib/queryClient";
-import { User, Building2, Crown, Sparkles, Briefcase, Camera, Users, ArrowUpRight } from "lucide-react";
+import { User, Building2, Crown, Sparkles, ArrowUpRight } from "lucide-react";
 import { Link } from "wouter";
 import { 
   CANADIAN_PROVINCES, 
   PRICING_TIERS, 
-  USER_TYPES,
   UNIONS,
   type User as UserType,
   type UnionAffiliation 
@@ -50,7 +48,6 @@ const profileFormSchema = z.object({
   firstName: z.string().min(1, "First name is required"),
   lastName: z.string().min(1, "Last name is required"),
   email: z.string().email("Invalid email address").optional().or(z.literal("")),
-  userType: z.enum([USER_TYPES.PERFORMER, USER_TYPES.CREW, USER_TYPES.BOTH]).nullable(),
   unionAffiliations: z.array(unionAffiliationSchema).nullable(),
   hasAgent: z.boolean(),
   agentName: z.string().optional().or(z.literal("")),
@@ -95,7 +92,6 @@ export default function ProfilePage() {
       firstName: "",
       lastName: "",
       email: "",
-      userType: null,
       unionAffiliations: [],
       hasAgent: false,
       agentName: "",
@@ -110,7 +106,6 @@ export default function ProfilePage() {
           firstName: user.firstName || "",
           lastName: user.lastName || "",
           email: user.email || "",
-          userType: (user.userType as typeof USER_TYPES.PERFORMER | typeof USER_TYPES.CREW | typeof USER_TYPES.BOTH) || null,
           unionAffiliations: (user.unionAffiliations as UnionAffiliation[]) || [],
           hasAgent: user.hasAgent || false,
           agentName: user.agentName || "",
@@ -123,7 +118,6 @@ export default function ProfilePage() {
       : undefined,
   });
 
-  const watchedUserType = useWatch({ control: form.control, name: "userType" });
   const watchedHasAgent = useWatch({ control: form.control, name: "hasAgent" });
   const watchedHasGstNumber = useWatch({ control: form.control, name: "hasGstNumber" });
   const watchedHasHomeOffice = useWatch({ control: form.control, name: "hasHomeOffice" });
@@ -151,8 +145,7 @@ export default function ProfilePage() {
     return () => clearTimeout(handler);
   }, [watchedAll, user]);
   
-  const isPerformer = watchedUserType === USER_TYPES.PERFORMER || watchedUserType === USER_TYPES.BOTH;
-  const isCrew = watchedUserType === USER_TYPES.CREW || watchedUserType === USER_TYPES.BOTH;
+  
 
   const updateMutation = useMutation({
     mutationFn: async (data: ProfileFormData) => {
@@ -357,263 +350,67 @@ export default function ProfilePage() {
           <Card>
             <CardHeader>
               <CardTitle className="flex items-center gap-2">
-                <Briefcase className="h-5 w-5" />
-                Industry Role
+                Union Affiliations
               </CardTitle>
-              <CardDescription>Tell us about your role in the film and television industry</CardDescription>
+              <CardDescription>Select your union memberships and status</CardDescription>
             </CardHeader>
             <CardContent className="space-y-6">
-              <FormField
-                control={form.control}
-                name="userType"
-                render={({ field }) => (
-                  <FormItem className="space-y-4">
-                    <FormLabel className="text-base">What type of work do you do?</FormLabel>
-                    <FormControl>
-                      <RadioGroup
-                        onValueChange={field.onChange}
-                        value={field.value || ""}
-                        className="grid gap-4 md:grid-cols-3"
-                      >
-                        <label
-                          className={`flex cursor-pointer items-start gap-4 rounded-lg border p-4 transition-colors ${
-                            field.value === USER_TYPES.PERFORMER
-                              ? "border-primary bg-primary/5"
-                              : "hover:border-muted-foreground/50"
-                          }`}
-                          data-testid="radio-performer"
-                        >
-                          <RadioGroupItem value={USER_TYPES.PERFORMER} className="mt-1" />
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <Camera className="h-4 w-4" />
-                              <p className="font-medium">Performer</p>
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              Actor, background, stunt, etc.
-                            </p>
-                          </div>
-                        </label>
-                        <label
-                          className={`flex cursor-pointer items-start gap-4 rounded-lg border p-4 transition-colors ${
-                            field.value === USER_TYPES.CREW
-                              ? "border-primary bg-primary/5"
-                              : "hover:border-muted-foreground/50"
-                          }`}
-                          data-testid="radio-crew"
-                        >
-                          <RadioGroupItem value={USER_TYPES.CREW} className="mt-1" />
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <Users className="h-4 w-4" />
-                              <p className="font-medium">Crew</p>
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              Camera, grips, electric, etc.
-                            </p>
-                          </div>
-                        </label>
-                        <label
-                          className={`flex cursor-pointer items-start gap-4 rounded-lg border p-4 transition-colors ${
-                            field.value === USER_TYPES.BOTH
-                              ? "border-primary bg-primary/5"
-                              : "hover:border-muted-foreground/50"
-                          }`}
-                          data-testid="radio-both"
-                        >
-                          <RadioGroupItem value={USER_TYPES.BOTH} className="mt-1" />
-                          <div className="space-y-1">
-                            <div className="flex items-center gap-2">
-                              <Camera className="h-4 w-4" />
-                              <Users className="h-4 w-4" />
-                              <p className="font-medium">Both</p>
-                            </div>
-                            <p className="text-sm text-muted-foreground">
-                              I do both performer and crew work
-                            </p>
-                          </div>
-                        </label>
-                      </RadioGroup>
-                    </FormControl>
-                    <FormMessage />
-                  </FormItem>
-                )}
-              />
-
-              {watchedUserType && (
-                <>
-                  <Separator />
-                  <div className="space-y-4">
-                    <FormLabel className="text-base">Union Affiliations</FormLabel>
-                    <FormDescription>Select your union memberships and status</FormDescription>
-                    
-                    <div className="space-y-4">
-                      {isPerformer && (
-                        <>
-                          <div className="rounded-lg border p-4 space-y-3">
-                            <div className="flex items-center gap-3">
-                              <Checkbox
-                                id="actra"
-                                checked={!!getUnionAffiliation("actra")}
-                                onCheckedChange={(checked) => toggleUnion("actra", !!checked)}
-                                data-testid="checkbox-actra"
-                              />
-                              <label htmlFor="actra" className="font-medium cursor-pointer">ACTRA</label>
-                            </div>
-                            {getUnionAffiliation("actra") && (
-                              <Select
-                                value={getUnionAffiliation("actra")?.level}
-                                onValueChange={(value) => updateUnionLevel("actra", value)}
-                              >
-                                <SelectTrigger className="w-48" data-testid="select-actra-level">
-                                  <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="apprentice">Apprentice</SelectItem>
-                                  <SelectItem value="full">Full Member</SelectItem>
-                                  <SelectItem value="background">Background</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            )}
-                          </div>
-
-                          <div className="rounded-lg border p-4 space-y-3">
-                            <div className="flex items-center gap-3">
-                              <Checkbox
-                                id="ubcp"
-                                checked={!!getUnionAffiliation("ubcp")}
-                                onCheckedChange={(checked) => toggleUnion("ubcp", !!checked)}
-                                data-testid="checkbox-ubcp"
-                              />
-                              <label htmlFor="ubcp" className="font-medium cursor-pointer">UBCP</label>
-                            </div>
-                            {getUnionAffiliation("ubcp") && (
-                              <Select
-                                value={getUnionAffiliation("ubcp")?.level}
-                                onValueChange={(value) => updateUnionLevel("ubcp", value)}
-                              >
-                                <SelectTrigger className="w-48" data-testid="select-ubcp-level">
-                                  <SelectValue placeholder="Select status" />
-                                </SelectTrigger>
-                                <SelectContent>
-                                  <SelectItem value="apprentice">Apprentice</SelectItem>
-                                  <SelectItem value="full">Full Member</SelectItem>
-                                  <SelectItem value="background">Background</SelectItem>
-                                </SelectContent>
-                              </Select>
-                            )}
-                          </div>
-                        </>
-                      )}
-
-                      {isCrew && (
-                        <div className="rounded-lg border p-4 space-y-3">
-                          <div className="flex items-center gap-3">
-                            <Checkbox
-                              id="iatse"
-                              checked={!!getUnionAffiliation("iatse")}
-                              onCheckedChange={(checked) => toggleUnion("iatse", !!checked)}
-                              data-testid="checkbox-iatse"
-                            />
-                            <label htmlFor="iatse" className="font-medium cursor-pointer">IATSE</label>
-                          </div>
-                          {getUnionAffiliation("iatse") && (
-                            <Select
-                              value={getUnionAffiliation("iatse")?.level}
-                              onValueChange={(value) => updateUnionLevel("iatse", value)}
-                            >
-                              <SelectTrigger className="w-48" data-testid="select-iatse-level">
-                                <SelectValue placeholder="Select status" />
-                              </SelectTrigger>
-                              <SelectContent>
-                                <SelectItem value="permittee">Permittee</SelectItem>
-                                <SelectItem value="full">Full Member</SelectItem>
-                              </SelectContent>
-                            </Select>
-                          )}
-                        </div>
-                      )}
-                    </div>
+              <div className="space-y-4">
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="ubcp"
+                      checked={!!getUnionAffiliation("ubcp")}
+                      onCheckedChange={(checked) => toggleUnion("ubcp", !!checked)}
+                      data-testid="checkbox-ubcp"
+                    />
+                    <label htmlFor="ubcp" className="font-medium cursor-pointer">UBCP</label>
                   </div>
-
-                  {isPerformer && (
-                    <>
-                      <Separator />
-                      <div className="space-y-4">
-                        <FormField
-                          control={form.control}
-                          name="hasAgent"
-                          render={({ field }) => (
-                            <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
-                              <div className="space-y-0.5">
-                                <FormLabel className="text-base">Representation</FormLabel>
-                                <FormDescription>
-                                  Do you have an agent or manager?
-                                </FormDescription>
-                              </div>
-                              <FormControl>
-                                <Switch
-                                  checked={field.value}
-                                  onCheckedChange={field.onChange}
-                                  data-testid="switch-has-agent"
-                                />
-                              </FormControl>
-                            </FormItem>
-                          )}
-                        />
-
-                        {watchedHasAgent && (
-                          <div className="grid gap-4 md:grid-cols-2">
-                            <FormField
-                              control={form.control}
-                              name="agentName"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Agent/Manager Name</FormLabel>
-                                  <FormControl>
-                                    <Input
-                                      {...field}
-                                      placeholder="Agent or agency name"
-                                      data-testid="input-agent-name"
-                                    />
-                                  </FormControl>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                            <FormField
-                              control={form.control}
-                              name="agentCommission"
-                              render={({ field }) => (
-                                <FormItem>
-                                  <FormLabel>Commission Rate (%)</FormLabel>
-                                  <FormControl>
-                                    <div className="relative">
-                                      <Input
-                                        {...field}
-                                        type="number"
-                                        step="0.5"
-                                        min="0"
-                                        max="25"
-                                        placeholder="10"
-                                        className="pr-8"
-                                        data-testid="input-agent-commission"
-                                      />
-                                      <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
-                                    </div>
-                                  </FormControl>
-                                  <FormDescription>Typically 10-15%</FormDescription>
-                                  <FormMessage />
-                                </FormItem>
-                              )}
-                            />
-                          </div>
-                        )}
-                      </div>
-                    </>
+                  {getUnionAffiliation("ubcp") && (
+                    <Select
+                      value={getUnionAffiliation("ubcp")?.level}
+                      onValueChange={(value) => updateUnionLevel("ubcp", value)}
+                    >
+                      <SelectTrigger className="w-48" data-testid="select-ubcp-level">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="apprentice">Apprentice</SelectItem>
+                        <SelectItem value="full">Full Member</SelectItem>
+                        <SelectItem value="background">Background</SelectItem>
+                      </SelectContent>
+                    </Select>
                   )}
-                </>
-              )}
+                </div>
+
+                <div className="rounded-lg border p-4 space-y-3">
+                  <div className="flex items-center gap-3">
+                    <Checkbox
+                      id="iatse"
+                      checked={!!getUnionAffiliation("iatse")}
+                      onCheckedChange={(checked) => toggleUnion("iatse", !!checked)}
+                      data-testid="checkbox-iatse"
+                    />
+                    <label htmlFor="iatse" className="font-medium cursor-pointer">IATSE</label>
+                  </div>
+                  {getUnionAffiliation("iatse") && (
+                    <Select
+                      value={getUnionAffiliation("iatse")?.level}
+                      onValueChange={(value) => updateUnionLevel("iatse", value)}
+                    >
+                      <SelectTrigger className="w-48" data-testid="select-iatse-level">
+                        <SelectValue placeholder="Select status" />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="permittee">Permittee</SelectItem>
+                        <SelectItem value="full">Full Member</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  )}
+                </div>
+              </div>
+
+              
             </CardContent>
           </Card>
 
@@ -647,6 +444,78 @@ export default function ProfilePage() {
                   </FormItem>
                 )}
               />
+              <Separator />
+              <div className="space-y-4">
+                <FormField
+                  control={form.control}
+                  name="hasAgent"
+                  render={({ field }) => (
+                    <FormItem className="flex flex-row items-center justify-between rounded-lg border p-4">
+                      <div className="space-y-0.5">
+                        <FormLabel className="text-base">Representation</FormLabel>
+                        <FormDescription>
+                          Do you have an agent or manager?
+                        </FormDescription>
+                      </div>
+                      <FormControl>
+                        <Switch
+                          checked={field.value}
+                          onCheckedChange={field.onChange}
+                          data-testid="switch-has-agent"
+                        />
+                      </FormControl>
+                    </FormItem>
+                  )}
+                />
+
+                {watchedHasAgent && (
+                  <div className="grid gap-4 md:grid-cols-2">
+                    <FormField
+                      control={form.control}
+                      name="agentName"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Agent/Manager Name</FormLabel>
+                          <FormControl>
+                            <Input
+                              {...field}
+                              placeholder="Agent or agency name"
+                              data-testid="input-agent-name"
+                            />
+                          </FormControl>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                    <FormField
+                      control={form.control}
+                      name="agentCommission"
+                      render={({ field }) => (
+                        <FormItem>
+                          <FormLabel>Commission Rate (%)</FormLabel>
+                          <FormControl>
+                            <div className="relative">
+                              <Input
+                                {...field}
+                                type="number"
+                                step="0.5"
+                                min="0"
+                                max="25"
+                                placeholder="10"
+                                className="pr-8"
+                                data-testid="input-agent-commission"
+                              />
+                              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted-foreground">%</span>
+                            </div>
+                          </FormControl>
+                          <FormDescription>Typically 10-15%</FormDescription>
+                          <FormMessage />
+                        </FormItem>
+                      )}
+                    />
+                  </div>
+                )}
+              </div>
             </CardContent>
           </Card>
         </form>

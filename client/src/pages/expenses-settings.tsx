@@ -401,9 +401,7 @@ export default function ExpensesSettingsPage() {
         <CardHeader>
           <CardTitle>Self-Employment Expense Configuration</CardTitle>
           <CardDescription>
-            Configure your self-employment expense settings. All expense categories are available when creating expenses based on the expense type you select. 
-            If you use any part of your home as a home office for your self-employment activities, set the percentage below. 
-            When you create expenses with the "Home" expense type, the deductible portion will automatically be calculated based on this percentage.
+            Configure your self-employment expense categories and home office percentage.
           </CardDescription>
         </CardHeader>
         <CardContent>
@@ -414,39 +412,42 @@ export default function ExpensesSettingsPage() {
                 Home Office Percentage
               </label>
             </div>
-            <div className="flex items-center gap-2">
-              <label className="text-xs text-muted-foreground">
-                Enter the percentage of your home used for business purposes:
-              </label>
-              <div className="relative w-24">
-                <Input
-                  type="number"
-                  min="0"
-                  max="100"
-                  step="0.01"
-                  placeholder="0.00"
-                  value={homeOfficePercentage}
-                  onChange={(e) => {
-                    const value = e.target.value;
-                    // Allow empty string or valid number between 0-100
-                    if (value === "" || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
-                      handleHomeOfficePercentageChange(value);
-                    }
-                  }}
-                  onBlur={handleHomeOfficePercentageBlur}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.currentTarget.blur();
-                    }
-                  }}
-                  className="pr-8 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
-                  disabled={updateHomeOfficePercentageMutation.isPending}
-                />
-                <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span>
+            <div className="space-y-2">
+              <p className="text-xs text-muted-foreground">
+                 If you use any part of your home as a home office for your self-employment activities, set the percentage below. 
+                When you create expenses with the "Home" expense type, the deductible portion will automatically be calculated based on this percentage.
+              </p>
+              <div className="flex items-center gap-2">
+                <div className="relative min-w-[4.5rem]">
+                  <Input
+                    type="number"
+                    min="0"
+                    max="100"
+                    step="0.01"
+                    placeholder="0.00"
+                    value={homeOfficePercentage}
+                    onChange={(e) => {
+                      const value = e.target.value;
+                      // Allow empty string or valid number between 0-100
+                      if (value === "" || (parseFloat(value) >= 0 && parseFloat(value) <= 100)) {
+                        handleHomeOfficePercentageChange(value);
+                      }
+                    }}
+                    onBlur={handleHomeOfficePercentageBlur}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter") {
+                        e.currentTarget.blur();
+                      }
+                    }}
+                    className="w-full pr-8 text-sm [appearance:textfield] [&::-webkit-outer-spin-button]:appearance-none [&::-webkit-inner-spin-button]:appearance-none"
+                    disabled={updateHomeOfficePercentageMutation.isPending}
+                  />
+                  <span className="absolute right-2 top-1/2 -translate-y-1/2 text-muted-foreground text-xs">%</span>
+                </div>
+                {updateHomeOfficePercentageMutation.isPending && (
+                  <span className="text-xs text-muted-foreground">Saving...</span>
+                )}
               </div>
-              {updateHomeOfficePercentageMutation.isPending && (
-                <span className="text-xs text-muted-foreground">Saving...</span>
-              )}
             </div>
             <div className="mt-3">
               <p className="text-xs text-muted-foreground mb-2">Home office expenses include:</p>
