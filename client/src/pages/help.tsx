@@ -175,27 +175,6 @@ If uploading a paystub: Select the photo or PDF of the paystub you wish to add. 
     keywords: ["tax estimator", "tax calculator", "tax calculation", "federal tax", "provincial tax", "CPP", "tax brackets", "estimate"],
   },
   {
-    id: "business-summary",
-    title: "Business Summary (T2125)",
-    content: `Generate a Business Summary report for Form T2125 (Statement of Business or Professional Activities) used in personal tax returns (available for Personal and Corporate tiers).
-
-**Using Business Summary**:
-1. Navigate to Tax Tools > Business Summary
-2. The report summarizes your business income and expenses for the tax year
-3. It organizes expenses by category as required for T2125
-4. Use this information when filling out your personal tax return
-
-**Report Contents**:
-- Total business income
-- Expenses by category (matching T2125 categories)
-- Net business income
-- Home office deduction (if applicable)
-- Vehicle expense deduction (if applicable)
-
-**Export**: The summary can be used as a reference when preparing your tax return.`,
-    keywords: ["business summary", "T2125", "form T2125", "statement of business", "professional activities", "tax return", "report"],
-  },
-  {
     id: "t2-filing",
     title: "T2 Filing (Corporate)",
     content: `Complete a T2 Corporate Tax Return questionnaire (available for Corporate subscription tier only).

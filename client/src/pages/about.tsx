@@ -124,7 +124,7 @@ export default function AboutPage() {
             <div>
               <h3 className="font-semibold text-sm mb-2">Personal</h3>
               <p className="text-sm text-muted-foreground">
-                Everything in Basic, plus tax estimation tools and Business Summary (T2125) reporting for personal tax returns.
+                Everything in Basic, plus tax estimation tools for personal tax returns.
               </p>
             </div>
             <div>

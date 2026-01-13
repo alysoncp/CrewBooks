@@ -23,7 +23,6 @@ import Landing from "@/pages/landing";
 import GstHstPage from "@/pages/gst-hst";
 import PricingPage from "@/pages/pricing";
 import TaxFilingT2Page from "@/pages/tax-filing-t2";
-import TaxFilingT2125Page from "@/pages/tax-filing-t2125";
 import PaystubsPage from "@/pages/paystubs";
 import VehicleMileagePage from "@/pages/vehicle-mileage";
 import VehiclesPage from "@/pages/vehicles";
@@ -50,7 +49,6 @@ function AuthenticatedRouter() {
       <Route path="/optimization" component={OptimizationPage} />
       <Route path="/gst-hst" component={GstHstPage} />
       <Route path="/tax-filing-t2" component={TaxFilingT2Page} />
-      <Route path="/tax-filing-t2125" component={TaxFilingT2125Page} />
       <Route path="/profile" component={ProfilePage} />
       <Route path="/pricing" component={PricingPage} />
       <Route path="/paystubs" component={PaystubsPage} />
