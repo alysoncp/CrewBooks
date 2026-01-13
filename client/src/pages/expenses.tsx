@@ -3,7 +3,7 @@ import { useQuery, useMutation } from "@tanstack/react-query";
 import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
-import { Search, Receipt as ReceiptIcon, Plus, Trash2, Edit, Image as ImageIcon, X, AlertCircle, Camera, Pencil, Scan } from "lucide-react";
+import { Search, Receipt as ReceiptIcon, Plus, Trash2, Edit, Image as ImageIcon, X, AlertCircle, Camera, Pencil, Scan, Info } from "lucide-react";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -41,6 +41,7 @@ import {
   TableHeader,
   TableRow,
 } from "@/components/ui/table";
+import { Popover, PopoverTrigger, PopoverContent } from "@/components/ui/popover";
 import {
   AlertDialog,
   AlertDialogAction,
@@ -1327,7 +1328,27 @@ export default function ExpensesPage() {
                       name="expenseType"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Expense Type</FormLabel>
+                          <div className="flex items-center gap-2">
+                            <FormLabel>Expense Type</FormLabel>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button type="button" aria-label="Expense type info" className="text-muted-foreground hover:text-foreground">
+                                  <Info className="h-4 w-4" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="max-w-xs text-xs" align="start">
+                                <div className="space-y-2">
+                                  <p className="font-medium">Expense Type</p>
+                                  <p>
+                                    Choose how this expense is treated: Self-Employment (business), Vehicle, Home (home office/living), Personal, or Mixed. Mixed expenses require a business use percentage.
+                                  </p>
+                                  <p>
+                                    See details in the <a href="/help#expense-management" target="_blank" rel="noopener noreferrer" className="underline">Help</a> section.
+                                  </p>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
                           <Select onValueChange={field.onChange} value={field.value}>
                             <FormControl>
                               <SelectTrigger data-testid="select-expense-type">
@@ -1354,7 +1375,27 @@ export default function ExpensesPage() {
                       name="category"
                       render={({ field }) => (
                         <FormItem>
-                          <FormLabel>Category</FormLabel>
+                          <div className="flex items-center gap-2">
+                            <FormLabel>Category</FormLabel>
+                            <Popover>
+                              <PopoverTrigger asChild>
+                                <button type="button" aria-label="Category info" className="text-muted-foreground hover:text-foreground">
+                                  <Info className="h-4 w-4" />
+                                </button>
+                              </PopoverTrigger>
+                              <PopoverContent className="max-w-xs text-xs" align="start">
+                                <div className="space-y-2">
+                                  <p className="font-medium">Category</p>
+                                  <p>
+                                    Categories shown depend on the selected expense type. For business and mixed expenses, choose the business category. For personal expenses, choose the personal category.
+                                  </p>
+                                  <p>
+                                    See examples in the <a href="/help#expense-management" target="_blank" rel="noopener noreferrer" className="underline">Help</a> section.
+                                  </p>
+                                </div>
+                              </PopoverContent>
+                            </Popover>
+                          </div>
                           <Select 
                             onValueChange={field.onChange} 
                             value={field.value}

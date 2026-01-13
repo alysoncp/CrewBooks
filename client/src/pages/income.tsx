@@ -154,7 +154,7 @@ export default function IncomePage() {
   const [paystubImageUrl, setPaystubImageUrl] = useState<string | null>(null);
   const [previewFiles, setPreviewFiles] = useState<{ file: File; preview: string }[]>([]);
   const [paystubNotes, setPaystubNotes] = useState("");
-  const [scanWithOCR, setScanWithOCR] = useState(false);
+  const [scanWithOCR, setScanWithOCR] = useState(true);
   const { taxYear } = useTaxYear();
   const { toast } = useToast();
   const { user } = useAuth();
@@ -366,7 +366,7 @@ export default function IncomePage() {
       setIsPaystubUploadDialogOpen(false);
       setPreviewFiles([]);
       setPaystubNotes("");
-      setScanWithOCR(false);
+      setScanWithOCR(true);
       
       // Always open income dialog after upload, regardless of OCR status
       if (data && Array.isArray(data) && data.length > 0) {
@@ -1305,7 +1305,12 @@ export default function IncomePage() {
                                   <div className="space-y-2">
                                     <p className="font-medium">Gross Pay</p>
                                     <p>
-                                      Total earnings before any deductions or taxes (the amount on your contract or before withholdings on a paystub).
+                                      On Entertainment Partners Canada paystubs, this is the amount including GST shown in the Summary section.
+                                      <br /><br />
+                                      On Cast & Crew Services paystubs, this is the amount shown in bold in the Summary section.
+                                    </p>
+                                    <p>
+                                      See paystub breakdowns in the <a href="/help#income-management" target="_blank" rel="noopener noreferrer" className="underline">Help</a> section.
                                     </p>
                                   </div>
                                 </PopoverContent>
@@ -1353,6 +1358,9 @@ export default function IncomePage() {
                                     <p className="font-medium">Net amount</p>
                                     <p>
                                       What you actually received after deductions and taxes. For regular employment and EP/C&C paystubs this is your Net Pay (amount deposited); for other Film/TV and self-employment this is your Net Income after fees/dues.
+                                    </p>
+                                    <p>
+                                      See paystub breakdowns in the <a href="/help#income-management" target="_blank" rel="noopener noreferrer" className="underline">Help</a> section.
                                     </p>
                                   </div>
                                 </PopoverContent>
@@ -1589,6 +1597,9 @@ export default function IncomePage() {
                                       <div className="space-y-2">
                                         <p className="font-medium">Total Deductions</p>
                                         <p>Sum of Dues, Retirement, Pension, and Insurance for this pay period.</p>
+                                        <p>
+                                          See paystub breakdowns in the <a href="/help#income-management" target="_blank" rel="noopener noreferrer" className="underline">Help</a> section.
+                                        </p>
                                       </div>
                                     </PopoverContent>
                                   </Popover>

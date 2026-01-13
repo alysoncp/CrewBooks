@@ -31,21 +31,18 @@ const helpSections: HelpSection[] = [
   {
     id: "dashboard",
     title: "Dashboard",
-    content: `The Dashboard is your financial overview for the selected tax year.
+    content: `The Dashboard gives you an at-a-glance view for the selected tax year.
 
-**Key Metrics**:
-- **Total Income**: Sum of all income entries for the year
-- **Total Expenses**: Sum of all expenses (both business and personal)
-- **Deductible Expenses**: The portion of expenses that are tax-deductible based on expense types and percentages
-- **Net Cash Flow**: Income minus total expenses
+**Summary Cards**:
+- **Total Income**: All income recorded for the year (year-to-date)
+- **Deductible Expenses**: Tax-deductible portion of your expenses based on expense type and rules (e.g., vehicle business use, home office)
+- **Net Business Income**: Total income minus deductible expenses
 
 **Charts**:
-- **Income vs. Expenses Chart**: Shows monthly breakdown of income and expenses throughout the year
-- **Business Expenses by Category**: Pie chart showing how your business expenses are distributed across different categories
+- **Income vs. Expenses (Monthly)**: Area chart showing monthly totals of income and expenses for the year
+- **Business Expenses by Category**: Pie chart showing distribution of business expenses by category with a legend of top categories
 
-**Tax Breakdown**: Displays estimated federal tax, provincial tax, CPP contributions, and total tax owed or refund expected for the year.
-
-All data automatically updates as you add or modify income and expense entries.`,
+All numbers reflect the currently selected tax year. As you add or modify income and expenses, the dashboard updates automatically.`,
     keywords: ["dashboard", "overview", "metrics", "charts", "income", "expenses", "tax breakdown", "statistics"],
   },
   {
@@ -55,9 +52,14 @@ All data automatically updates as you add or modify income and expense entries.`
 
 **Adding Income**:
 1. Click the "Add Income" button
-2. Select the income type (Wages, Residuals, Per Diem, Buyouts, Royalties, Other)
-3. Enter the date, amount, and description
-4. Click "Save" to add the entry
+2. Select whether you would like to upload a paystub to have the information autofilled, or if you would like to manually enter the information.
+If uploading a paystub: Select the photo or PDF of the paystub you wish to add. Ensure "Scan with OCR" is selected and hit upload. The information sould automatically populate the new income dialog box. IT IS IMPORTANT TO DOUBLE CHECK THE UPLOAD IS CORRECT.
+3. Select/Verify the type of income you are adding (Film and TV Income, Regular Employment Income, or Other Income)
+4. Select/Verify the Show Type and the Issuer - This is important for Film Income. Cast and Crew Service and Entertainment Partners handle their Income Records differently.
+5. Enter/Verify the Show Name and Date. These items help you filter/organize your income entries.
+6. Enter/Verify the Gross Pay, GST (if collected), Deductions, and Net Pay
+*Optional : Enter/Verify the Deduction details, if you wish to track your benefits.
+7. Click "Save" to add the entry
 
 **Editing Income**: Click the edit icon next to any income entry to modify it.
 
@@ -451,6 +453,8 @@ export default function HelpPage() {
         </CardContent>
       </Card>
 
+      
+
       {filteredSections.length === 0 ? (
         <Card>
           <CardContent className="pt-6">
@@ -485,6 +489,30 @@ export default function HelpPage() {
                     );
                   })}
                 </div>
+                {section.id === "income-management" && (
+                  <div className="mt-6 grid gap-6 md:grid-cols-2">
+                    <figure className="space-y-2">
+                      <img
+                        src="/images/paystubs/EP_breakdown.jpg"
+                        alt="Entertainment Partners paystub example"
+                        className="w-full max-w-full rounded border"
+                      />
+                      <figcaption className="text-sm text-muted-foreground">
+                        Entertainment Partners paystub example
+                      </figcaption>
+                    </figure>
+                    <figure className="space-y-2">
+                      <img
+                        src="/images/paystubs/CandC_breakdown.png"
+                        alt="Cast & Crew paystub example"
+                        className="w-full max-w-full rounded border"
+                      />
+                      <figcaption className="text-sm text-muted-foreground">
+                        Cast & Crew paystub example
+                      </figcaption>
+                    </figure>
+                  </div>
+                )}
               </CardContent>
             </Card>
           ))}
