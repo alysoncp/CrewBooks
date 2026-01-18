@@ -34,7 +34,7 @@ import BenefitsPage from "@/pages/benefits";
 import SignInPage from "@/pages/signin";
 import SignUpPage from "@/pages/signup";
 import { supabase } from "@/lib/supabase";
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { useLocation } from "wouter";
 import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 
@@ -118,28 +118,44 @@ function LoadingScreen() {
 }
 
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const [authState, setAuthState] = useState<{
+    session: Session | null;
+    initialized: boolean;
+  }>({ session: null, initialized: false });
   const [, navigate] = useLocation();
 
   useEffect(() => {
-    const { data: sub } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, session: Session | null) => {
-      // Invalidate user query when auth changes
-      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
-      // Redirect after login
-      if (session?.access_token) {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthState({ session, initialized: true });
+    });
+
+    // Subscribe to auth state changes
+    const { data: sub } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+      setAuthState({ session, initialized: true });
+      
+      if (event === "SIGNED_IN") {
+        // Clear ALL cache to prevent showing previous user's data
+        queryClient.clear();
+        // Invalidate user query to fetch fresh data for new user
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
         navigate("/");
+      } else if (event === "SIGNED_OUT") {
+        // Clear ALL cache on sign out
+        queryClient.clear();
       }
     });
+    
     return () => {
       sub.subscription.unsubscribe();
     };
   }, [navigate]);
 
-  if (isLoading) {
+  if (!authState.initialized) {
     return <LoadingScreen />;
   }
 
-  if (!isAuthenticated) {
+  if (!authState.session) {
     return <UnauthenticatedLayout />;
   }
 

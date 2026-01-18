@@ -1,26 +1,25 @@
 import type { Express, RequestHandler } from "express";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload, decodeProtectedHeader } from "jose";
+import { createClient } from "@supabase/supabase-js";
 
-let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
+let supabaseAdmin: ReturnType<typeof createClient> | null = null;
 
-async function getJwks() {
-  if (!jwks) {
+function getSupabaseAdmin() {
+  if (!supabaseAdmin) {
     const supabaseUrl = process.env.SUPABASE_URL;
-    if (!supabaseUrl) {
-      throw new Error("SUPABASE_URL is not configured");
+    const supabaseServiceKey = process.env.SUPABASE_SERVICE_ROLE_KEY;
+    
+    if (!supabaseUrl || !supabaseServiceKey) {
+      throw new Error("SUPABASE_URL and SUPABASE_SERVICE_ROLE_KEY must be configured");
     }
-    const jwksUrl = new URL("/auth/v1/keys", supabaseUrl).toString();
-    jwks = createRemoteJWKSet(new URL(jwksUrl));
+    
+    supabaseAdmin = createClient(supabaseUrl, supabaseServiceKey, {
+      auth: {
+        autoRefreshToken: false,
+        persistSession: false,
+      },
+    });
   }
-  return jwks;
-}
-
-function getJwtSecret(): Uint8Array {
-  const secret = process.env.SUPABASE_JWT_SECRET;
-  if (!secret) {
-    throw new Error("SUPABASE_JWT_SECRET is not configured");
-  }
-  return new TextEncoder().encode(secret);
+  return supabaseAdmin;
 }
 
 export async function setupAuth(app: Express) {
@@ -36,25 +35,26 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     }
     const token = auth.slice("Bearer ".length);
 
-    const header = decodeProtectedHeader(token);
-    const isHs = header.alg?.startsWith("HS");
-    const { payload } = isHs
-      ? await jwtVerify(token, getJwtSecret(), {
-          // aud/iss checks can be added if required
-        })
-      : await jwtVerify(token, await getJwks(), {
-          // aud/iss checks can be added if required
-        });
+    const supabase = getSupabaseAdmin();
+    const { data, error } = await supabase.auth.getUser(token);
+
+    if (error || !data.user) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
 
     // Attach a user compatible with existing code paths
-    // Keep shape: { claims: <payload>, expires_at: <exp> }
+    // Keep shape: { claims: <user data>, expires_at: <exp> }
     req.user = {
-      claims: payload,
-      expires_at: payload.exp,
+      claims: {
+        sub: data.user.id,
+        email: data.user.email,
+        ...data.user.user_metadata,
+      },
+      expires_at: Math.floor(Date.now() / 1000) + 3600, // 1 hour from now
     };
 
-    // Additionally expose raw claims for new code
-    req.auth = payload as JWTPayload;
+    // Additionally expose raw user data
+    req.auth = data.user;
 
     return next();
   } catch (_err) {

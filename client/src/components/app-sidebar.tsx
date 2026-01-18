@@ -43,6 +43,7 @@ import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@
 import { useQuery } from "@tanstack/react-query";
 import { getYearFromDateString } from "@/lib/format";
 import type { Income, Expense } from "@shared/schema";
+import { supabase } from "@/lib/supabase";
 
 const mainMenuItems = [
   { title: "Dashboard", url: "/", icon: LayoutDashboard },
@@ -118,19 +119,14 @@ export function AppSidebar() {
 
   const handleLogout = async () => {
     try {
-      const response = await fetch("/api/logout", {
-        method: "GET",
-        credentials: "include",
-      });
+      const { error } = await supabase.auth.signOut();
 
-      if (!response.ok) {
-        throw new Error("Logout failed");
+      if (error) {
+        throw error;
       }
 
-      // Immediately set user to null to trigger UI update
+      // Clear user query cache
       queryClient.setQueryData(["/api/auth/user"], null);
-      
-      // Also invalidate to ensure fresh state on next login
       queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
       
       toast({
