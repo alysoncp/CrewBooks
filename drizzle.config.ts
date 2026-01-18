@@ -10,11 +10,6 @@ if (!process.env.DATABASE_URL) {
   throw new Error("DATABASE_URL, ensure the database is provisioned");
 }
 
-console.log("DRIZZLE SSL CA PATH:", path.resolve("certs/supabase-dev-db-ca.crt"));
-console.log("DRIZZLE SSL CA LEN:", ca.length);
-console.log("DRIZZLE DATABASE_URL HOST:", new URL(process.env.DATABASE_URL!).host);
-
-
 export default defineConfig({
   out: "./migrations",
   schema: "./shared/schema.ts",
