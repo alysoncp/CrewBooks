@@ -47,3 +47,10 @@ tmp/
 # Coverage / misc
 # =========================
 coverage/
+
+
+# =========================
+# md files
+# =========================
+replit.md
+SETUP_LOCAL_DB.md
