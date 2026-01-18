@@ -1,5 +1,5 @@
 import type { Express, RequestHandler } from "express";
-import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload, decodeProtectedHeader } from "jose";
 
 let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
@@ -15,6 +15,14 @@ async function getJwks() {
   return jwks;
 }
 
+function getJwtSecret(): Uint8Array {
+  const secret = process.env.SUPABASE_JWT_SECRET;
+  if (!secret) {
+    throw new Error("SUPABASE_JWT_SECRET is not configured");
+  }
+  return new TextEncoder().encode(secret);
+}
+
 export async function setupAuth(app: Express) {
   // Stateless JWT auth – nothing to set up globally for now.
   app.set("trust proxy", 1);
@@ -28,10 +36,15 @@ export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
     }
     const token = auth.slice("Bearer ".length);
 
-    const verifier = await getJwks();
-    const { payload } = await jwtVerify(token, verifier, {
-      // aud/iss checks can be added if required
-    });
+    const header = decodeProtectedHeader(token);
+    const isHs = header.alg?.startsWith("HS");
+    const { payload } = isHs
+      ? await jwtVerify(token, getJwtSecret(), {
+          // aud/iss checks can be added if required
+        })
+      : await jwtVerify(token, await getJwks(), {
+          // aud/iss checks can be added if required
+        });
 
     // Attach a user compatible with existing code paths
     // Keep shape: { claims: <payload>, expires_at: <exp> }
