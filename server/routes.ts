@@ -284,7 +284,17 @@ export async function registerRoutes(
   app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
     try {
       const userId = getUserId(req);
-      const user = await storage.getUser(userId);
+      let user = await storage.getUser(userId);
+      if (!user) {
+        const claims = req.user?.claims || {};
+        user = await storage.upsertUser({
+          id: userId,
+          email: claims.email,
+          firstName: claims.user_metadata?.first_name || claims.given_name || null,
+          lastName: claims.user_metadata?.last_name || claims.family_name || null,
+          profileImageUrl: claims.user_metadata?.avatar_url || claims.picture || null,
+        } as any);
+      }
       res.json(user);
     } catch (error) {
       res.status(500).json({ message: "Failed to fetch user" });

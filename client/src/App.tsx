@@ -31,6 +31,12 @@ import LeasesPage from "@/pages/leases";
 import HelpPage from "@/pages/help";
 import AboutPage from "@/pages/about";
 import BenefitsPage from "@/pages/benefits";
+import SignInPage from "@/pages/signin";
+import SignUpPage from "@/pages/signup";
+import { supabase } from "@/lib/supabase";
+import { useEffect } from "react";
+import { useLocation } from "wouter";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 
 function AuthenticatedRouter() {
   return (
@@ -91,7 +97,11 @@ function UnauthenticatedLayout() {
       <header className="sticky top-0 z-50 flex h-14 items-center justify-end gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <ThemeToggle />
       </header>
-      <Landing />
+      <Switch>
+        <Route path="/signin" component={SignInPage} />
+        <Route path="/signup" component={SignUpPage} />
+        <Route component={Landing} />
+      </Switch>
     </div>
   );
 }
@@ -109,6 +119,21 @@ function LoadingScreen() {
 
 function AppContent() {
   const { isAuthenticated, isLoading } = useAuth();
+  const [, navigate] = useLocation();
+
+  useEffect(() => {
+    const { data: sub } = supabase.auth.onAuthStateChange(async (_event: AuthChangeEvent, session: Session | null) => {
+      // Invalidate user query when auth changes
+      await queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+      // Redirect after login
+      if (session?.access_token) {
+        navigate("/");
+      }
+    });
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, [navigate]);
 
   if (isLoading) {
     return <LoadingScreen />;

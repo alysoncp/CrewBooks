@@ -1,108 +1,51 @@
-import passport from "passport";
-import session from "express-session";
 import type { Express, RequestHandler } from "express";
-import connectPg from "connect-pg-simple";
-import { storage } from "./storage";
-import { pool } from "./db";
+import { createRemoteJWKSet, jwtVerify, type JWTPayload } from "jose";
 
-export function getSession() {
-  const sessionTtl = 7 * 24 * 60 * 60 * 1000; // 1 week
-  const pgStore = connectPg(session);
-  const sessionStore = new pgStore({
-    pool,
-    createTableIfMissing: true, // Auto-create sessions table
-    ttl: sessionTtl,
-    tableName: "sessions",
-  });
-  return session({
-    secret: process.env.SESSION_SECRET!,
-    store: sessionStore,
-    resave: false,
-    saveUninitialized: false,
-    cookie: {
-      httpOnly: true,
-      secure: process.env.NODE_ENV === "production", // Only use secure cookies in production
-      maxAge: sessionTtl,
-      sameSite: "lax",
-    },
-  });
-}
+let jwks: ReturnType<typeof createRemoteJWKSet> | null = null;
 
-// Simple development auth - replace with Supabase Auth or another provider for production
-export async function setupAuth(app: Express) {
-  app.set("trust proxy", 1);
-  app.use(getSession());
-  app.use(passport.initialize());
-  app.use(passport.session());
-
-  passport.serializeUser((user: Express.User, cb) => cb(null, user));
-  passport.deserializeUser((user: Express.User, cb) => cb(null, user));
-
-  // Simple login endpoint for development
-  // TODO: Replace with proper authentication (Supabase Auth, etc.)
-  app.post("/api/login", async (req, res) => {
-    try {
-      const { email } = req.body;
-      
-      if (!email) {
-        return res.status(400).json({ message: "Email is required" });
-      }
-
-      // Get or create user
-      let user = await storage.getUserByEmail(email);
-      if (!user) {
-        // Create a new user for development
-        user = await storage.upsertUser({
-          id: `dev-${Date.now()}`,
-          email,
-          firstName: "Dev",
-          lastName: "User",
-        });
-      }
-
-      // Set up session
-      const sessionUser = {
-        claims: {
-          sub: user.id,
-          email: user.email,
-          first_name: user.firstName,
-          last_name: user.lastName,
-          profile_image_url: user.profileImageUrl,
-        },
-        expires_at: Math.floor(Date.now() / 1000) + 7 * 24 * 60 * 60, // 7 days
-      };
-
-      req.login(sessionUser, (err) => {
-        if (err) {
-          return res.status(500).json({ message: "Login failed" });
-        }
-        res.json({ user, message: "Logged in successfully" });
-      });
-    } catch (error) {
-      res.status(500).json({ message: "Login failed" });
+async function getJwks() {
+  if (!jwks) {
+    const supabaseUrl = process.env.SUPABASE_URL;
+    if (!supabaseUrl) {
+      throw new Error("SUPABASE_URL is not configured");
     }
-  });
-
-  app.get("/api/logout", (req, res) => {
-    req.logout(() => {
-      res.json({ message: "Logged out successfully" });
-    });
-  });
+    const jwksUrl = new URL("/auth/v1/keys", supabaseUrl).toString();
+    jwks = createRemoteJWKSet(new URL(jwksUrl));
+  }
+  return jwks;
 }
 
-export const isAuthenticated: RequestHandler = async (req, res, next) => {
-  const user = req.user as any;
+export async function setupAuth(app: Express) {
+  // Stateless JWT auth – nothing to set up globally for now.
+  app.set("trust proxy", 1);
+}
 
-  if (!req.isAuthenticated() || !user?.claims?.sub) {
+export const isAuthenticated: RequestHandler = async (req: any, res, next) => {
+  try {
+    const auth = req.headers["authorization"] as string | undefined;
+    if (!auth || !auth.startsWith("Bearer ")) {
+      return res.status(401).json({ message: "Unauthorized" });
+    }
+    const token = auth.slice("Bearer ".length);
+
+    const verifier = await getJwks();
+    const { payload } = await jwtVerify(token, verifier, {
+      // aud/iss checks can be added if required
+    });
+
+    // Attach a user compatible with existing code paths
+    // Keep shape: { claims: <payload>, expires_at: <exp> }
+    req.user = {
+      claims: payload,
+      expires_at: payload.exp,
+    };
+
+    // Additionally expose raw claims for new code
+    req.auth = payload as JWTPayload;
+
+    return next();
+  } catch (_err) {
     return res.status(401).json({ message: "Unauthorized" });
   }
-
-  // Check if token is expired (for development, we'll just check if user exists)
-  const now = Math.floor(Date.now() / 1000);
-  if (user.expires_at && now > user.expires_at) {
-    return res.status(401).json({ message: "Session expired" });
-  }
-
-  return next();
 };
 
