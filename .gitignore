@@ -54,3 +54,9 @@ coverage/
 # =========================
 replit.md
 SETUP_LOCAL_DB.md
+
+
+# =========================
+# certs
+# =========================
+certs/supabase-dev-db-ca.crt
