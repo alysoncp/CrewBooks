@@ -6,7 +6,8 @@ import { z } from "zod";
 import multer from "multer";
 import path from "path";
 import fs from "fs";
-import { setupAuth, isAuthenticated } from "./auth";
+import { setupAuth } from "./auth";
+import { requireUser, type AuthedRequest } from "./middleware/requireUser";
 import { eq, desc, asc } from "drizzle-orm";
 import { processReceiptOCR, type OCRResult } from "./veryfi-ocr";
 import { normalizePaystubOCR, normalizedPaystubToIncomeData, classifyDocument } from "./paystub-normalizer";
@@ -42,6 +43,11 @@ const upload = multer({
 });
 
 function getUserId(req: any): string {
+  // New middleware sets req.auth.userId
+  if (req.auth?.userId) {
+    return req.auth.userId;
+  }
+  // Fallback for backwards compatibility
   return req.user?.claims?.sub;
 }
 
@@ -281,7 +287,7 @@ export async function registerRoutes(
     next();
   });
 
-  app.get("/api/auth/user", isAuthenticated, async (req: any, res) => {
+  app.get("/api/auth/user", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       let user = await storage.getUser(userId);
@@ -301,7 +307,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/user/profile", isAuthenticated, async (req: any, res) => {
+  app.get("/api/user/profile", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
@@ -314,7 +320,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/user/profile", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/user/profile", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       
@@ -357,7 +363,7 @@ export async function registerRoutes(
   });
 
   // GET /api/user/mileage-logging-style - get user's mileage logging style preference
-  app.get("/api/user/mileage-logging-style", isAuthenticated, async (req: any, res) => {
+  app.get("/api/user/mileage-logging-style", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
@@ -371,7 +377,7 @@ export async function registerRoutes(
   });
 
   // PATCH /api/user/mileage-logging-style - update user's mileage logging style preference
-  app.patch("/api/user/mileage-logging-style", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/user/mileage-logging-style", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const { mileageLoggingStyle } = req.body;
@@ -390,7 +396,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/user/subscription", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/user/subscription", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const { tier } = req.body;
@@ -404,7 +410,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/dashboard", isAuthenticated, async (req: any, res) => {
+  app.get("/api/dashboard", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const incomeRecords = await storage.getIncome(userId);
@@ -445,7 +451,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/income", isAuthenticated, async (req: any, res) => {
+  app.get("/api/income", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const incomeRecords = await storage.getIncome(userId);
@@ -455,7 +461,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/income", isAuthenticated, async (req: any, res) => {
+  app.post("/api/income", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const data = insertIncomeSchema.parse({ ...req.body, userId });
@@ -469,7 +475,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/income/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/income/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const incomeRecord = await storage.getIncomeById(req.params.id);
@@ -493,7 +499,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/income/:id/linked-paystubs", isAuthenticated, async (req: any, res) => {
+  app.get("/api/income/:id/linked-paystubs", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const incomeRecord = await storage.getIncomeById(req.params.id);
@@ -513,7 +519,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/income/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/income/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const incomeRecord = await storage.getIncomeById(req.params.id);
@@ -553,7 +559,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/expenses", isAuthenticated, async (req: any, res) => {
+  app.get("/api/expenses", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const expenseRecords = await storage.getExpenses(userId);
@@ -563,7 +569,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/expenses", isAuthenticated, async (req: any, res) => {
+  app.post("/api/expenses", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const { linkedReceiptId, ...expenseData } = req.body;
@@ -589,7 +595,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/expenses/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/expenses/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const expense = await storage.getExpenseById(req.params.id);
@@ -615,7 +621,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/expenses/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/expenses/:id", requireUser, async (req, res) => {
     try {
       const deleted = await storage.deleteExpense(req.params.id);
       if (!deleted) {
@@ -627,7 +633,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/receipts", isAuthenticated, async (req: any, res) => {
+  app.get("/api/receipts", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const receiptRecords = await storage.getReceipts(userId);
@@ -637,7 +643,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/receipts/upload", isAuthenticated, upload.array("files", 10), async (req: any, res) => {
+  app.post("/api/receipts/upload", requireUser, upload.array("files", 10), async (req: any, res) => {
     try {
       logRoute("=== RECEIPT UPLOAD REQUEST ===", "receipts");
       logRoute(`Request body keys: ${Object.keys(req.body).join(", ")}`, "receipts");
@@ -753,7 +759,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/receipts/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/receipts/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const receipt = await storage.getReceiptById(req.params.id);
@@ -772,7 +778,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/receipts/:id/ocr-to-expense", isAuthenticated, async (req: any, res) => {
+  app.get("/api/receipts/:id/ocr-to-expense", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const receipt = await storage.getReceiptById(req.params.id);
@@ -821,7 +827,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/receipts/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/receipts/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const receipt = await storage.getReceiptById(req.params.id);
@@ -863,7 +869,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/receipts/:id", isAuthenticated, async (req, res) => {
+  app.delete("/api/receipts/:id", requireUser, async (req, res) => {
     try {
       const receipt = await storage.getReceiptById(req.params.id);
       if (receipt?.imageUrl) {
@@ -883,7 +889,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/paystubs", isAuthenticated, async (req: any, res) => {
+  app.get("/api/paystubs", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const paystubRecords = await storage.getPaystubs(userId);
@@ -894,7 +900,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/paystubs/upload", isAuthenticated, upload.array("files", 10), async (req: any, res) => {
+  app.post("/api/paystubs/upload", requireUser, upload.array("files", 10), async (req: any, res) => {
     try {
       logRoute("=== PAYSTUB UPLOAD REQUEST ===", "paystubs");
       logRoute(`Request body keys: ${Object.keys(req.body).join(", ")}`, "paystubs");
@@ -1012,7 +1018,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/paystubs/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/paystubs/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const paystub = await storage.getPaystubById(req.params.id);
@@ -1031,7 +1037,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/paystubs/:id/ocr-to-income", isAuthenticated, async (req: any, res) => {
+  app.get("/api/paystubs/:id/ocr-to-income", requireUser, async (req: any, res) => {
     try {
       console.log("=== OCR TO INCOME ENDPOINT CALLED ===");
       console.log("Paystub ID:", req.params.id);
@@ -1174,7 +1180,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/paystubs/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/paystubs/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const paystub = await storage.getPaystubById(req.params.id);
@@ -1216,7 +1222,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/paystubs/:id/linked-income", isAuthenticated, async (req: any, res) => {
+  app.get("/api/paystubs/:id/linked-income", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const paystub = await storage.getPaystubById(req.params.id);
@@ -1236,7 +1242,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/paystubs/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/paystubs/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const paystub = await storage.getPaystubById(req.params.id);
@@ -1274,7 +1280,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/tax-calculation", isAuthenticated, async (req: any, res) => {
+  app.get("/api/tax-calculation", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
@@ -1315,7 +1321,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/optimization", isAuthenticated, async (req: any, res) => {
+  app.get("/api/optimization", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
@@ -1361,7 +1367,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/gst-hst", isAuthenticated, async (req: any, res) => {
+  app.get("/api/gst-hst", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
@@ -1383,7 +1389,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/questionnaires", isAuthenticated, async (req: any, res) => {
+  app.get("/api/questionnaires", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const questionnaires = await storage.getQuestionnaires(userId);
@@ -1393,7 +1399,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/questionnaires/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/questionnaires/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
@@ -1413,7 +1419,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/questionnaires", isAuthenticated, async (req: any, res) => {
+  app.post("/api/questionnaires", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const user = await storage.getUser(userId);
@@ -1446,7 +1452,7 @@ export async function registerRoutes(
     }
   });
 
-  app.patch("/api/questionnaires/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/questionnaires/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
@@ -1466,7 +1472,7 @@ export async function registerRoutes(
     }
   });
 
-  app.delete("/api/questionnaires/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/questionnaires/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
@@ -1486,7 +1492,7 @@ export async function registerRoutes(
     }
   });
 
-  app.post("/api/questionnaires/:id/responses", isAuthenticated, async (req: any, res) => {
+  app.post("/api/questionnaires/:id/responses", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
@@ -1515,7 +1521,7 @@ export async function registerRoutes(
   });
 
   // GET /api/vehicles - get user's vehicles
-  app.get("/api/vehicles", isAuthenticated, async (req: any, res) => {
+  app.get("/api/vehicles", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicleRecords = await storage.getVehicles(userId);
@@ -1527,7 +1533,7 @@ export async function registerRoutes(
     }
   });
 
-  app.get("/api/vehicles/:id/business-use-percentage", isAuthenticated, async (req: any, res) => {
+  app.get("/api/vehicles/:id/business-use-percentage", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.id);
@@ -1546,7 +1552,7 @@ export async function registerRoutes(
   });
 
   // POST /api/vehicles - create vehicle
-  app.post("/api/vehicles", isAuthenticated, async (req: any, res) => {
+  app.post("/api/vehicles", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       // Clean up empty strings - be more explicit
@@ -1606,7 +1612,7 @@ export async function registerRoutes(
   });
 
   // PATCH /api/vehicles/:id - update vehicle
-  app.patch("/api/vehicles/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/vehicles/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.id);
@@ -1647,7 +1653,7 @@ export async function registerRoutes(
   });
 
   // DELETE /api/vehicles/:id - delete vehicle
-  app.delete("/api/vehicles/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/vehicles/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.id);
@@ -1665,7 +1671,7 @@ export async function registerRoutes(
   });
 
   // POST /api/vehicles/:id/odometer-photos - upload odometer photo
-  app.post("/api/vehicles/:id/odometer-photos", isAuthenticated, upload.single("file"), async (req: any, res) => {
+  app.post("/api/vehicles/:id/odometer-photos", requireUser, upload.single("file"), async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.id);
@@ -1743,7 +1749,7 @@ export async function registerRoutes(
   });
 
   // GET /api/vehicles/:id/odometer-photos - get odometer photos for a vehicle
-  app.get("/api/vehicles/:id/odometer-photos", isAuthenticated, async (req: any, res) => {
+  app.get("/api/vehicles/:id/odometer-photos", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.id);
@@ -1763,7 +1769,7 @@ export async function registerRoutes(
   });
   
 // PATCH /api/vehicles/:id/odometer-photos/:photoId - update an odometer photo
-app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (req: any, res) => {
+app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req: any, res) => {
   try {
     const userId = getUserId(req);
     const vehicle = await storage.getVehicleById(req.params.id);
@@ -1805,7 +1811,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
 });
 
   // DELETE /api/vehicles/:id/odometer-photos/:photoId - delete an odometer photo
-  app.delete("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.id);
@@ -1840,7 +1846,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // GET /api/vehicles/:vehicleId/mileage-logs - get mileage logs for a vehicle
-  app.get("/api/vehicles/:vehicleId/mileage-logs", isAuthenticated, async (req: any, res) => {
+  app.get("/api/vehicles/:vehicleId/mileage-logs", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.vehicleId);
@@ -1858,7 +1864,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // POST /api/vehicles/:vehicleId/mileage-logs - create mileage log
-  app.post("/api/vehicles/:vehicleId/mileage-logs", isAuthenticated, async (req: any, res) => {
+  app.post("/api/vehicles/:vehicleId/mileage-logs", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const vehicle = await storage.getVehicleById(req.params.vehicleId);
@@ -1913,7 +1919,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // PATCH /api/mileage-logs/:id - update mileage log
-  app.patch("/api/mileage-logs/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/mileage-logs/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const log = await storage.getVehicleMileageLogById(req.params.id);
@@ -1981,7 +1987,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // DELETE /api/mileage-logs/:id - delete mileage log
-  app.delete("/api/mileage-logs/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/mileage-logs/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const log = await storage.getVehicleMileageLogById(req.params.id);
@@ -1999,7 +2005,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // Rename expense category
-  app.patch("/api/expenses/categories/rename", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/expenses/categories/rename", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const { oldCategory, newCategory } = req.body;
@@ -2032,7 +2038,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // Delete expense category (only if not in use)
-  app.delete("/api/expenses/categories/:category", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/expenses/categories/:category", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const category = decodeURIComponent(req.params.category);
@@ -2055,7 +2061,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // Assets API routes
-  app.get("/api/assets", isAuthenticated, async (req: any, res) => {
+  app.get("/api/assets", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const assetRecords = await storage.getAssets(userId);
@@ -2065,7 +2071,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.post("/api/assets", isAuthenticated, async (req: any, res) => {
+  app.post("/api/assets", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const data = insertAssetSchema.parse({ ...req.body, userId });
@@ -2079,7 +2085,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.get("/api/assets/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/assets/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const asset = await storage.getAssetById(req.params.id);
@@ -2095,7 +2101,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.patch("/api/assets/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/assets/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const asset = await storage.getAssetById(req.params.id);
@@ -2115,7 +2121,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.delete("/api/assets/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/assets/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const asset = await storage.getAssetById(req.params.id);
@@ -2136,7 +2142,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // Asset CCA History routes
-  app.get("/api/assets/:assetId/cca-history", isAuthenticated, async (req: any, res) => {
+  app.get("/api/assets/:assetId/cca-history", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const asset = await storage.getAssetById(req.params.assetId);
@@ -2153,7 +2159,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.post("/api/assets/:assetId/cca-history", isAuthenticated, async (req: any, res) => {
+  app.post("/api/assets/:assetId/cca-history", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const asset = await storage.getAssetById(req.params.assetId);
@@ -2175,7 +2181,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // CCA Summary route
-  app.get("/api/cca-summary", isAuthenticated, async (req: any, res) => {
+  app.get("/api/cca-summary", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const taxYear = req.query.taxYear || new Date().getFullYear().toString();
@@ -2192,7 +2198,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // Lease Contracts API routes
-  app.get("/api/lease-contracts", isAuthenticated, async (req: any, res) => {
+  app.get("/api/lease-contracts", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const contracts = await storage.getLeaseContracts(userId);
@@ -2202,7 +2208,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.post("/api/lease-contracts", isAuthenticated, async (req: any, res) => {
+  app.post("/api/lease-contracts", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const data = insertLeaseContractSchema.parse({ ...req.body, userId });
@@ -2216,7 +2222,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.get("/api/lease-contracts/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/lease-contracts/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const contract = await storage.getLeaseContractById(req.params.id);
@@ -2232,7 +2238,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.patch("/api/lease-contracts/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/lease-contracts/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const contract = await storage.getLeaseContractById(req.params.id);
@@ -2252,7 +2258,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.delete("/api/lease-contracts/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/lease-contracts/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const contract = await storage.getLeaseContractById(req.params.id);
@@ -2273,7 +2279,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // Lease Payments API routes
-  app.get("/api/lease-contracts/:leaseContractId/payments", isAuthenticated, async (req: any, res) => {
+  app.get("/api/lease-contracts/:leaseContractId/payments", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const contract = await storage.getLeaseContractById(req.params.leaseContractId);
@@ -2290,7 +2296,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.post("/api/lease-contracts/:leaseContractId/payments", isAuthenticated, async (req: any, res) => {
+  app.post("/api/lease-contracts/:leaseContractId/payments", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const contract = await storage.getLeaseContractById(req.params.leaseContractId);
@@ -2311,7 +2317,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.get("/api/lease-payments/:id", isAuthenticated, async (req: any, res) => {
+  app.get("/api/lease-payments/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const payment = await storage.getLeasePaymentById(req.params.id);
@@ -2327,7 +2333,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.patch("/api/lease-payments/:id", isAuthenticated, async (req: any, res) => {
+  app.patch("/api/lease-payments/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const payment = await storage.getLeasePaymentById(req.params.id);
@@ -2347,7 +2353,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
     }
   });
 
-  app.delete("/api/lease-payments/:id", isAuthenticated, async (req: any, res) => {
+  app.delete("/api/lease-payments/:id", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const payment = await storage.getLeasePaymentById(req.params.id);
@@ -2368,7 +2374,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // Lease Expense Summary route
-  app.get("/api/lease-expense-summary", isAuthenticated, async (req: any, res) => {
+  app.get("/api/lease-expense-summary", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const taxYear = req.query.taxYear || new Date().getFullYear().toString();
@@ -2380,7 +2386,7 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", isAuthenticated, async (
   });
 
   // T2125 Summary route
-  app.get("/api/t2125-summary", isAuthenticated, async (req: any, res) => {
+  app.get("/api/t2125-summary", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
       const taxYear = req.query.taxYear || new Date().getFullYear().toString();

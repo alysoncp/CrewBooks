@@ -6,9 +6,54 @@ dotenv.config();
 import express, { NextFunction, type Request, Response } from "express";
 import { createServer } from "http";
 import path from "path";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Security middleware with development-aware CSP
+// In development, Vite needs inline scripts for hot module reloading
+// In production, we use a strict CSP
+const isDev = process.env.NODE_ENV === "development";
+
+app.use(
+  helmet({
+    contentSecurityPolicy: isDev
+      ? false // Disable CSP in development (Vite needs inline scripts)
+      : {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"],
+          },
+        },
+  })
+);
+
+// Rate limiting for auth endpoints
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 5, // 5 requests per windowMs
+  message: "Too many authentication attempts, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Rate limiting for general API
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 100, // 100 requests per minute
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply auth rate limiter to auth endpoints
+app.use("/api/auth", authLimiter);
+
+// Apply general rate limiter to API
+app.use("/api/", apiLimiter);
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
@@ -23,10 +68,11 @@ app.use(
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
+    limit: "10mb", // Limit request body size
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 export function log(message: string, source = "express") {
   // Logging disabled
