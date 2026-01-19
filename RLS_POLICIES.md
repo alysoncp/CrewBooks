@@ -89,250 +89,252 @@ ALTER TABLE public.questionnaire_responses ENABLE ROW LEVEL SECURITY;
 -- SELECT: Users can only see their own income
 CREATE POLICY "income_select_own" ON public.income
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 -- INSERT: Users can only insert income for themselves
 CREATE POLICY "income_insert_own" ON public.income
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 -- UPDATE: Users can only update their own income
 CREATE POLICY "income_update_own" ON public.income
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 -- DELETE: Users can only delete their own income
 CREATE POLICY "income_delete_own" ON public.income
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
+
+# DONE TO HERE ------------------------------------------------------------------------
 
 #### Expenses
 ```sql
 CREATE POLICY "expenses_select_own" ON public.expenses
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "expenses_insert_own" ON public.expenses
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "expenses_update_own" ON public.expenses
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "expenses_delete_own" ON public.expenses
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Receipts
 ```sql
 CREATE POLICY "receipts_select_own" ON public.receipts
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "receipts_insert_own" ON public.receipts
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "receipts_update_own" ON public.receipts
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "receipts_delete_own" ON public.receipts
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Paystubs
 ```sql
 CREATE POLICY "paystubs_select_own" ON public.paystubs
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "paystubs_insert_own" ON public.paystubs
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "paystubs_update_own" ON public.paystubs
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "paystubs_delete_own" ON public.paystubs
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Vehicles
 ```sql
 CREATE POLICY "vehicles_select_own" ON public.vehicles
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "vehicles_insert_own" ON public.vehicles
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "vehicles_update_own" ON public.vehicles
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "vehicles_delete_own" ON public.vehicles
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Vehicle Mileage Logs
 ```sql
 CREATE POLICY "vehicle_mileage_logs_select_own" ON public.vehicle_mileage_logs
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "vehicle_mileage_logs_insert_own" ON public.vehicle_mileage_logs
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "vehicle_mileage_logs_update_own" ON public.vehicle_mileage_logs
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "vehicle_mileage_logs_delete_own" ON public.vehicle_mileage_logs
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Odometer Photos
 ```sql
 CREATE POLICY "odometer_photos_select_own" ON public.odometer_photos
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "odometer_photos_insert_own" ON public.odometer_photos
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "odometer_photos_update_own" ON public.odometer_photos
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "odometer_photos_delete_own" ON public.odometer_photos
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Assets
 ```sql
 CREATE POLICY "assets_select_own" ON public.assets
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "assets_insert_own" ON public.assets
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "assets_update_own" ON public.assets
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "assets_delete_own" ON public.assets
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Asset CCA History
 ```sql
 CREATE POLICY "asset_cca_history_select_own" ON public.asset_cca_history
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "asset_cca_history_insert_own" ON public.asset_cca_history
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "asset_cca_history_update_own" ON public.asset_cca_history
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "asset_cca_history_delete_own" ON public.asset_cca_history
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Lease Contracts
 ```sql
 CREATE POLICY "lease_contracts_select_own" ON public.lease_contracts
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "lease_contracts_insert_own" ON public.lease_contracts
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "lease_contracts_update_own" ON public.lease_contracts
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "lease_contracts_delete_own" ON public.lease_contracts
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Lease Payments
 ```sql
 CREATE POLICY "lease_payments_select_own" ON public.lease_payments
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "lease_payments_insert_own" ON public.lease_payments
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "lease_payments_update_own" ON public.lease_payments
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "lease_payments_delete_own" ON public.lease_payments
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Tax Questionnaires
 ```sql
 CREATE POLICY "tax_questionnaires_select_own" ON public.tax_questionnaires
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "tax_questionnaires_insert_own" ON public.tax_questionnaires
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "tax_questionnaires_update_own" ON public.tax_questionnaires
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "tax_questionnaires_delete_own" ON public.tax_questionnaires
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Questionnaire Responses
 ```sql
 CREATE POLICY "questionnaire_responses_select_own" ON public.questionnaire_responses
   FOR SELECT
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "questionnaire_responses_insert_own" ON public.questionnaire_responses
   FOR INSERT
-  WITH CHECK (user_id = auth.uid());
+  WITH CHECK (user_id = auth.uid()::text);
 
 CREATE POLICY "questionnaire_responses_update_own" ON public.questionnaire_responses
   FOR UPDATE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 
 CREATE POLICY "questionnaire_responses_delete_own" ON public.questionnaire_responses
   FOR DELETE
-  USING (user_id = auth.uid());
+  USING (user_id = auth.uid()::text);
 ```
 
 #### Users (Special)
@@ -340,15 +342,15 @@ CREATE POLICY "questionnaire_responses_delete_own" ON public.questionnaire_respo
 -- Users can only SELECT their own user profile
 CREATE POLICY "users_select_own" ON public.users
   FOR SELECT
-  USING (id = auth.uid());
+  USING (id = auth.uid()::text);
 
 -- Users can UPDATE their own profile
 CREATE POLICY "users_update_own" ON public.users
   FOR UPDATE
-  USING (id = auth.uid());
+  USING (id = auth.uid()::text);
 
 -- DELETE policy: typically don't let users delete themselves
--- If you want to allow this, you'd use: USING (id = auth.uid());
+-- If you want to allow this, you'd use: USING (id = auth.uid()::text);
 -- For now, we'll omit DELETE to prevent accidental account deletion
 ```
 
