@@ -107,8 +107,6 @@ CREATE POLICY "income_delete_own" ON public.income
   USING (user_id = auth.uid()::text);
 ```
 
-# DONE TO HERE ------------------------------------------------------------------------
-
 #### Expenses
 ```sql
 CREATE POLICY "expenses_select_own" ON public.expenses
@@ -322,19 +320,43 @@ CREATE POLICY "tax_questionnaires_delete_own" ON public.tax_questionnaires
 ```sql
 CREATE POLICY "questionnaire_responses_select_own" ON public.questionnaire_responses
   FOR SELECT
-  USING (user_id = auth.uid()::text);
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.tax_questionnaires
+      WHERE id = questionnaire_id
+      AND user_id = auth.uid()::text
+    )
+  );
 
 CREATE POLICY "questionnaire_responses_insert_own" ON public.questionnaire_responses
   FOR INSERT
-  WITH CHECK (user_id = auth.uid()::text);
+  WITH CHECK (
+    EXISTS (
+      SELECT 1 FROM public.tax_questionnaires
+      WHERE id = questionnaire_id
+      AND user_id = auth.uid()::text
+    )
+  );
 
 CREATE POLICY "questionnaire_responses_update_own" ON public.questionnaire_responses
   FOR UPDATE
-  USING (user_id = auth.uid()::text);
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.tax_questionnaires
+      WHERE id = questionnaire_id
+      AND user_id = auth.uid()::text
+    )
+  );
 
 CREATE POLICY "questionnaire_responses_delete_own" ON public.questionnaire_responses
   FOR DELETE
-  USING (user_id = auth.uid()::text);
+  USING (
+    EXISTS (
+      SELECT 1 FROM public.tax_questionnaires
+      WHERE id = questionnaire_id
+      AND user_id = auth.uid()::text
+    )
+  );
 ```
 
 #### Users (Special)
@@ -355,6 +377,9 @@ CREATE POLICY "users_update_own" ON public.users
 ```
 
 ---
+
+# DONE TO HERE ------------------------------------------------------------------------
+
 
 ## How to Run These Policies
 
