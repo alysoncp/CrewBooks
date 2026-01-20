@@ -1304,9 +1304,9 @@ export default function PaystubsPage() {
                             This will permanently remove this paystub image. This action cannot be undone.
                             {linkedIncome && (
                               <div className="mt-4 space-y-2">
-                                <p className="text-sm font-medium">
+                                <div className="text-sm font-medium">
                                   This paystub is linked to an income entry.
-                                </p>
+                                </div>
                                 <div className="flex items-center space-x-2">
                                   <input
                                     type="checkbox"
