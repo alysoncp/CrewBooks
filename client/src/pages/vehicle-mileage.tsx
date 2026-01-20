@@ -57,7 +57,7 @@ import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { useToast } from "@/hooks/use-toast";
 import { formatDate, getTodayLocalDateString } from "@/lib/format";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn, fetchWithAuth } from "@/lib/queryClient";
 import { type Vehicle, type VehicleMileageLog } from "@shared/schema";
 
 // Dynamic schema based on logging style
@@ -92,11 +92,13 @@ export default function VehicleMileagePage() {
 
   const { data: vehicles = [], isLoading: vehiclesLoading } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   // Get user's mileage logging style preference
   const { data: mileageStyle } = useQuery<{ mileageLoggingStyle: string }>({
     queryKey: ["/api/user/mileage-logging-style"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const mileageLoggingStyle = mileageStyle?.mileageLoggingStyle || "trip_distance";
@@ -105,9 +107,7 @@ export default function VehicleMileagePage() {
     queryKey: ["/api/vehicles", selectedVehicleId, "mileage-logs"],
     queryFn: async () => {
       if (!selectedVehicleId) return [];
-      const response = await fetch(`/api/vehicles/${selectedVehicleId}/mileage-logs`);
-      if (!response.ok) throw new Error("Failed to fetch mileage logs");
-      return response.json();
+      return fetchWithAuth(`/api/vehicles/${selectedVehicleId}/mileage-logs`, { on401: "returnNull" });
     },
     enabled: !!selectedVehicleId,
   });

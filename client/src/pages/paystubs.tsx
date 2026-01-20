@@ -28,7 +28,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn, uploadWithAuth } from "@/lib/queryClient";
+import { supabase } from "@/lib/supabase";
 import { formatDate, getIncomeCategoryLabel, getIncomeTypeLabel, getTodayLocalDateString } from "@/lib/format";
 import { INCOME_CATEGORIES, INCOME_TYPES, type Paystub, type Income } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
@@ -125,6 +126,7 @@ export default function PaystubsPage() {
 
   const { data: paystubs, isLoading } = useQuery<Paystub[]>({
     queryKey: ["/api/paystubs"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const form = useForm<IncomeFormData>({
@@ -243,16 +245,7 @@ export default function PaystubsPage() {
       formData.append("notes", notes);
       formData.append("scanWithOCR", scanWithOCR.toString());
       
-      const response = await fetch("/api/paystubs/upload", {
-        method: "POST",
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error("Upload failed");
-      }
-      
-      return response.json();
+      return uploadWithAuth("/api/paystubs/upload", formData);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
@@ -361,7 +354,12 @@ export default function PaystubsPage() {
     queryKey: ["/api/paystubs", deletingPaystubId, "linked-income"],
     queryFn: async () => {
       if (!deletingPaystubId) return null;
-      const response = await fetch(`/api/paystubs/${deletingPaystubId}/linked-income`);
+      const {
+        data: { session },
+      } = await supabase.auth.getSession();
+      const headers: Record<string, string> = {};
+      if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+      const response = await fetch(`/api/paystubs/${deletingPaystubId}/linked-income`, { headers, credentials: "omit" });
       if (!response.ok) return null;
       return response.json();
     },

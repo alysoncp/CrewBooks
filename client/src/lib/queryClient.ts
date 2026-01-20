@@ -57,6 +57,87 @@ export const getQueryFn: <T>(options: {
     return await res.json();
   };
 
+// Helper for queries that need custom URL construction
+export async function fetchWithAuth(
+  url: string,
+  options: { on401: UnauthorizedBehavior } = { on401: "throw" }
+): Promise<any> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const headers: Record<string, string> = {};
+  if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+
+  const res = await fetch(url, {
+    headers,
+    credentials: "omit",
+  });
+
+  if (options.on401 === "returnNull" && res.status === 401) {
+    return null;
+  }
+
+  await throwIfResNotOk(res);
+  return await res.json();
+}
+
+// Helper for multipart form uploads with auth
+export async function uploadWithAuth(
+  url: string,
+  formData: FormData,
+  options: { on401: UnauthorizedBehavior } = { on401: "throw" }
+): Promise<any> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  
+  if (!session?.access_token) {
+    throw new Error("No active session - cannot upload");
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${session.access_token}`,
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+    headers,
+    credentials: "omit",
+  });
+
+  if (options.on401 === "returnNull" && res.status === 401) {
+    return null;
+  }
+
+  await throwIfResNotOk(res);
+  return await res.json();
+}
+
+// Helper for simple GET/fetch calls with auth
+export async function getWithAuth(
+  url: string,
+  options: { on401: UnauthorizedBehavior } = { on401: "throw" }
+): Promise<any> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const headers: Record<string, string> = {};
+  if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+
+  const res = await fetch(url, {
+    headers,
+    credentials: "omit",
+  });
+
+  if (options.on401 === "returnNull" && res.status === 401) {
+    return null;
+  }
+
+  await throwIfResNotOk(res);
+  return await res.json();
+}
+
 export const queryClient = new QueryClient({
   defaultOptions: {
     queries: {

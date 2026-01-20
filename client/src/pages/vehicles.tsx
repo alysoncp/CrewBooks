@@ -66,7 +66,7 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn, fetchWithAuth } from "@/lib/queryClient";
 import { type Vehicle, type Asset, type LeaseContract, type OdometerPhoto } from "@shared/schema";
 import { formatDate } from "@/lib/format";
 
@@ -121,11 +121,7 @@ function VehiclePhotoReminder({
 }) {
   const { data: photos = [] } = useQuery<OdometerPhoto[]>({
     queryKey: ["/api/vehicles", vehicle.id, "odometer-photos"],
-    queryFn: async () => {
-      const response = await fetch(`/api/vehicles/${vehicle.id}/odometer-photos`);
-      if (!response.ok) return [];
-      return response.json();
-    },
+    queryFn: async () => fetchWithAuth(`/api/vehicles/${vehicle.id}/odometer-photos`, { on401: "returnNull" }),
   });
 
   if (photos.length > 0 || !shouldShow) {
@@ -168,11 +164,7 @@ function VehiclePhotosPreview({ vehicle, onOpenGallery }: { vehicle: Vehicle; on
   
   const { data: photos = [] } = useQuery<OdometerPhoto[]>({
     queryKey: ["/api/vehicles", vehicle.id, "odometer-photos"],
-    queryFn: async () => {
-      const response = await fetch(`/api/vehicles/${vehicle.id}/odometer-photos`);
-      if (!response.ok) return [];
-      return response.json();
-    },
+    queryFn: async () => fetchWithAuth(`/api/vehicles/${vehicle.id}/odometer-photos`, { on401: "returnNull" }),
   });
 
   // Check photo status for current year
@@ -260,6 +252,7 @@ function MileageLoggingStyleSetting() {
   const { toast } = useToast();
   const { data: mileageStyle, isLoading } = useQuery<{ mileageLoggingStyle: string }>({
     queryKey: ["/api/user/mileage-logging-style"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const updateMileageStyleMutation = useMutation({
@@ -356,14 +349,17 @@ export default function VehiclesPage() {
 
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const { data: assets = [] } = useQuery<Asset[]>({
     queryKey: ["/api/assets"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const { data: leaseContracts = [] } = useQuery<LeaseContract[]>({
     queryKey: ["/api/lease-contracts"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   // Vehicle form

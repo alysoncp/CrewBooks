@@ -28,7 +28,7 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn } from "@/lib/queryClient";
 import { User, Building2, Crown, Sparkles, ArrowUpRight } from "lucide-react";
 import { Link } from "wouter";
 import { 
@@ -65,6 +65,7 @@ export default function ProfilePage() {
 
   const { data: user, isLoading, error } = useQuery<UserType>({
     queryKey: ["/api/user/profile"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   // Error handling

@@ -32,7 +32,8 @@ import {
   AlertDialogTrigger,
 } from "@/components/ui/alert-dialog";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn, uploadWithAuth, getWithAuth } from "@/lib/queryClient";
+import { supabase } from "@/lib/supabase";
 import type { Receipt, Expense, User } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { Link } from "wouter";
@@ -151,21 +152,24 @@ export default function ReceiptsPage() {
   
   const isBasicTier = user?.subscriptionTier === "basic";
   const hasReceiptAccess = !isBasicTier;
-
   const { data: receipts, isLoading } = useQuery<Receipt[]>({
     queryKey: ["/api/receipts"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const { data: expenses } = useQuery<Expense[]>({
     queryKey: ["/api/expenses"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const { data: userProfile } = useQuery<User>({
     queryKey: ["/api/user/profile"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const { data: vehicles = [] } = useQuery<Vehicle[]>({
     queryKey: ["/api/vehicles"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
   });
 
   const form = useForm<ExpenseFormData>({
@@ -439,16 +443,7 @@ export default function ReceiptsPage() {
       formData.append("notes", notes);
       formData.append("scanWithOCR", scanWithOCR.toString());
       
-      const response = await fetch("/api/receipts/upload", {
-        method: "POST",
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error("Upload failed");
-      }
-      
-      return response.json();
+      return uploadWithAuth("/api/receipts/upload", formData);
     },
     onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
@@ -468,8 +463,7 @@ export default function ReceiptsPage() {
           
           // Fetch receipt data to get image URL
           try {
-            const receiptResponse = await fetch(`/api/receipts/${firstReceipt.id}`);
-            const receipt = await receiptResponse.json();
+            const receipt = await getWithAuth(`/api/receipts/${firstReceipt.id}`, { on401: "returnNull" });
             if (receipt?.imageUrl) {
               setReceiptImageUrl(receipt.imageUrl);
             }
@@ -479,9 +473,8 @@ export default function ReceiptsPage() {
           
           // Try to fetch OCR data and pre-fill form (if available)
           try {
-            const ocrResponse = await fetch(`/api/receipts/${firstReceipt.id}/ocr-to-expense`);
-            if (ocrResponse.ok) {
-              const ocrData = await ocrResponse.json();
+            const ocrData = await getWithAuth(`/api/receipts/${firstReceipt.id}/ocr-to-expense`, { on401: "returnNull" });
+            if (ocrData) {
               
               if (ocrData && !ocrData.error && ocrData.expenseData) {
                 if (ocrData.confidence && ocrData.confidence < 0.7) {

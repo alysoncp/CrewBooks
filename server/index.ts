@@ -32,19 +32,23 @@ app.use(
   })
 );
 
-// Rate limiting for auth endpoints
+// Rate limiting for auth endpoints (login/signup only)
 const authLimiter = rateLimit({
   windowMs: 15 * 60 * 1000, // 15 minutes
-  max: 5, // 5 requests per windowMs
+  max: 10, // 10 requests per windowMs - increased from 5
   message: "Too many authentication attempts, please try again later",
   standardHeaders: true,
   legacyHeaders: false,
+  skip: (req) => {
+    // Don't rate limit GET requests to /api/auth/user (checking session)
+    return req.method === "GET" && req.path === "/user";
+  },
 });
 
 // Rate limiting for general API
 const apiLimiter = rateLimit({
   windowMs: 60 * 1000, // 1 minute
-  max: 100, // 100 requests per minute
+  max: 300, // 300 requests per minute - increased from 100
   standardHeaders: true,
   legacyHeaders: false,
 });
@@ -52,8 +56,14 @@ const apiLimiter = rateLimit({
 // Apply auth rate limiter to auth endpoints
 app.use("/api/auth", authLimiter);
 
-// Apply general rate limiter to API
-app.use("/api/", apiLimiter);
+// Apply general rate limiter to API (but not uploads)
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/uploads")) {
+    apiLimiter(req, res, next);
+  } else {
+    next();
+  }
+});
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
@@ -129,6 +139,10 @@ app.use((req, res, next) => {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
+
+  // Validate Veryfi credentials on startup
+  const { validateVeryfiCredentials } = await import("./veryfi-ocr");
+  validateVeryfiCredentials();
 
   const port = parseInt(process.env.PORT || "5000", 10);
   // Listen on 0.0.0.0 to accept connections from other devices on the network

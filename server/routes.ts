@@ -287,6 +287,24 @@ export async function registerRoutes(
     next();
   });
 
+  // Serve receipt and paystub images without authentication
+  // These must be defined before other API routes to avoid conflicts
+  app.get("/uploads/:filename", (req, res) => {
+    const filename = req.params.filename;
+    const filePath = path.join(process.cwd(), "uploads", filename);
+    
+    // Prevent directory traversal attacks
+    if (!path.normalize(filePath).startsWith(path.normalize(path.join(process.cwd(), "uploads")))) {
+      return res.status(403).json({ error: "Access denied" });
+    }
+    
+    if (!fs.existsSync(filePath)) {
+      return res.status(404).json({ error: "File not found" });
+    }
+    
+    res.sendFile(filePath);
+  });
+
   app.get("/api/auth/user", requireUser, async (req: any, res) => {
     try {
       const userId = getUserId(req);
@@ -683,7 +701,7 @@ export async function registerRoutes(
         files.map(async (file) => {
           const filePath = path.join(process.cwd(), "uploads", file.filename);
           
-          // Create receipt record
+          // Create receipt record with absolute URL
           const receipt = await storage.createReceipt({
             userId,
             imageUrl: `/uploads/${file.filename}`,
@@ -928,7 +946,7 @@ export async function registerRoutes(
         files.map(async (file) => {
           const filePath = path.join(process.cwd(), "uploads", file.filename);
           
-          // Create paystub record
+          // Create paystub record with absolute URL
           const paystub = await storage.createPaystub({
             userId,
             imageUrl: `/uploads/${file.filename}`,
@@ -2396,6 +2414,57 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
       res.status(500).json({ error: "Failed to calculate T2125 summary" });
     }
   });
+
+  // 🔐 DEBUG: Test Veryfi credentials in isolation (development only)
+  // This endpoint helps diagnose Veryfi auth issues without involving receipts/auth
+  if (process.env.NODE_ENV === "development") {
+    app.post("/api/debug/veryfi", requireUser, async (req: any, res) => {
+      try {
+        const userId = getUserId(req);
+        
+        // Check if file was provided
+        if (!req.files || !req.files.length) {
+          return res.status(400).json({ error: "No file provided. Send a multipart form with 'file' field." });
+        }
+
+        const file = req.files[0];
+        const filePath = path.join(process.cwd(), "uploads", file.filename);
+
+        // Check file exists
+        if (!fs.existsSync(filePath)) {
+          return res.status(400).json({ error: "File not found after upload" });
+        }
+
+        console.log("🧪 DEBUG: Testing Veryfi OCR");
+        console.log("📁 File:", file.filename);
+        console.log("👤 User:", userId);
+
+        // Call Veryfi directly
+        const result = await processReceiptOCR(filePath, "expense");
+
+        console.log("✅ DEBUG: Veryfi responded");
+        console.log("Status:", result.status);
+
+        // Clean up test file
+        if (fs.existsSync(filePath)) {
+          fs.unlinkSync(filePath);
+        }
+
+        res.json({
+          success: true,
+          message: "Veryfi credentials are working correctly",
+          ocrResult: result,
+        });
+      } catch (error: any) {
+        console.error("❌ DEBUG: Veryfi test failed", error);
+        res.status(500).json({
+          success: false,
+          error: error.message,
+          hint: "Check server logs for detailed error. Likely causes: invalid credentials, Veryfi API down, or network issues.",
+        });
+      }
+    });
+  }
 
   return httpServer;
 }
