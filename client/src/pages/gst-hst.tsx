@@ -1,4 +1,5 @@
 import { useQuery } from "@tanstack/react-query";
+import { fetchWithAuth } from "@/lib/queryClient";
 import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/components/ui/card";
 import { Skeleton } from "@/components/ui/skeleton";
 import { Badge } from "@/components/ui/badge";
@@ -19,13 +20,7 @@ export default function GstHstPage() {
   const { data: gstHstData, isLoading, error } = useQuery<GstHstSummary>({
     queryKey: ["/api/gst-hst", taxYear.toString()],
     queryFn: async ({ queryKey }) => {
-      const response = await fetch(`/api/gst-hst?taxYear=${queryKey[1]}`, {
-        credentials: "include",
-      });
-      if (!response.ok) {
-        throw new Error("Failed to fetch GST/HST data");
-      }
-      return response.json();
+      return fetchWithAuth(`/api/gst-hst?taxYear=${queryKey[1]}`);
     },
     enabled: hasGstNumber,
   });
