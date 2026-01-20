@@ -6,9 +6,64 @@ dotenv.config();
 import express, { NextFunction, type Request, Response } from "express";
 import { createServer } from "http";
 import path from "path";
+import helmet from "helmet";
+import rateLimit from "express-rate-limit";
 
 const app = express();
 const httpServer = createServer(app);
+
+// Security middleware with development-aware CSP
+// In development, Vite needs inline scripts for hot module reloading
+// In production, we use a strict CSP
+const isDev = process.env.NODE_ENV === "development";
+
+app.use(
+  helmet({
+    contentSecurityPolicy: isDev
+      ? false // Disable CSP in development (Vite needs inline scripts)
+      : {
+          directives: {
+            defaultSrc: ["'self'"],
+            scriptSrc: ["'self'"],
+            styleSrc: ["'self'", "'unsafe-inline'"],
+            imgSrc: ["'self'", "data:", "https:"],
+          },
+        },
+  })
+);
+
+// Rate limiting for auth endpoints (login/signup only)
+const authLimiter = rateLimit({
+  windowMs: 15 * 60 * 1000, // 15 minutes
+  max: 10, // 10 requests per windowMs - increased from 5
+  message: "Too many authentication attempts, please try again later",
+  standardHeaders: true,
+  legacyHeaders: false,
+  skip: (req) => {
+    // Don't rate limit GET requests to /api/auth/user (checking session)
+    return req.method === "GET" && req.path === "/user";
+  },
+});
+
+// Rate limiting for general API
+const apiLimiter = rateLimit({
+  windowMs: 60 * 1000, // 1 minute
+  max: 300, // 300 requests per minute - increased from 100
+  standardHeaders: true,
+  legacyHeaders: false,
+});
+
+// Apply auth rate limiter to auth endpoints
+app.use("/api/auth", authLimiter);
+
+// Apply general rate limiter to API (but not uploads)
+app.use((req, res, next) => {
+  if (!req.path.startsWith("/uploads")) {
+    apiLimiter(req, res, next);
+  } else {
+    next();
+  }
+});
 
 app.use("/uploads", express.static(path.join(process.cwd(), "uploads")));
 
@@ -23,10 +78,11 @@ app.use(
     verify: (req, _res, buf) => {
       req.rawBody = buf;
     },
+    limit: "10mb", // Limit request body size
   }),
 );
 
-app.use(express.urlencoded({ extended: false }));
+app.use(express.urlencoded({ extended: false, limit: "10mb" }));
 
 export function log(message: string, source = "express") {
   // Logging disabled
@@ -83,6 +139,10 @@ app.use((req, res, next) => {
     const { setupVite } = await import("./vite");
     await setupVite(httpServer, app);
   }
+
+  // Validate Veryfi credentials on startup
+  const { validateVeryfiCredentials } = await import("./veryfi-ocr");
+  validateVeryfiCredentials();
 
   const port = parseInt(process.env.PORT || "5000", 10);
   // Listen on 0.0.0.0 to accept connections from other devices on the network

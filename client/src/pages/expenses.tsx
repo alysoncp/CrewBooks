@@ -60,7 +60,7 @@ import { Label } from "@/components/ui/label";
 import { Alert, AlertDescription, AlertTitle } from "@/components/ui/alert";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getCategoryLabel, getTodayLocalDateString, getYearFromDateString, getExpenseTypeLabel, getPersonalExpenseCategoryLabel } from "@/lib/format";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn, uploadWithAuth, getWithAuth } from "@/lib/queryClient";
 import { SELF_EMPLOYMENT_EXPENSE_CATEGORIES, EXPENSE_TYPES, PERSONAL_EXPENSE_CATEGORIES, HOME_OFFICE_LIVING_CATEGORIES, VEHICLE_CATEGORIES, type Expense, type User, type Vehicle, type Receipt } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaxYear } from "@/components/tax-year-provider";
@@ -285,8 +285,7 @@ export default function ExpensesPage() {
     if (receiptId) {
       setReceiptIdForExpense(receiptId);
       // Fetch receipt data to get image URL
-      fetch(`/api/receipts/${receiptId}`)
-        .then((res) => res.json())
+      getWithAuth(`/api/receipts/${receiptId}`, { on401: "returnNull" })
         .then((receipt) => {
           if (receipt?.imageUrl) {
             setReceiptImageUrl(receipt.imageUrl);
@@ -295,17 +294,7 @@ export default function ExpensesPage() {
         .catch(() => {});
       
       // Try to fetch OCR data and pre-fill form (if available)
-      fetch(`/api/receipts/${receiptId}/ocr-to-expense`)
-        .then((res) => {
-          if (!res.ok) {
-            // If OCR data doesn't exist (404 or 400), that's fine - just open blank form
-            if (res.status === 404 || res.status === 400) {
-              return null;
-            }
-            throw new Error(`Failed to fetch OCR data: ${res.statusText}`);
-          }
-          return res.json();
-        })
+      getWithAuth(`/api/receipts/${receiptId}/ocr-to-expense`, { on401: "returnNull" })
         .then((data) => {
           // Clear URL param
           window.history.replaceState({}, "", "/expenses");
@@ -606,16 +595,7 @@ export default function ExpensesPage() {
       formData.append("notes", receiptNotes);
       formData.append("scanWithOCR", scanWithOCR.toString());
       
-      const response = await fetch("/api/receipts/upload", {
-        method: "POST",
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error("Upload failed");
-      }
-      
-      return response.json();
+      return uploadWithAuth("/api/receipts/upload", formData);
     },
     onSuccess: async (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/receipts"] });
@@ -635,8 +615,7 @@ export default function ExpensesPage() {
           
           // Fetch receipt data to get image URL
           try {
-            const receiptResponse = await fetch(`/api/receipts/${firstReceipt.id}`);
-            const receipt = await receiptResponse.json();
+            const receipt = await getWithAuth(`/api/receipts/${firstReceipt.id}`, { on401: "returnNull" });
             if (receipt?.imageUrl) {
               setReceiptImageUrl(receipt.imageUrl);
             }
@@ -646,52 +625,35 @@ export default function ExpensesPage() {
           
           // Try to fetch OCR data and pre-fill form (if available)
           try {
-            const ocrResponse = await fetch(`/api/receipts/${firstReceipt.id}/ocr-to-expense`);
-            if (ocrResponse.ok) {
-              const ocrData = await ocrResponse.json();
-              
-              if (ocrData && !ocrData.error && ocrData.expenseData) {
-                // Warn if confidence is low
-                if (ocrData.confidence && ocrData.confidence < 0.7) {
-                  toast({
-                    title: "Low confidence",
-                    description: "OCR results have low confidence. Please verify all fields before submitting.",
-                    variant: "default",
-                  });
-                }
-                
-                // Pre-fill form with OCR data
-                const ocrAmount = ocrData.expenseData.amount ? parseFloat(ocrData.expenseData.amount.toString()) : 0;
-                const ocrGstAmount = ocrData.expenseData.gstAmount ? parseFloat(ocrData.expenseData.gstAmount.toString()) : 0;
-                form.reset({
-                  total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
-                  gstAmount: ocrGstAmount > 0 ? ocrGstAmount.toFixed(2) : "",
-                  date: ocrData.expenseData.date || getTodayLocalDateString(),
-                  title: ocrData.expenseData.title || "",
-                  category: ocrData.expenseData.category || "",
-                  vendor: ocrData.expenseData.vendor || "",
-                  description: ocrData.expenseData.description || "",
-                  isTaxDeductible: ocrData.expenseData.isTaxDeductible !== false,
-                  expenseType: "self_employment",
-                  businessUsePercentage: "",
-                });
-              } else {
-                // No OCR data available - reset to blank form
-                form.reset({
-                  total: "",
-                  gstAmount: "",
-                  date: getTodayLocalDateString(),
-                  title: "",
-                  category: "",
-                  vendor: "",
-                  description: "",
-                  isTaxDeductible: true,
-                  expenseType: "self_employment",
-                  businessUsePercentage: "",
+            const ocrData = await getWithAuth(`/api/receipts/${firstReceipt.id}/ocr-to-expense`, { on401: "returnNull" });
+            
+            if (ocrData && !ocrData.error && ocrData.expenseData) {
+              // Warn if confidence is low
+              if (ocrData.confidence && ocrData.confidence < 0.7) {
+                toast({
+                  title: "Low confidence",
+                  description: "OCR results have low confidence. Please verify all fields before submitting.",
+                  variant: "default",
                 });
               }
+              
+              // Pre-fill form with OCR data
+              const ocrAmount = ocrData.expenseData.amount ? parseFloat(ocrData.expenseData.amount.toString()) : 0;
+              const ocrGstAmount = ocrData.expenseData.gstAmount ? parseFloat(ocrData.expenseData.gstAmount.toString()) : 0;
+              form.reset({
+                total: ocrAmount > 0 ? ocrAmount.toFixed(2) : "",
+                gstAmount: ocrGstAmount > 0 ? ocrGstAmount.toFixed(2) : "",
+                date: ocrData.expenseData.date || getTodayLocalDateString(),
+                title: ocrData.expenseData.title || "",
+                category: ocrData.expenseData.category || "",
+                vendor: ocrData.expenseData.vendor || "",
+                description: ocrData.expenseData.description || "",
+                isTaxDeductible: ocrData.expenseData.isTaxDeductible !== false,
+                expenseType: "self_employment",
+                businessUsePercentage: "",
+              });
             } else {
-              // OCR endpoint returned error - reset to blank form
+              // No OCR data available - reset to blank form
               form.reset({
                 total: "",
                 gstAmount: "",

@@ -62,7 +62,7 @@ export function calculateAssetCCA(
 
   // Apply half-year rule for first year (unless disabled)
   const isFirstYear = !previousYearHistory;
-  const applyHalfYearRule = asset.applyHalfYearRule && isFirstYear;
+  const applyHalfYearRule = (asset.applyHalfYearRule ?? true) && isFirstYear;
   const halfYearRuleApplied = applyHalfYearRule;
 
   if (applyHalfYearRule) {

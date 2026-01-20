@@ -57,7 +57,7 @@ import { Switch } from "@/components/ui/switch";
 import { Label } from "@/components/ui/label";
 import { useToast } from "@/hooks/use-toast";
 import { formatCurrency, formatDate, getIncomeTypeLabel, getIncomeCategoryLabel, getTodayLocalDateString, getYearFromDateString } from "@/lib/format";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn, uploadWithAuth, getWithAuth } from "@/lib/queryClient";
 import { INCOME_TYPES, INCOME_CATEGORIES, type Income, type User, type Paystub } from "@shared/schema";
 import { useAuth } from "@/hooks/useAuth";
 import { useTaxYear } from "@/components/tax-year-provider";
@@ -348,16 +348,7 @@ export default function IncomePage() {
       formData.append("notes", paystubNotes);
       formData.append("scanWithOCR", scanWithOCR.toString());
       
-      const response = await fetch("/api/paystubs/upload", {
-        method: "POST",
-        body: formData,
-      });
-      
-      if (!response.ok) {
-        throw new Error("Upload failed");
-      }
-      
-      return response.json();
+      return uploadWithAuth("/api/paystubs/upload", formData);
     },
     onSuccess: (data) => {
       queryClient.invalidateQueries({ queryKey: ["/api/paystubs"] });
@@ -631,11 +622,7 @@ export default function IncomePage() {
       }
       // Fetch paystub data to get image URL
       console.log("Fetching paystub data for:", paystubId);
-      fetch(`/api/paystubs/${paystubId}`)
-        .then((res) => {
-          console.log("Paystub fetch response status:", res.status);
-          return res.json();
-        })
+      getWithAuth(`/api/paystubs/${paystubId}`, { on401: "returnNull" })
         .then((paystub) => {
           console.log("Paystub data:", paystub);
           if (paystub?.imageUrl) {
@@ -648,28 +635,7 @@ export default function IncomePage() {
       
       // Try to fetch OCR data and pre-fill form (if available)
       console.log("Fetching OCR data for paystub:", paystubId);
-      fetch(`/api/paystubs/${paystubId}/ocr-to-income`)
-        .then(async (res) => {
-          console.log("OCR fetch response status:", res.status, res.statusText);
-          console.log("OCR fetch response headers:", Object.fromEntries(res.headers.entries()));
-          if (!res.ok) {
-            // If OCR data doesn't exist (404 or 400), that's fine - just open blank form
-            if (res.status === 404 || res.status === 400) {
-              console.log("OCR data not found (404/400), returning null");
-              return null;
-            }
-            throw new Error(`Failed to fetch OCR data: ${res.statusText}`);
-          }
-          // Check content type
-          const contentType = res.headers.get("content-type");
-          console.log("Response content-type:", contentType);
-          if (!contentType || !contentType.includes("application/json")) {
-            const text = await res.text();
-            console.error("Response is not JSON. Content:", text.substring(0, 500));
-            throw new Error(`Expected JSON but got ${contentType}`);
-          }
-          return res.json();
-        })
+      getWithAuth(`/api/paystubs/${paystubId}/ocr-to-income`, { on401: "returnNull" })
         .then((data) => {
           // Debug: Log the OCR response
           console.log("=== OCR TO INCOME RESPONSE ===", data);
@@ -678,6 +644,11 @@ export default function IncomePage() {
           console.log("Issuer:", data?.issuer);
           console.log("Validation Errors:", data?.validationErrors);
           console.log("Raw OCR Data:", data?.rawOCRData);
+          
+          if (!data || data.error) {
+            console.log("No OCR data or error received");
+            return;
+          }
           
           // Use category from URL if available
           const urlCategory = params.get("category");

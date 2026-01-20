@@ -60,7 +60,7 @@ import {
   TableRow,
 } from "@/components/ui/table";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, fetchWithAuth } from "@/lib/queryClient";
 import { type Asset, CCA_CLASSES, type CCAClass } from "@shared/schema";
 import { formatCurrency, formatDate } from "@/lib/format";
 import { useTaxYear } from "@/components/tax-year-provider";
@@ -114,8 +114,10 @@ export default function AssetsPage() {
 
   const { data: ccaSummary } = useQuery<{ totalCCA: number; ccaByClass: Record<string, number> }>({
     queryKey: ["/api/cca-summary", taxYear],
+    queryFn: async ({ queryKey }) => {
+      return fetchWithAuth(`/api/cca-summary?taxYear=${queryKey[1]}`);
+    },
   });
-
 
   const form = useForm<AssetFormData>({
     resolver: zodResolver(assetFormSchema),

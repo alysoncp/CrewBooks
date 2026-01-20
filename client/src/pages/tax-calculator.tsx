@@ -8,6 +8,7 @@ import { Progress } from "@/components/ui/progress";
 import { Button } from "@/components/ui/button";
 import { Calculator, DollarSign, Percent, TrendingDown, Building, Lock, Sparkles } from "lucide-react";
 import { formatCurrency, formatPercent } from "@/lib/format";
+import { getQueryFn, fetchWithAuth } from "@/lib/queryClient";
 import { Link } from "wouter";
 import { useTaxYear } from "@/components/tax-year-provider";
 import type { TaxCalculation, User } from "@shared/schema";
@@ -72,13 +73,7 @@ export default function TaxCalculatorPage() {
   const { data, isLoading, isError } = useQuery<TaxData>({
     queryKey: ["/api/tax-calculation", taxYear.toString()],
     queryFn: async ({ queryKey }) => {
-      const response = await fetch(`/api/tax-calculation?taxYear=${queryKey[1]}`, {
-        credentials: "include",
-      });
-      if (!response.ok) {
-        throw new Error("Failed to fetch tax calculation");
-      }
-      return response.json();
+      return fetchWithAuth(`/api/tax-calculation?taxYear=${queryKey[1]}`);
     },
     retry: false,
     staleTime: 0, // Always refetch when tax year changes

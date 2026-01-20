@@ -31,6 +31,12 @@ import LeasesPage from "@/pages/leases";
 import HelpPage from "@/pages/help";
 import AboutPage from "@/pages/about";
 import BenefitsPage from "@/pages/benefits";
+import SignInPage from "@/pages/signin";
+import SignUpPage from "@/pages/signup";
+import { supabase } from "@/lib/supabase";
+import { useEffect, useState } from "react";
+import { useLocation } from "wouter";
+import type { AuthChangeEvent, Session } from "@supabase/supabase-js";
 
 function AuthenticatedRouter() {
   return (
@@ -91,7 +97,11 @@ function UnauthenticatedLayout() {
       <header className="sticky top-0 z-50 flex h-14 items-center justify-end gap-4 border-b bg-background/95 px-4 backdrop-blur supports-[backdrop-filter]:bg-background/60">
         <ThemeToggle />
       </header>
-      <Landing />
+      <Switch>
+        <Route path="/signin" component={SignInPage} />
+        <Route path="/signup" component={SignUpPage} />
+        <Route component={Landing} />
+      </Switch>
     </div>
   );
 }
@@ -108,13 +118,44 @@ function LoadingScreen() {
 }
 
 function AppContent() {
-  const { isAuthenticated, isLoading } = useAuth();
+  const [authState, setAuthState] = useState<{
+    session: Session | null;
+    initialized: boolean;
+  }>({ session: null, initialized: false });
+  const [, navigate] = useLocation();
 
-  if (isLoading) {
+  useEffect(() => {
+    // Get initial session
+    supabase.auth.getSession().then(({ data: { session } }) => {
+      setAuthState({ session, initialized: true });
+    });
+
+    // Subscribe to auth state changes
+    const { data: sub } = supabase.auth.onAuthStateChange((event: AuthChangeEvent, session: Session | null) => {
+      setAuthState({ session, initialized: true });
+      
+      if (event === "SIGNED_IN") {
+        // Clear ALL cache to prevent showing previous user's data
+        queryClient.clear();
+        // Invalidate user query to fetch fresh data for new user
+        queryClient.invalidateQueries({ queryKey: ["/api/auth/user"] });
+        navigate("/");
+      } else if (event === "SIGNED_OUT") {
+        // Clear ALL cache on sign out
+        queryClient.clear();
+      }
+    });
+    
+    return () => {
+      sub.subscription.unsubscribe();
+    };
+  }, [navigate]);
+
+  if (!authState.initialized) {
     return <LoadingScreen />;
   }
 
-  if (!isAuthenticated) {
+  if (!authState.session) {
     return <UnauthenticatedLayout />;
   }
 

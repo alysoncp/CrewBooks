@@ -1,4 +1,5 @@
 import { QueryClient, QueryFunction } from "@tanstack/react-query";
+import { supabase } from "./supabase";
 
 async function throwIfResNotOk(res: Response) {
   if (!res.ok) {
@@ -12,11 +13,18 @@ export async function apiRequest(
   url: string,
   data?: unknown | undefined,
 ): Promise<Response> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const headers: Record<string, string> = {};
+  if (data) headers["Content-Type"] = "application/json";
+  if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+
   const res = await fetch(url, {
     method,
-    headers: data ? { "Content-Type": "application/json" } : {},
+    headers,
     body: data ? JSON.stringify(data) : undefined,
-    credentials: "include",
+    credentials: "omit",
   });
 
   await throwIfResNotOk(res);
@@ -29,8 +37,16 @@ export const getQueryFn: <T>(options: {
 }) => QueryFunction<T> =
   ({ on401: unauthorizedBehavior }) =>
   async ({ queryKey }) => {
-    const res = await fetch(queryKey.join("/") as string, {
-      credentials: "include",
+    const url = queryKey.join("/") as string;
+    const {
+      data: { session },
+    } = await supabase.auth.getSession();
+    const headers: Record<string, string> = {};
+    if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+
+    const res = await fetch(url, {
+      headers,
+      credentials: "omit",
     });
 
     if (unauthorizedBehavior === "returnNull" && res.status === 401) {
@@ -40,6 +56,87 @@ export const getQueryFn: <T>(options: {
     await throwIfResNotOk(res);
     return await res.json();
   };
+
+// Helper for queries that need custom URL construction
+export async function fetchWithAuth(
+  url: string,
+  options: { on401: UnauthorizedBehavior } = { on401: "throw" }
+): Promise<any> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const headers: Record<string, string> = {};
+  if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+
+  const res = await fetch(url, {
+    headers,
+    credentials: "omit",
+  });
+
+  if (options.on401 === "returnNull" && res.status === 401) {
+    return null;
+  }
+
+  await throwIfResNotOk(res);
+  return await res.json();
+}
+
+// Helper for multipart form uploads with auth
+export async function uploadWithAuth(
+  url: string,
+  formData: FormData,
+  options: { on401: UnauthorizedBehavior } = { on401: "throw" }
+): Promise<any> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  
+  if (!session?.access_token) {
+    throw new Error("No active session - cannot upload");
+  }
+
+  const headers: Record<string, string> = {
+    Authorization: `Bearer ${session.access_token}`,
+  };
+
+  const res = await fetch(url, {
+    method: "POST",
+    body: formData,
+    headers,
+    credentials: "omit",
+  });
+
+  if (options.on401 === "returnNull" && res.status === 401) {
+    return null;
+  }
+
+  await throwIfResNotOk(res);
+  return await res.json();
+}
+
+// Helper for simple GET/fetch calls with auth
+export async function getWithAuth(
+  url: string,
+  options: { on401: UnauthorizedBehavior } = { on401: "throw" }
+): Promise<any> {
+  const {
+    data: { session },
+  } = await supabase.auth.getSession();
+  const headers: Record<string, string> = {};
+  if (session?.access_token) headers["Authorization"] = `Bearer ${session.access_token}`;
+
+  const res = await fetch(url, {
+    headers,
+    credentials: "omit",
+  });
+
+  if (options.on401 === "returnNull" && res.status === 401) {
+    return null;
+  }
+
+  await throwIfResNotOk(res);
+  return await res.json();
+}
 
 export const queryClient = new QueryClient({
   defaultOptions: {

@@ -1,5 +1,5 @@
 import { sql } from "drizzle-orm";
-import { pgTable, text, varchar, numeric, date, boolean, timestamp, index, jsonb } from "drizzle-orm/pg-core";
+import { pgTable, text, varchar, numeric, date, boolean, timestamp, index, jsonb, integer } from "drizzle-orm/pg-core";
 import { createInsertSchema } from "drizzle-zod";
 import { z } from "zod";
 
@@ -137,17 +137,6 @@ export const INCOME_TYPES = [
 
 export type IncomeType = typeof INCOME_TYPES[number];
 
-// Session storage table
-export const sessions = pgTable(
-  "sessions",
-  {
-    sid: varchar("sid").primaryKey(),
-    sess: jsonb("sess").notNull(),
-    expire: timestamp("expire").notNull(),
-  },
-  (table) => [index("IDX_session_expire").on(table.expire)],
-);
-
 // Users Table
 export const users = pgTable("users", {
   id: varchar("id").primaryKey().default(sql`gen_random_uuid()`),
@@ -178,6 +167,9 @@ export const users = pgTable("users", {
   enabledPersonalExpenseCategories: jsonb("enabled_personal_expense_categories").$type<string[]>(),
   enabledGeneralExpenseCategories: jsonb("enabled_general_expense_categories").$type<string[]>(),
   mileageLoggingStyle: text("mileage_logging_style").default("trip_distance"), // "odometer" | "trip_distance"
+  // OCR rate limiting (security: prevent abuse and cost overruns)
+  ocrRequestsThisMonth: integer("ocr_requests_this_month").default(0),
+  lastOcrReset: timestamp("last_ocr_reset").defaultNow(),
   createdAt: timestamp("created_at").defaultNow(),
   updatedAt: timestamp("updated_at").defaultNow(),
 });

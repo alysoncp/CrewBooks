@@ -28,7 +28,7 @@ import { useForm } from "react-hook-form";
 import { zodResolver } from "@hookform/resolvers/zod";
 import { z } from "zod";
 import { useToast } from "@/hooks/use-toast";
-import { queryClient, apiRequest } from "@/lib/queryClient";
+import { queryClient, apiRequest, getQueryFn } from "@/lib/queryClient";
 import { 
   ArrowLeft, 
   ArrowRight, 
@@ -621,6 +621,7 @@ export default function TaxFilingT1Page() {
 
   const { data: questionnaires, isLoading: loadingList } = useQuery<TaxQuestionnaire[]>({
     queryKey: ["/api/questionnaires"],
+    queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: !isBasicTier,
   });
 
@@ -631,6 +632,7 @@ export default function TaxFilingT1Page() {
     responses: QuestionnaireResponse[];
   }>({
     queryKey: ["/api/questionnaires", selectedQuestionnaireId],
+    queryFn: getQueryFn({ on401: "returnNull" }),
     enabled: !!selectedQuestionnaireId,
   });
 
