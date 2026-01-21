@@ -20,6 +20,7 @@ app.get("/api/health", (_req, res) => {
   res.status(200).json({ ok: true });
 });
 
+
 // Security middleware with development-aware CSP
 // In development, Vite needs inline scripts for hot module reloading
 // In production, we use a strict CSP
@@ -33,7 +34,7 @@ app.use(
           directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
-            styleSrc: ["'self'", "'unsafe-inline'"],
+            styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             imgSrc: ["'self'", "data:", "https:"],
           },
         },
