@@ -8,9 +8,17 @@ import { createServer } from "http";
 import path from "path";
 import helmet from "helmet";
 import rateLimit from "express-rate-limit";
+import * as veryfiOcr from "./veryfi-ocr";
+
+const { validateVeryfiCredentials } = veryfiOcr as any;
 
 const app = express();
 const httpServer = createServer(app);
+
+// Add health check endpoint BEFORE any middleware
+app.get("/api/health", (_req, res) => {
+  res.status(200).json({ ok: true });
+});
 
 // Security middleware with development-aware CSP
 // In development, Vite needs inline scripts for hot module reloading
@@ -141,7 +149,6 @@ app.use((req, res, next) => {
   }
 
   // Validate Veryfi credentials on startup
-  const { validateVeryfiCredentials } = await import("./veryfi-ocr");
   validateVeryfiCredentials();
 
   const port = parseInt(process.env.PORT || "5000", 10);
