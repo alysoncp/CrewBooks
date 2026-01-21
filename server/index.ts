@@ -29,16 +29,28 @@ const isDev = process.env.NODE_ENV === "development";
 app.use(
   helmet({
     contentSecurityPolicy: isDev
-      ? false // Disable CSP in development (Vite needs inline scripts)
+      ? false
       : {
           directives: {
             defaultSrc: ["'self'"],
             scriptSrc: ["'self'"],
             styleSrc: ["'self'", "'unsafe-inline'", "https://fonts.googleapis.com"],
             imgSrc: ["'self'", "data:", "https:"],
+  
+            // ✅ allow browser -> Supabase API/Auth/Storage
+            connectSrc: [
+              "'self'",
+              "https://zurwoqrlvbcvmbxggocv.supabase.co",
+              // ✅ only needed if you use Supabase Realtime
+              "wss://zurwoqrlvbcvmbxggocv.supabase.co",
+            ],
+  
+            // optional but commonly needed if you load Google Fonts
+            fontSrc: ["'self'", "https://fonts.gstatic.com", "data:"],
           },
         },
   })
+  
 );
 
 // Rate limiting for auth endpoints (login/signup only)
