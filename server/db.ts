@@ -1,8 +1,6 @@
 import { drizzle } from "drizzle-orm/node-postgres";
 import pg from "pg";
 import * as schema from "@shared/schema";
-import fs from "node:fs";
-import path from "node:path";
 
 const { Pool } = pg;
 
@@ -12,10 +10,9 @@ if (!process.env.DATABASE_URL) {
   );
 }
 
-const caPath = path.resolve("certs/supabase-dev-db-ca.crt");
-const sslConfig = fs.existsSync(caPath)
-  ? { ca: fs.readFileSync(caPath, "utf8"), rejectUnauthorized: true }
-  : { rejectUnauthorized: false };
+const sslConfig = process.env.NODE_ENV === "production"
+  ? { rejectUnauthorized: false } // For Supabase/Render PostgreSQL
+  : { rejectUnauthorized: false }; // Keep dev simple too
 
 export const pool = new Pool({
   connectionString: process.env.DATABASE_URL,
