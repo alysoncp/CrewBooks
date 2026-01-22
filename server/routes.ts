@@ -307,16 +307,19 @@ export async function registerRoutes(
 
   app.get("/api/auth/user", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       let user = await storage.getUser(userId);
       if (!user) {
-        const claims = req.user?.claims || {};
+        // Get user info from Supabase auth
+        const { data: { user: supabaseUser } } = await authedReq.supabase.auth.getUser();
+        const userData = supabaseUser || {};
         user = await storage.upsertUser({
           id: userId,
-          email: claims.email,
-          firstName: claims.user_metadata?.first_name || claims.given_name || null,
-          lastName: claims.user_metadata?.last_name || claims.family_name || null,
-          profileImageUrl: claims.user_metadata?.avatar_url || claims.picture || null,
+          email: userData.email || authedReq.auth.email || null,
+          firstName: userData.user_metadata?.first_name || userData.given_name || null,
+          lastName: userData.user_metadata?.last_name || userData.family_name || null,
+          profileImageUrl: userData.user_metadata?.avatar_url || userData.picture || null,
         } as any);
       }
       res.json(user);
@@ -327,7 +330,8 @@ export async function registerRoutes(
 
   app.get("/api/user/profile", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -340,7 +344,8 @@ export async function registerRoutes(
 
   app.patch("/api/user/profile", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       
       // Convert agentCommission from string to number (or null if empty)
       const profileData = { ...req.body };
@@ -383,7 +388,8 @@ export async function registerRoutes(
   // GET /api/user/mileage-logging-style - get user's mileage logging style preference
   app.get("/api/user/mileage-logging-style", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const user = await storage.getUser(userId);
       if (!user) {
         return res.status(404).json({ error: "User not found" });
@@ -397,7 +403,8 @@ export async function registerRoutes(
   // PATCH /api/user/mileage-logging-style - update user's mileage logging style preference
   app.patch("/api/user/mileage-logging-style", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const { mileageLoggingStyle } = req.body;
       
       if (mileageLoggingStyle !== "odometer" && mileageLoggingStyle !== "trip_distance") {
@@ -416,7 +423,8 @@ export async function registerRoutes(
 
   app.patch("/api/user/subscription", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const { tier } = req.body;
       const updated = await storage.updateUser(userId, { subscriptionTier: tier });
       if (!updated) {
@@ -430,7 +438,8 @@ export async function registerRoutes(
 
   app.get("/api/dashboard", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const incomeRecords = await storage.getIncome(userId);
       const expenseRecords = await storage.getExpenses(userId);
       const taxCalculation = await storage.calculateTax(userId);
@@ -471,7 +480,8 @@ export async function registerRoutes(
 
   app.get("/api/income", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const incomeRecords = await storage.getIncome(userId);
       res.json(incomeRecords);
     } catch (error) {
@@ -481,7 +491,8 @@ export async function registerRoutes(
 
   app.post("/api/income", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const data = insertIncomeSchema.parse({ ...req.body, userId });
       const incomeRecord = await storage.createIncome(data);
       res.status(201).json(incomeRecord);
@@ -495,7 +506,8 @@ export async function registerRoutes(
 
   app.patch("/api/income/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const incomeRecord = await storage.getIncomeById(req.params.id);
       
       if (!incomeRecord) {
@@ -519,7 +531,8 @@ export async function registerRoutes(
 
   app.get("/api/income/:id/linked-paystubs", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const incomeRecord = await storage.getIncomeById(req.params.id);
       
       if (!incomeRecord) {
@@ -539,7 +552,8 @@ export async function registerRoutes(
 
   app.delete("/api/income/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const incomeRecord = await storage.getIncomeById(req.params.id);
       
       if (!incomeRecord) {
@@ -579,7 +593,8 @@ export async function registerRoutes(
 
   app.get("/api/expenses", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const expenseRecords = await storage.getExpenses(userId);
       res.json(expenseRecords);
     } catch (error) {
@@ -589,7 +604,8 @@ export async function registerRoutes(
 
   app.post("/api/expenses", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const { linkedReceiptId, ...expenseData } = req.body;
       const data = insertExpenseSchema.parse({ ...expenseData, userId });
       const expense = await storage.createExpense(data);
@@ -615,7 +631,8 @@ export async function registerRoutes(
 
   app.patch("/api/expenses/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const expense = await storage.getExpenseById(req.params.id);
       
       if (!expense) {
@@ -653,7 +670,8 @@ export async function registerRoutes(
 
   app.get("/api/receipts", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const receiptRecords = await storage.getReceipts(userId);
       res.json(receiptRecords);
     } catch (error) {
@@ -669,7 +687,7 @@ export async function registerRoutes(
       logRoute(`Request body scanWithOCR type: ${typeof req.body.scanWithOCR}`, "receipts");
       logRoute(`Files count: ${req.files?.length || 0}`, "receipts");
       
-      const userId = getUserId(req);
+      const userId = req.auth.userId;
       const user = await storage.getUser(userId);
       
       if (!user) {
@@ -779,7 +797,8 @@ export async function registerRoutes(
 
   app.get("/api/receipts/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const receipt = await storage.getReceiptById(req.params.id);
       
       if (!receipt) {
@@ -798,7 +817,8 @@ export async function registerRoutes(
 
   app.get("/api/receipts/:id/ocr-to-expense", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const receipt = await storage.getReceiptById(req.params.id);
       
       if (!receipt) {
@@ -847,7 +867,8 @@ export async function registerRoutes(
 
   app.patch("/api/receipts/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const receipt = await storage.getReceiptById(req.params.id);
       
       if (!receipt) {
@@ -909,7 +930,8 @@ export async function registerRoutes(
 
   app.get("/api/paystubs", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const paystubRecords = await storage.getPaystubs(userId);
       res.json(paystubRecords);
     } catch (error: any) {
@@ -925,7 +947,7 @@ export async function registerRoutes(
       logRoute(`Request body scanWithOCR: ${req.body.scanWithOCR}`, "paystubs");
       logRoute(`Files count: ${req.files?.length || 0}`, "paystubs");
       
-      const userId = getUserId(req);
+      const userId = req.auth.userId;
       const user = await storage.getUser(userId);
       
       if (!user) {
@@ -1038,7 +1060,8 @@ export async function registerRoutes(
 
   app.get("/api/paystubs/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const paystub = await storage.getPaystubById(req.params.id);
       
       if (!paystub) {
@@ -1057,9 +1080,10 @@ export async function registerRoutes(
 
   app.get("/api/paystubs/:id/ocr-to-income", requireUser, async (req: any, res) => {
     try {
+      const authedReq = req as AuthedRequest;
       console.log("=== OCR TO INCOME ENDPOINT CALLED ===");
       console.log("Paystub ID:", req.params.id);
-      const userId = getUserId(req);
+      const userId = authedReq.auth.userId;
       console.log("User ID:", userId);
       const paystub = await storage.getPaystubById(req.params.id);
       
@@ -1200,7 +1224,8 @@ export async function registerRoutes(
 
   app.patch("/api/paystubs/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const paystub = await storage.getPaystubById(req.params.id);
       
       if (!paystub) {
@@ -1242,7 +1267,8 @@ export async function registerRoutes(
 
   app.get("/api/paystubs/:id/linked-income", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const paystub = await storage.getPaystubById(req.params.id);
       
       if (!paystub) {
@@ -1262,7 +1288,8 @@ export async function registerRoutes(
 
   app.delete("/api/paystubs/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const paystub = await storage.getPaystubById(req.params.id);
       
       if (!paystub) {
@@ -1300,7 +1327,8 @@ export async function registerRoutes(
 
   app.get("/api/tax-calculation", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const user = await storage.getUser(userId);
       
       // Tax estimator requires Personal or Corporate tier
@@ -1341,7 +1369,8 @@ export async function registerRoutes(
 
   app.get("/api/optimization", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const user = await storage.getUser(userId);
       
       // Optimization requires Corporate tier AND corporate tax filing status
@@ -1387,7 +1416,8 @@ export async function registerRoutes(
 
   app.get("/api/gst-hst", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const user = await storage.getUser(userId);
       
       // GST/HST tracking is available to anyone with a GST number
@@ -1409,7 +1439,8 @@ export async function registerRoutes(
 
   app.get("/api/questionnaires", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const questionnaires = await storage.getQuestionnaires(userId);
       res.json(questionnaires);
     } catch (error) {
@@ -1419,7 +1450,8 @@ export async function registerRoutes(
 
   app.get("/api/questionnaires/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
       
       if (!questionnaire) {
@@ -1439,7 +1471,8 @@ export async function registerRoutes(
 
   app.post("/api/questionnaires", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const user = await storage.getUser(userId);
       
       if (!user) {
@@ -1472,7 +1505,8 @@ export async function registerRoutes(
 
   app.patch("/api/questionnaires/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
       
       if (!questionnaire) {
@@ -1492,7 +1526,8 @@ export async function registerRoutes(
 
   app.delete("/api/questionnaires/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
       
       if (!questionnaire) {
@@ -1512,7 +1547,8 @@ export async function registerRoutes(
 
   app.post("/api/questionnaires/:id/responses", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const questionnaire = await storage.getQuestionnaireById(req.params.id);
       
       if (!questionnaire) {
@@ -1541,7 +1577,8 @@ export async function registerRoutes(
   // GET /api/vehicles - get user's vehicles
   app.get("/api/vehicles", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicleRecords = await storage.getVehicles(userId);
       // Return vehicles (year transitions no longer needed with new photo system)
       const updatedVehicles = vehicleRecords;
@@ -1553,7 +1590,8 @@ export async function registerRoutes(
 
   app.get("/api/vehicles/:id/business-use-percentage", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.id);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1572,7 +1610,8 @@ export async function registerRoutes(
   // POST /api/vehicles - create vehicle
   app.post("/api/vehicles", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       // Clean up empty strings - be more explicit
       const cleanedData: any = {
         name: req.body.name?.trim() || "",
@@ -1632,7 +1671,8 @@ export async function registerRoutes(
   // PATCH /api/vehicles/:id - update vehicle
   app.patch("/api/vehicles/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.id);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1673,7 +1713,8 @@ export async function registerRoutes(
   // DELETE /api/vehicles/:id - delete vehicle
   app.delete("/api/vehicles/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.id);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1691,7 +1732,7 @@ export async function registerRoutes(
   // POST /api/vehicles/:id/odometer-photos - upload odometer photo
   app.post("/api/vehicles/:id/odometer-photos", requireUser, upload.single("file"), async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const userId = req.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.id);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1769,7 +1810,8 @@ export async function registerRoutes(
   // GET /api/vehicles/:id/odometer-photos - get odometer photos for a vehicle
   app.get("/api/vehicles/:id/odometer-photos", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.id);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1789,7 +1831,8 @@ export async function registerRoutes(
 // PATCH /api/vehicles/:id/odometer-photos/:photoId - update an odometer photo
 app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req: any, res) => {
   try {
-    const userId = getUserId(req);
+    const authedReq = req as AuthedRequest;
+    const userId = authedReq.auth.userId;
     const vehicle = await storage.getVehicleById(req.params.id);
     if (!vehicle) {
       return res.status(404).json({ error: "Vehicle not found" });
@@ -1831,7 +1874,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // DELETE /api/vehicles/:id/odometer-photos/:photoId - delete an odometer photo
   app.delete("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.id);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1866,7 +1910,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // GET /api/vehicles/:vehicleId/mileage-logs - get mileage logs for a vehicle
   app.get("/api/vehicles/:vehicleId/mileage-logs", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.vehicleId);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1884,7 +1929,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // POST /api/vehicles/:vehicleId/mileage-logs - create mileage log
   app.post("/api/vehicles/:vehicleId/mileage-logs", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const vehicle = await storage.getVehicleById(req.params.vehicleId);
       if (!vehicle) {
         return res.status(404).json({ error: "Vehicle not found" });
@@ -1939,7 +1985,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // PATCH /api/mileage-logs/:id - update mileage log
   app.patch("/api/mileage-logs/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const log = await storage.getVehicleMileageLogById(req.params.id);
       if (!log) {
         return res.status(404).json({ error: "Mileage log not found" });
@@ -2007,7 +2054,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // DELETE /api/mileage-logs/:id - delete mileage log
   app.delete("/api/mileage-logs/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const log = await storage.getVehicleMileageLogById(req.params.id);
       if (!log) {
         return res.status(404).json({ error: "Mileage log not found" });
@@ -2025,7 +2073,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // Rename expense category
   app.patch("/api/expenses/categories/rename", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const { oldCategory, newCategory } = req.body;
 
       if (!oldCategory || !newCategory) {
@@ -2058,7 +2107,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // Delete expense category (only if not in use)
   app.delete("/api/expenses/categories/:category", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const category = decodeURIComponent(req.params.category);
 
       // Check if category is in use
@@ -2081,7 +2131,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // Assets API routes
   app.get("/api/assets", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const assetRecords = await storage.getAssets(userId);
       res.json(assetRecords);
     } catch (error) {
@@ -2091,7 +2142,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.post("/api/assets", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const data = insertAssetSchema.parse({ ...req.body, userId });
       const asset = await storage.createAsset(data);
       res.status(201).json(asset);
@@ -2105,7 +2157,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.get("/api/assets/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const asset = await storage.getAssetById(req.params.id);
       if (!asset) {
         return res.status(404).json({ error: "Asset not found" });
@@ -2121,7 +2174,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.patch("/api/assets/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const asset = await storage.getAssetById(req.params.id);
       if (!asset) {
         return res.status(404).json({ error: "Asset not found" });
@@ -2141,7 +2195,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.delete("/api/assets/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const asset = await storage.getAssetById(req.params.id);
       if (!asset) {
         return res.status(404).json({ error: "Asset not found" });
@@ -2162,7 +2217,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // Asset CCA History routes
   app.get("/api/assets/:assetId/cca-history", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const asset = await storage.getAssetById(req.params.assetId);
       if (!asset) {
         return res.status(404).json({ error: "Asset not found" });
@@ -2179,7 +2235,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.post("/api/assets/:assetId/cca-history", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const asset = await storage.getAssetById(req.params.assetId);
       if (!asset) {
         return res.status(404).json({ error: "Asset not found" });
@@ -2201,7 +2258,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // CCA Summary route
   app.get("/api/cca-summary", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const taxYear = req.query.taxYear || new Date().getFullYear().toString();
       const summary = await storage.calculateCCASummary(userId, taxYear);
       // Convert Map to object for JSON serialization
@@ -2218,7 +2276,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // Lease Contracts API routes
   app.get("/api/lease-contracts", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const contracts = await storage.getLeaseContracts(userId);
       res.json(contracts);
     } catch (error) {
@@ -2228,7 +2287,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.post("/api/lease-contracts", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const data = insertLeaseContractSchema.parse({ ...req.body, userId });
       const contract = await storage.createLeaseContract(data);
       res.status(201).json(contract);
@@ -2242,7 +2302,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.get("/api/lease-contracts/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const contract = await storage.getLeaseContractById(req.params.id);
       if (!contract) {
         return res.status(404).json({ error: "Lease contract not found" });
@@ -2258,7 +2319,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.patch("/api/lease-contracts/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const contract = await storage.getLeaseContractById(req.params.id);
       if (!contract) {
         return res.status(404).json({ error: "Lease contract not found" });
@@ -2278,7 +2340,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.delete("/api/lease-contracts/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const contract = await storage.getLeaseContractById(req.params.id);
       if (!contract) {
         return res.status(404).json({ error: "Lease contract not found" });
@@ -2299,7 +2362,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // Lease Payments API routes
   app.get("/api/lease-contracts/:leaseContractId/payments", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const contract = await storage.getLeaseContractById(req.params.leaseContractId);
       if (!contract) {
         return res.status(404).json({ error: "Lease contract not found" });
@@ -2316,7 +2380,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.post("/api/lease-contracts/:leaseContractId/payments", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const contract = await storage.getLeaseContractById(req.params.leaseContractId);
       if (!contract) {
         return res.status(404).json({ error: "Lease contract not found" });
@@ -2337,7 +2402,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.get("/api/lease-payments/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const payment = await storage.getLeasePaymentById(req.params.id);
       if (!payment) {
         return res.status(404).json({ error: "Lease payment not found" });
@@ -2353,7 +2419,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.patch("/api/lease-payments/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const payment = await storage.getLeasePaymentById(req.params.id);
       if (!payment) {
         return res.status(404).json({ error: "Lease payment not found" });
@@ -2373,7 +2440,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
 
   app.delete("/api/lease-payments/:id", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const payment = await storage.getLeasePaymentById(req.params.id);
       if (!payment) {
         return res.status(404).json({ error: "Lease payment not found" });
@@ -2394,7 +2462,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // Lease Expense Summary route
   app.get("/api/lease-expense-summary", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const taxYear = req.query.taxYear || new Date().getFullYear().toString();
       const summary = await storage.calculateLeaseExpenseSummary(userId, taxYear);
       res.json(summary);
@@ -2406,7 +2475,8 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   // T2125 Summary route
   app.get("/api/t2125-summary", requireUser, async (req: any, res) => {
     try {
-      const userId = getUserId(req);
+      const authedReq = req as AuthedRequest;
+      const userId = authedReq.auth.userId;
       const taxYear = req.query.taxYear || new Date().getFullYear().toString();
       const summary = await storage.calculateT2125Summary(userId, taxYear);
       res.json(summary);
@@ -2420,14 +2490,16 @@ app.patch("/api/vehicles/:id/odometer-photos/:photoId", requireUser, async (req:
   if (process.env.NODE_ENV === "development") {
     app.post("/api/debug/veryfi", requireUser, async (req: any, res) => {
       try {
-        const userId = getUserId(req);
+        const authedReq = req as AuthedRequest;
+        const userId = authedReq.auth.userId;
         
         // Check if file was provided
-        if (!req.files || !req.files.length) {
+        const files = req.files as Express.Multer.File[];
+        if (!files || !files.length) {
           return res.status(400).json({ error: "No file provided. Send a multipart form with 'file' field." });
         }
 
-        const file = req.files[0];
+        const file = files[0];
         const filePath = path.join(process.cwd(), "uploads", file.filename);
 
         // Check file exists

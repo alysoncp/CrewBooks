@@ -1,7 +1,6 @@
 import { type Express } from "express";
-import { createServer as createViteServer, createLogger } from "vite";
+import { createServer as createViteServer, createLogger, loadEnv } from "vite";
 import { type Server } from "http";
-import viteConfig from "../vite.config";
 import fs from "fs";
 import path from "path";
 import { nanoid } from "nanoid";
@@ -9,15 +8,32 @@ import { nanoid } from "nanoid";
 const viteLogger = createLogger();
 
 export async function setupVite(server: Server, app: Express) {
+  // Load environment variables from project root
+  const mode = process.env.NODE_ENV || "development";
+  const projectRoot = path.resolve(import.meta.dirname, "..");
+  const env = loadEnv(mode, projectRoot, "VITE_");
+  
+  // Validate required environment variables
+  if (!env.VITE_SUPABASE_URL) {
+    console.error("ERROR: VITE_SUPABASE_URL is not set in .env file");
+    console.error(`Looking in: ${projectRoot}`);
+    console.error("Please add VITE_SUPABASE_URL to your .env file in the project root");
+  }
+  if (!env.VITE_SUPABASE_ANON_KEY) {
+    console.error("ERROR: VITE_SUPABASE_ANON_KEY is not set in .env file");
+    console.error(`Looking in: ${projectRoot}`);
+    console.error("Please add VITE_SUPABASE_ANON_KEY to your .env file in the project root");
+  }
+  
   const serverOptions = {
     middlewareMode: true,
     hmr: { server, path: "/vite-hmr" },
     allowedHosts: true as const,
   };
 
+  // Use the config file normally - Vite will process it and load env vars
   const vite = await createViteServer({
-    ...viteConfig,
-    configFile: false,
+    configFile: path.resolve(projectRoot, "vite.config.ts"),
     customLogger: {
       ...viteLogger,
       error: (msg, options) => {
